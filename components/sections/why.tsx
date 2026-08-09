@@ -1,5 +1,5 @@
 import { RevealGroup } from "@/components/motion/reveal";
-import { TileGridCanvas } from "@/components/three/scenes";
+import { FlipGridCanvas } from "@/components/three/scenes";
 import { Card } from "@/components/ui/card";
 import { WHY } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
@@ -11,11 +11,16 @@ import { Section, SectionTitle, Wrap } from "./section";
 export function Why() {
   return (
     <Section id="why" className="relative overflow-hidden">
-      {/* The tiles are the argument: every transform runs on the GPU from
-          instanceIndex, which is exactly what this section claims v10 buys. */}
-      <div className="pointer-events-none absolute inset-0 opacity-[0.55]">
-        <TileGridCanvas />
-      </div>
+      {/* The tiles are the argument. Their state — flip angle, velocity, and how
+          long each has left to hold — lives in a GPU storage buffer that a
+          compute pass integrates; the CPU writes five floats a frame however
+          many tiles there are. "Stays flipped for three seconds" is the part
+          that can't be faked without somewhere to keep per-instance state,
+          which is precisely what this section claims v10 buys.
+
+          It brings its own positioned wrapper: that element is what the cursor
+          is measured against. */}
+      <FlipGridCanvas />
 
       <Wrap className="relative">
         <RevealGroup className="max-w-[820px]">

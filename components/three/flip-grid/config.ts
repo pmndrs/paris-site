@@ -127,3 +127,34 @@ export const FLIP_GRID_DEFAULTS: FlipGridConfig = {
   cursorLightHeight: 3.5,
   cursorLightColor: "#fff2d8",
 };
+
+/**
+ * The same effect tuned to sit behind body copy.
+ *
+ * A demo page can afford a full-strength backdrop; a section can't. The copy
+ * has to stay the thing you read, so the resting tiles go nearly black, the
+ * gold comes down out of highlight range, and the cursor light — a nice touch
+ * on its own, a distraction under a paragraph — is switched off.
+ *
+ * Tuned as *config* rather than by wrapping the canvas in a low opacity. Fading
+ * the whole layer would lift the dark tiles toward the page background as much
+ * as it dims the gold, which flattens exactly the contrast the effect is made
+ * of.
+ */
+export const FLIP_GRID_SITE: FlipGridConfig = {
+  ...FLIP_GRID_DEFAULTS,
+  front: "#08080a",
+  edge: "#3f351f",
+  // Enough to read as gold, not enough to pull the eye off the text. The lede
+  // sits in muted-foreground, so the ceiling here is set by what that stays
+  // legible against, not by what looks best in isolation.
+  back: "#c9a862",
+  keyIntensity: 14,
+  kickIntensity: 0.8,
+  fillIntensity: 0.3,
+  envIntensity: 0.4,
+  // Fewer, softer facets: grain that reads as noise at this brightness.
+  flakeStrength: 0.06,
+  toneJitter: 0.22,
+  cursorLight: 0,
+};

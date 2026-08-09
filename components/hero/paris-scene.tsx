@@ -24,7 +24,13 @@ const LOOK_AT = new THREE.Vector3(0, TOWER_HEIGHT * 0.46, 0);
  * height at any aspect ratio for free. Only the fov widening on small screens is
  * deliberate — it pulls the tower back to leave room for the headline.
  */
-function Rig({ reducedMotion }: { reducedMotion: boolean }) {
+function Rig({
+  reducedMotion,
+  paused,
+}: {
+  reducedMotion: boolean;
+  paused: boolean;
+}) {
   const { camera, size } = useThree();
   const target = useRef(new THREE.Vector3(0, TOWER_HEIGHT * 0.34, 26));
 
@@ -35,6 +41,9 @@ function Rig({ reducedMotion }: { reducedMotion: boolean }) {
   }, [camera, size.width]);
 
   useFrame((state, delta) => {
+    // Nothing to aim while the hero is off-screen and its contents are hidden.
+    if (paused) return;
+
     // v10 replaced `state.clock` with flat timing on the frame state.
     const t = state.elapsed;
     const drift = reducedMotion ? 0 : 1;
@@ -75,9 +84,12 @@ function Rig({ reducedMotion }: { reducedMotion: boolean }) {
 function Scene({
   tod,
   reducedMotion,
+  paused,
 }: {
   tod: TodKeyframe;
   reducedMotion: boolean;
+  /** Hero is scrolled away — draw nothing, but keep ticking. See `ParisScene`. */
+  paused: boolean;
 }) {
   const sun = sunPosition(tod);
   // Fog has to match the CSS gradient at the height the horizon lands on, not at
@@ -116,11 +128,16 @@ function Scene({
         intensity={2.6}
       />
 
-      <Stars tod={tod} />
-      <City tod={tod} />
-      <Tower tod={tod} />
+      {/* Hidden rather than unmounted: the pass still runs but draws nothing,
+          which is most of the saving without disposing and rebuilding the city
+          every time the hero scrolls past. */}
+      <group visible={!paused}>
+        <Stars tod={tod} />
+        <City tod={tod} />
+        <Tower tod={tod} />
+      </group>
 
-      <Rig reducedMotion={reducedMotion} />
+      <Rig reducedMotion={reducedMotion} paused={paused} />
       <DepthAttachmentSync />
     </>
   );
@@ -163,9 +180,19 @@ export function ParisScene({
         near: 0.1,
         far: 400,
       }}
-      // "demand" still repaints when props change, so the scrubber keeps working
-      // for reduced-motion users and the scene stays correct while paused.
-      frameloop={paused || reducedMotion ? "demand" : "always"}
+      // `frameloop` is NOT per-canvas: r3f writes it to the global scheduler
+      // singleton (`getScheduler().frameloop = ...`), and "demand" stops the
+      // shared RAF loop outright. Putting the hero into "demand" when it
+      // scrolled away therefore froze every section canvas on the page at the
+      // exact moment the reader arrived at it — they kept showing whatever
+      // frame they last drew, so it read as "static by design" rather than
+      // broken. See pmndrs/react-three-fiber#3852.
+      //
+      // So scrolling away no longer touches the frameloop; the hero hides its
+      // contents instead (see `Scene`) and the loop keeps running for everyone
+      // else. Reduced motion still uses "demand" — legitimately global, and
+      // those visitors get posters instead of section canvases anyway.
+      frameloop={reducedMotion ? "demand" : "always"}
       style={{ pointerEvents: "none" }}
       // No WebGL: fall back to the design doc's original tower plate, placed to
       // match the 3D framing, so the wordmark still interleaves with something.
@@ -184,7 +211,7 @@ export function ParisScene({
         />
       }
     >
-      <Scene tod={tod} reducedMotion={reducedMotion} />
+      <Scene tod={tod} reducedMotion={reducedMotion} paused={paused} />
     </Canvas>
   );
 }

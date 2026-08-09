@@ -19,8 +19,8 @@ export const TrackCanvas = dynamic(
   { ssr: false },
 );
 
-export const TileGridCanvas = dynamic(
-  () => import("./tile-grid").then((m) => m.TileGridCanvas),
+export const FlipGridCanvas = dynamic(
+  () => import("./flip-grid/flip-grid-canvas").then((m) => m.FlipGridCanvas),
   { ssr: false },
 );
 
