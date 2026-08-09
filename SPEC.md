@@ -11,10 +11,10 @@ Notion↔site content deltas.
 > "Why now" section, fact corrections, gated attendee guide (§8), and a standalone demo
 > at `/demos/magic-box`.
 >
-> **Partly verified.** The magic box has been seen rendering and tuned against
-> screenshots; the other four canvases have not. Doing that found four upstream bugs in
-> the alphas, all filed and worked around — see §2. Everything typechecks, lints, and
-> builds.
+> **Partly verified.** The magic box and the closer's grain gradient have been seen
+> rendering and tuned against screenshots; the hero and the tile grid have not. Doing
+> that found four upstream bugs in the alphas, all filed and worked around — see §2.
+> Everything typechecks, lints, and builds.
 >
 > **Not published, deliberately** — no remote, no deploy, copy still landing. See §9.
 
@@ -436,17 +436,15 @@ Neither is a bug, but both cost time to rediscover:
 
 ### What still needs eyes
 
-The magic box has now been seen rendering, and tuned against screenshots (see
-"Looking at it" below). The rest has not:
+The magic box and the closer's grain gradient have been seen rendering and tuned
+against screenshots (see "Looking at it" below). The rest has not:
 
 1. **Tile grid** — the flip angle, radius, and gold threshold are guesses. The grid
    sizing math (cells sized to overfill the section from `viewport`) is the most likely
    thing to be visibly off.
-2. **Noise field** — blob scale and opacity were picked blind; it may be too strong or
-   invisible.
-3. **Hero on WebGPU** — it rendered on WebGL before. Materials and the `fogExp2` should
+2. **Hero on WebGPU** — it rendered on WebGL before. Materials and the `fogExp2` should
    carry over, but the time-of-day lighting is worth a scrub through.
-4. Whether 6 canvases at once actually holds framerate on a mid-range laptop.
+3. Whether 6 canvases at once actually holds framerate on a mid-range laptop.
 
 ### Looking at it
 
