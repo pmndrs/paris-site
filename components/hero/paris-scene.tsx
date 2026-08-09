@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber/webgpu";
+import {
+  Canvas,
+  getScheduler,
+  useFrame,
+  useThree,
+} from "@react-three/fiber/webgpu";
 import * as THREE from "three/webgpu";
 
 import {
@@ -16,6 +21,40 @@ import { Stars } from "./stars";
 import { Tower, TOWER_HEIGHT } from "./tower";
 
 const LOOK_AT = new THREE.Vector3(0, TOWER_HEIGHT * 0.46, 0);
+
+/** This canvas's id, which is also the id of the render job r3f registers for it. */
+const PRIMARY = "main";
+
+/**
+ * Idle this canvas without touching the frame loop.
+ *
+ * `frameloop` is not per-canvas — r3f writes it to the scheduler singleton, and
+ * "demand" stops the one RAF the whole page shares, freezing every other canvas
+ * (pmndrs/react-three-fiber#3852, pmndrs/scheduler#1). So idling has to happen
+ * at the job level instead, which is where the scheduler actually scopes things:
+ * `enabled: false` makes it "skip the job entirely" while everything else keeps
+ * being driven.
+ *
+ * r3f names a canvas's render job after the canvas id, so the hero's is just
+ * "main". That's an internal convention, hence the `getJobIds` guard: if it ever
+ * changes this quietly does nothing, and the `visible={false}` in `Scene` still
+ * keeps the hero from drawing. This is the cheaper of the two — pausing the job
+ * skips the render pass, where hiding the contents still runs it.
+ */
+function useIdleWhenHidden(paused: boolean) {
+  useEffect(() => {
+    const scheduler = getScheduler();
+    if (!scheduler.getJobIds().includes(PRIMARY)) return;
+
+    if (paused) scheduler.pauseJob(PRIMARY);
+    else scheduler.resumeJob(PRIMARY);
+
+    // Never leave it parked on unmount — the job outlives this effect.
+    return () => {
+      if (scheduler.getJobIds().includes(PRIMARY)) scheduler.resumeJob(PRIMARY);
+    };
+  }, [paused]);
+}
 
 /**
  * Frames the tower and adds a slow drift plus pointer parallax.
@@ -151,10 +190,11 @@ export function ParisScene({
   /** Time of day, 0..100, matching the slider. */
   value: number;
   reducedMotion?: boolean;
-  /** Hero is off-screen — render on demand only. */
+  /** Hero is off-screen — stop drawing it, but leave the loop alone. */
   paused?: boolean;
 }) {
   const tod = todAt(value / 100);
+  useIdleWhenHidden(paused);
 
   return (
     <Canvas
