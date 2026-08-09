@@ -121,6 +121,7 @@ export function FlipGrid({
   const { viewport } = useThree();
   // `useThree` types `renderer` as the WebGL/WebGPU union even on the /webgpu
   // entry, and `compute` only exists on the WebGPU one.
+  // See pmndrs/react-three-fiber#3851.
   const renderer = useThree((s) => s.renderer) as unknown as WebGPURenderer;
 
   // One cell spans whichever axis needs more coverage, so the grid always
@@ -194,16 +195,21 @@ export function FlipGrid({
   // `MaterialXLoader` would hand back a complete material whose position and
   // normal we'd immediately have to override for the per-instance flip. Loading
   // an actual .mtlx is worth doing as its own demo, not smuggled into this one.
-  // Loaded imperatively rather than through `useTexture`, which suspends. With
-  // no `<Suspense>` inside the canvas the nearest boundary is outside it, so
-  // suspending tears the whole subtree down and rebuilds it — taking the
-  // storage buffer with it. A grid whose state is re-zeroed on every remount
-  // can never hold a flip, which is exactly the symptom.
+  // Loaded imperatively rather than through `useTexture`, which suspends.
   //
-  // (Its array and record forms have a second problem anyway: `useLoader` maps
-  // over the keys and returns a fresh array each render, so the hook's registry
-  // effect re-runs, calls `store.setState`, and re-renders every store
-  // subscriber, without end.)
+  // `<Canvas>` does wrap its children in a Suspense boundary, but that
+  // boundary's fallback is `<Block>`, which lifts the promise back out to the
+  // *outer* tree — so CanvasImpl itself suspends, unmounts, and its cleanup
+  // calls `unmountComponentAtNode`, destroying the entire renderer root. The
+  // storage buffer goes with it, and a grid whose state is re-zeroed can never
+  // hold a flip. See pmndrs/react-three-fiber#3850.
+  //
+  // An explicit `<Suspense>` around this component would contain it, since the
+  // inner boundary would handle the promise and `Block` would never render.
+  // Loading two small PNGs imperatively is simpler than arranging that, and it
+  // also sidesteps #3849: `useTexture`'s array and record forms return a fresh
+  // result each render, so their registry effect re-runs, calls
+  // `store.setState`, and re-renders every store subscriber, without end.
   //
   // `TextureLoader.load` hands back the Texture straight away and fills it in
   // when the bytes arrive, which is the right trade for a decoration: the grid
@@ -237,8 +243,8 @@ export function FlipGrid({
   // Registered at the root with a prefixed key rather than in a "flipGrid"
   // scope, because r3f names scoped storage `scope.name` — and three builds the
   // WGSL struct name off that, so the dot lands in an identifier and the shader
-  // fails to parse. (Scoped *uniforms* use `scope_name`, which is fine; it's
-  // only the storage path that differs. Worth an upstream issue.)
+  // fails to parse. Scoped *uniforms* use `scope_name`, which is fine; it's only
+  // the storage path that differs. See pmndrs/react-three-fiber#3848.
   useGPUStorage(() => ({ flipGridTiles: tiles }));
 
   const nodes = useLocalNodes(() => {
