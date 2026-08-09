@@ -1,5 +1,6 @@
 'use strict';
 
+const jsxRuntime = require('react/jsx-runtime');
 const react = require('react');
 const fiberWebGPU = require('@react-three/fiber/webgpu');
 const Sky$1 = require('./shared/sky.CaV6WZy8.cjs');
@@ -104,7 +105,7 @@ function Sky({
   fiberWebGPU.useFrame((state) => {
     sky.update(state.camera);
   });
-  return /* @__PURE__ */ React.createElement(SkyContext.SkyContext.Provider, { value: sky }, children);
+  return /* @__PURE__ */ jsxRuntime.jsx(SkyContext.SkyContext.Provider, { value: sky, children });
 }
 
 exports.SkyContext = SkyContext.SkyContext;

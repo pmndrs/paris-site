@@ -1,3 +1,4 @@
+import { jsx } from 'react/jsx-runtime';
 import { useMemo, useEffect } from 'react';
 import { useThree, useFrame } from '@react-three/fiber/webgpu';
 import { S as Sky$1 } from './shared/sky.P3ljZtYv.mjs';
@@ -103,7 +104,7 @@ function Sky({
   useFrame((state) => {
     sky.update(state.camera);
   });
-  return /* @__PURE__ */ React.createElement(SkyContext.Provider, { value: sky }, children);
+  return /* @__PURE__ */ jsx(SkyContext.Provider, { value: sky, children });
 }
 
 export { Sky, SkyContext };

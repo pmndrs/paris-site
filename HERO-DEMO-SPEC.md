@@ -73,9 +73,13 @@ Fixes, in the order they pay off:
 2. Trees → `icosahedronGeometry` detail 0 or 1 (20–80 tris), and apply the scale
    the code already computes. *(~20× triangle reduction.)*
 3. Trees stop casting shadows; keep receiving.
-4. Re-enable frustum culling, or keep it off but shrink the radius / use LOD
-   rings.
-5. Fit the shadow camera to the near city, not the whole 400-unit disc.
+4. Fit the shadow camera to the near city, not the whole 400-unit disc.
+
+**Correction to an earlier draft of this list:** "re-enable frustum culling" was
+in it, and is wrong. Each of these is a *single* instanced mesh whose bounding
+sphere spans the entire city, so culling is all-or-nothing and never fires while
+the city is in frame. Turning it on looks like a fix and does nothing. Real
+culling here means LOD rings, which is a bigger change than a port.
 
 Measure after each. Do not do them as one commit.
 
@@ -195,31 +199,108 @@ blocks at dusk, without ghosting, at a frame time we'd accept on stage.
 Write down what folds back into `components/hero/`, what stays a lab curiosity,
 and what needs upstream fixes first.
 
-## Upstream fixes this will produce
+## Upstream bugs found in `@pmndrs/sky`
 
-1. **`@pmndrs/sky`** — `src/react/Sky.tsx` imports `useThree`/`useFrame` from
-   `@react-three/fiber`. Works (shared `Symbol.for` context), but drags the
-   668 KB WebGL-flavoured root bundle plus `three`'s WebGL build into any
-   WebGPU-only app. It's a WebGPU-only library; the react entry should import
-   from `@react-three/fiber/webgpu`, or the dep should be inverted so the
-   consumer's entry decides. Worth fixing before the pmndrs rename ships.
-2. **npm name** — publish `@pmndrs/sky`, or this worktree's `portal:` dep is the
-   only way to consume it. Deploying `/hero-demo` to Vercel needs one or the
-   other.
-3. Anything the port turns up in R3F v10 alpha — the branch already carries two
-   documented alpha workarounds (`SPEC.md`: the Inspector import cycle, and the
-   stale depth attachment on multi-canvas resize).
+All three are **release blockers** for the pmndrs publish, and all three were
+found by being the library's first real external consumer. `pmndrs/sky` is
+currently **README-only** — the code isn't pushed — so these are written up here
+rather than filed. They should become issues verbatim once it is.
 
-## Setup already done
+Fixes 1 and 2 are applied in the local checkout
+(`/Users/dex/Developer/SebH-TSL-Sky`, branch `feat/pmndrs-monorepo`) but
+**deliberately not committed there** — Dennis's call.
 
-- Worktree created at `/Users/dex/Developer/paris-mini-site-hero`, branch
-  `hero-demo`.
-- `yarn install` clean. Added: `@pmndrs/sky` as
-  `portal:/Users/dex/Developer/SebH-TSL-Sky` (symlinked, its prebuilt `dist/` is
-  current, branch `feat/pmndrs-monorepo`), `@pmndrs/upscaler@0.2.0` from npm,
-  `leva@0.10.1`.
-- Yarn warns portals need `--preserve-symlinks`; Next/Turbopack resolution
-  through the symlink is **unverified** and is the first thing Stage 0 finds out.
+### 1. `./react` entry throws `React is not defined` (blocker)
+
+`build.config.ts` sets only `esbuild: { target }`. esbuild does **not** inherit
+`jsx: "react-jsx"` from `tsconfig.json`, and its own default is the classic
+transform — so `dist/react.mjs` was emitted as:
+
+```js
+return /* @__PURE__ */ React.createElement(SkyContext.Provider, { value: sky }, children)
+```
+
+…while the source only imports hooks and types from `react`. Every consumer of
+`<Sky>` gets a runtime `ReferenceError` on first render. The React entry, as
+built, has never worked.
+
+**Fix:** `jsx: 'automatic'` in the esbuild options. `dist/react.mjs` then opens
+with `import { jsx } from 'react/jsx-runtime'`.
+
+**Note:** `dist/` is gitignored, so this is invisible until someone builds and
+consumes it. The published `tsl-sky@0.1.4` is an entirely different, older shape
+(ships raw `src/*.js`, no `dist`), so npm doesn't reveal it either.
+
+### 2. `src/react/Sky.tsx` imports R3F's WebGL root entry (blocker)
+
+`import { useFrame, useThree } from '@react-three/fiber'`. Two problems:
+
+- It drags R3F's ~670 KB root bundle *and* three's WebGL build into a
+  WebGPU-only app.
+- Consumed from a linked checkout it hard-fails: the root entry's
+  `WebGLCubeRenderTarget` import doesn't exist in the `three.webgpu.js` that
+  resolves there — `Export WebGLCubeRenderTarget doesn't exist in target module`.
+
+**Fix:** import from `@react-three/fiber/webgpu`. Safe for consumers on either
+entry, because both share one context object via
+`globalThis[Symbol.for('@react-three/fiber.context')]`.
+
+### 3. React bindings never refresh the aerial-perspective LUT
+
+The AP LUT depends on camera position and orientation and must be re-rendered
+every frame. Nothing in the React path does it:
+
+- `<Sky>`'s `useFrame` calls `sky.update(camera)` → `baker.update()`, which
+  refreshes transmittance / multi-scatter / sky-view but **explicitly not AP**
+  (`SkyAtmosphereBaker.ts:460`).
+- `<AutoHaze>` only assigns `outputNode`.
+- The vanilla README *does* call it, in its animation loop.
+
+So `<Sky><AutoHaze/></Sky>` renders haze against a stale LUT that never tracks
+the camera. Worked around here by calling `sky.updateAerialPerspective()` from
+the demo's own `useFrame` (`components/hero-demo/fx.tsx`).
+
+**Fix:** call it from `<Sky>`'s `useFrame` when AP is enabled.
+
+### Also
+
+- **npm name** — `@pmndrs/sky` 404s; npm has only the older `tsl-sky`. Deploying
+  `/hero-demo` anywhere other than this machine needs the publish, or the vendor
+  directory committed.
+- Anything the port turns up in R3F v10 alpha — the branch already carries two
+  documented alpha workarounds (`SPEC.md`: the Inspector import cycle, and the
+  stale depth attachment on multi-canvas resize).
+
+## Setup
+
+- Worktree at `/Users/dex/Developer/paris-mini-site-hero`, branch `hero-demo`.
+- **pnpm**, not yarn. Something ran `pnpm install` here mid-Stage-1, which
+  rebuilt `node_modules` in pnpm's layout; the branch followed rather than
+  fought it. `pnpm-lock.yaml` is gitignored because the repo's committed
+  lockfile is still `yarn.lock`. Revisit before this merges.
+- `@pmndrs/upscaler@0.2.0` and `leva` from npm.
+
+### How `@pmndrs/sky` is consumed, and why it isn't a link
+
+`pnpm sync:sky` copies the sky checkout's `dist/` + a trimmed `package.json`
+into `vendor/pmndrs-sky/`, which `package.json` then depends on via
+`link:./vendor/pmndrs-sky`. **Re-run it after every `pnpm build` in the sky
+repo** — that is the one manual step this arrangement costs.
+
+Linking the checkout directly was tried first and does not work. A linked
+directory keeps its own `node_modules`, and every bare import inside the package
+resolves *there*, not against the consuming app. That produced a second
+`@react-three/fiber` (10.0.0-canary vs our alpha.3) and a second `three` — not
+just duplicate weight but broken `instanceof` and a split TSL node registry —
+and then failed outright on `WebGLCubeRenderTarget` (upstream bug 2 above).
+
+Neither Turbopack lever fixes it: `resolveAlias` does not reach inside a linked
+subtree, and widening `turbopack.root` to reach the sibling checkout silently
+broke the existing Inspector alias (aliases resolve relative to the root). The
+vendor directory sidesteps all of it by keeping the package inside the project
+root, which is why `next.config.ts` is back to just the Inspector stub.
+
+When `@pmndrs/sky` is published, delete `vendor/`, the script, and this section.
 
 ## Open questions
 
