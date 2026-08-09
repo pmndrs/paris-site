@@ -1,5 +1,6 @@
 "use client";
 
+import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { REGISTER_URL, SECTIONS } from "@/lib/content";
 import { useScrollSpy } from "@/lib/use-scroll-spy";
@@ -19,10 +20,12 @@ export function SiteHeader() {
     >
       <div className="relative overflow-hidden border-b border-border bg-black/70 backdrop-blur-xl">
         <div className="relative flex min-h-[72px] flex-wrap items-center justify-between gap-x-6 gap-y-2.5 px-4 py-3.5 sm:px-6 lg:px-10">
-          <a href="#top" className="flex min-w-0 items-center gap-3.5">
-            <span className="text-base font-bold tracking-[-0.02em]">
-              PMNDRS
-            </span>
+          <a
+            href="#top"
+            aria-label="Poimandres — Back to top"
+            className="flex min-w-0 items-center gap-3.5"
+          >
+            <Logo color="currentColor" className="size-6 shrink-0" />
             <span className="h-4 w-px shrink-0 bg-ghost" />
             <span className="min-w-0 shrink truncate font-mono text-[11px] font-medium tracking-[0.1em] text-muted-foreground uppercase">
               Advanced R3F · Sep 8–9

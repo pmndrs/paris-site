@@ -15,12 +15,21 @@ const subscribe = () => () => {};
  * Read through `useSyncExternalStore` rather than an effect: the server has no
  * URL to read, and a `setState` in an effect trips `react-hooks/set-state-in-effect`.
  */
-export function LevaPanel() {
+export function LevaPanel({
+  /** For pages whose whole point is the controls — skips the `?debug` gate. */
+  alwaysOpen = false,
+}: {
+  alwaysOpen?: boolean;
+} = {}) {
   const debug = useSyncExternalStore(
     subscribe,
     () => new URLSearchParams(window.location.search).has("debug"),
     () => false,
   );
 
-  return <Leva hidden={!debug} collapsed titleBar={{ title: "magic box" }} />;
+  const show = alwaysOpen || debug;
+
+  return (
+    <Leva hidden={!show} collapsed={!alwaysOpen} titleBar={{ title: "tune" }} />
+  );
 }

@@ -35,6 +35,13 @@ export const MagicBoxStandalone = dynamic(
   { ssr: false },
 );
 
+/** The same field as its own primary canvas, with controls — /demos/grain-gradient. */
+export const GrainGradientStandalone = dynamic(
+  () =>
+    import("./grain-gradient-standalone").then((m) => m.GrainGradientStandalone),
+  { ssr: false },
+);
+
 export const NoiseFieldCanvas = dynamic(
   () => import("./noise-field").then((m) => m.NoiseFieldCanvas),
   { ssr: false },

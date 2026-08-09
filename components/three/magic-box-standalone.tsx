@@ -2,10 +2,10 @@
 
 import { Canvas } from "@react-three/fiber/webgpu";
 
-import { useWebGPU } from "@/lib/use-webgpu";
 import { DepthAttachmentSync } from "./depth-attachment-sync";
 import { LevaPanel } from "./leva-panel";
 import { BOX_CAMERA, MagicBoxScene } from "./magic-box";
+import { WebGPUGate } from "./webgpu-gate";
 
 /**
  * The magic box on its own page, as the *primary* canvas.
@@ -20,31 +20,8 @@ import { BOX_CAMERA, MagicBoxScene } from "./magic-box";
  * next to one later without surprises.
  */
 export function MagicBoxStandalone() {
-  const support = useWebGPU();
-
-  if (support === "checking") {
-    return <div className="absolute inset-0 bg-background" />;
-  }
-
-  if (support === "no") {
-    return (
-      <div className="absolute inset-0 grid place-items-center px-6">
-        <div className="max-w-[420px] text-center">
-          <div className="font-mono text-[11px] tracking-[0.13em] text-faint uppercase">
-            WebGPU required
-          </div>
-          <p className="mt-3 text-[15px] leading-[1.6] text-muted-foreground">
-            This demo renders through <code>WebGPURenderer</code> with no WebGL
-            fallback. Try a current Chrome, Edge, or Safari with hardware
-            acceleration enabled.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <>
+    <WebGPUGate>
       <LevaPanel />
       <Canvas
         id="main"
@@ -63,6 +40,6 @@ export function MagicBoxStandalone() {
         <MagicBoxScene />
         <DepthAttachmentSync />
       </Canvas>
-    </>
+    </WebGPUGate>
   );
 }

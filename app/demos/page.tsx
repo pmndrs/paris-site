@@ -18,6 +18,13 @@ const DEMOS = [
       "A portal cube: six faces, six separate scenes, the numeral ten in six writing systems. Extruded from glyph outlines generated offline.",
     tags: ["MeshPortalMaterial", "ExtrudeGeometry", "multi-canvas"],
   },
+  {
+    href: "/demos/grain-gradient",
+    title: "Grain gradient",
+    blurb:
+      "Drifting blobs quantised with per-pixel noise, so the grit lands in the falloff instead of sitting on top. Every dial is live.",
+    tags: ["TSL", "dither", "tunable"],
+  },
 ];
 
 export default function DemosPage() {
