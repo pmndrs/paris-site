@@ -343,10 +343,93 @@ canvases on scroll, where a fractional `getBoundingClientRect` flaps between e.g
 alongside the colour attachment. This will hit anyone using v10's multi-canvas mode
 with more than one canvas size on the page.
 
+### Upstream bug: drei's `/webgpu` build imports a name that doesn't exist
+
+`@react-three/drei@11.0.0-alpha.5`'s `/webgpu` entry opens with:
+
+```js
+import { ..., WebGLCubeRenderTarget, ... } from 'three/webgpu'
+```
+
+`three/webgpu` does not export that. The only two occurrences of the name in
+three's WebGPU build are inside comments — one of them on `CubeRenderTarget`,
+describing it as "a special version of `WebGLCubeRenderTarget` which is
+compatible with `WebGPURenderer`". So drei is asking for the WebGL class by
+name when it wants the WebGPU one. Any app importing `@react-three/drei/webgpu`
+fails to build:
+
+```
+Export WebGLCubeRenderTarget doesn't exist in target module
+```
+
+**Workaround here:** `patches/@react-three__drei@11.0.0-alpha.5.patch`, applied by
+pnpm via `patchedDependencies` in `pnpm-workspace.yaml`. It is the upstream fix
+verbatim — 3.6KB, three sites:
+
+- line 5, the named import → `CubeRenderTarget as WebGLCubeRenderTarget`
+- lines 2613 and 2617, `THREE.WebGLCubeRenderTarget` → `THREE.CubeRenderTarget`
+
+The namespace uses matter: Turbopack reports those against line 4 (`import * as
+THREE`), so fixing only the named import leaves the build failing with the same
+message on a different line.
+
+Regenerate with `pnpm patch @react-three/drei@11.0.0-alpha.5`, edit, then
+`pnpm patch-commit <dir>`. Delete the patch and the `patchedDependencies` entry
+once the alpha ships the fix — pnpm fails loudly if the patch stops applying, so
+it cannot rot silently.
+
+Filed: [pmndrs/drei#2764](https://github.com/pmndrs/drei/issues/2764), which also
+asks whether `CameraControls` is meant to be missing from that entry. Auditing
+both named imports (57) and `THREE.*` member access (72) against three's 629
+exports, `WebGLCubeRenderTarget` is the only genuine mismatch — one stale
+identifier, not a broken entry build.
+
+### Upstream bug: MeshPortalMaterial throws on construction under `/webgpu`
+
+Filed: [pmndrs/drei#2765](https://github.com/pmndrs/drei/issues/2765). Carried in
+the same patch file.
+
+```
+TypeError: Cannot read properties of undefined (reading 'value')
+    at get map (drei/webgpu/index.mjs)
+    at PortalMaterialImpl.setDefaultValues (three.webgpu.js)
+    at new MeshBasicNodeMaterial (three.webgpu.js)
+```
+
+`PortalMaterialImpl` backs its `map`/`blur`/`sdf`/… accessors with TSL uniforms
+assigned in the constructor *after* `super()`. But `MeshBasicNodeMaterial`'s
+constructor calls `Material.setDefaultValues`, which does
+`if ( this[ property ] === undefined )` over every property of the reference
+material — firing `get map()` while `_map` is still undefined. Subclass field
+initialisers do not run until `super()` returns, so this is unconditional, not a
+three-version quirk. React then unwinds the failed subtree and R3F's `detach`
+throws a second, cascading error.
+
+Patched by guarding all six accessor pairs. `map` is the only name that collides
+today; the rest are latent.
+
+### Two sharp edges around the entry split
+
+Neither is a bug, but both cost time to rediscover:
+
+- **`CameraControls` is not exported from `@react-three/drei/webgpu`**, only from
+  the default entry. Importing across entries would pull a second copy of drei's
+  internals and its WebGL-only materials into a WebGPU page, so
+  `components/three/camera-rig.tsx` wraps the `camera-controls` package directly.
+  Its `install()` is handed classes from `three/webgpu` on purpose.
+- **`three` and `three/webgpu` are separate builds** (three's `exports` map), so a
+  `Vector3` from one is not `instanceof` the other's. This is why the glyph data
+  is committed as plain numbers rather than SVG paths: parsing those needs
+  `three/addons/loaders/SVGLoader.js`, which imports from `three`. drei's
+  `useGLTF` does cross that line — its `GLTFLoader` comes from
+  `three/examples/jsm` — and it works because three duck-types on `isXxx` flags
+  rather than `instanceof`. If the AO box ever misbehaves, dropping `useGLTF` for
+  a plain box room is a five-line change.
+
 ### What still needs eyes
 
-None of this has been seen rendering. Worth checking, roughly in order of how likely I
-am to have got them wrong:
+The magic box has now been seen rendering, and tuned against screenshots (see
+"Looking at it" below). The rest has not:
 
 1. **Tile grid** — the flip angle, radius, and gold threshold are guesses. The grid
    sizing math (cells sized to overfill the section from `viewport`) is the most likely
@@ -355,7 +438,25 @@ am to have got them wrong:
    invisible.
 3. **Hero on WebGPU** — it rendered on WebGL before. Materials and the `fogExp2` should
    carry over, but the time-of-day lighting is worth a scrub through.
-4. Whether 5 canvases at once actually holds framerate on a mid-range laptop.
+4. Whether 6 canvases at once actually holds framerate on a mid-range laptop.
+
+### Looking at it
+
+Screenshotting beats guessing, and it is cheap:
+
+```js
+// playwright-core against the dev server; Chrome headless does support WebGPU
+chromium.launch({ channel: 'chrome', args: [
+  '--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU',
+  '--ignore-gpu-blocklist', '--use-angle=metal',
+]})
+```
+
+Load `/`, `scrollIntoView` the section to trip its IntersectionObserver, wait for the
+scene, then screenshot the canvas element. `page.on('pageerror')` catches the errors
+that a crashed canvas subtree would otherwise hide behind an unchanged poster — which
+is exactly how both drei bugs above were found. Temporarily defaulting `autoRotate` off
+makes orientation bugs obvious; with it on, every frame looks plausibly wrong.
 
 ### Per-section treatment
 

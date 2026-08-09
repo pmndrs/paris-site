@@ -24,6 +24,17 @@ export const TileGridCanvas = dynamic(
   { ssr: false },
 );
 
+export const MagicBoxCanvas = dynamic(
+  () => import("./magic-box").then((m) => m.MagicBoxCanvas),
+  { ssr: false },
+);
+
+/** The same scene as its own primary canvas — see /demos/magic-box. */
+export const MagicBoxStandalone = dynamic(
+  () => import("./magic-box-standalone").then((m) => m.MagicBoxStandalone),
+  { ssr: false },
+);
+
 export const NoiseFieldCanvas = dynamic(
   () => import("./noise-field").then((m) => m.NoiseFieldCanvas),
   { ssr: false },

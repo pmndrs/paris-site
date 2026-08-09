@@ -9,7 +9,9 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: "/",
-      disallow: ["/attendees", "/attendees/", "/mobile-preview"],
+      // Demos are shareable by link but not finished work; keeping them out of
+      // the index avoids them ranking ahead of the page they came from.
+      disallow: ["/attendees", "/attendees/", "/mobile-preview", "/demos"],
     },
   };
 }
