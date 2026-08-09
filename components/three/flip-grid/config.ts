@@ -27,24 +27,55 @@ export type FlipGridConfig = {
   /** Upper bound on the per-instance mass multiplier. 0 makes every tile identical. */
   massJitter: number;
 
-  /** Face colours: front (resting), back (flipped), and the four edges. */
+  /** Face colours: front (resting), back (the metal), and the four edges. */
   front: string;
+  /**
+   * Gold reflectance. The default is `Gold.mtlx`'s base_color — (1.059, 0.773,
+   * 0.307) linear — which is what physically-based gold actually is: paler and
+   * less orange than the colour most people reach for.
+   */
   back: string;
   edge: string;
 
-  /** Roughness of the gold face. Lower is sharper and more mirror-like. */
-  goldRoughness: number;
+  /** Base roughness of the metal face. 0 is a mirror; the flakes add the rest. */
+  roughness: number;
 
-  /** The procedural environment the gold reflects: a ground/sky gradient... */
+  /**
+   * Fine normal perturbation, standing in for the microfacet structure a real
+   * metal surface has. Without it a flat tile reflects exactly one direction of
+   * the environment and reads as paint. See `flip-grid.tsx`.
+   */
+  flakeRepeat: number;
+  flakeStrength: number;
+  /** How much the roughness map modulates the base roughness. */
+  flakeRoughness: number;
+  /**
+   * Per-tile lean, in normal-space units (~0.3 is a few degrees). Without it
+   * every settled tile faces the same way, reflects the same direction of a
+   * distant environment, and the grid resolves to one flat colour.
+   */
+  tiltJitter: number;
+  /**
+   * How much each tile domes across its own face. This is the curvature a flat
+   * plate doesn't have, and it's what turns a single reflected sample into a
+   * highlight gradient. 0 makes the tiles genuinely flat — and genuinely
+   * plastic-looking.
+   */
+  curvature: number;
+
+  /** Studio environment. Intensities are linear radiance, so >1 is expected. */
   ground: string;
   sky: string;
-  /** ...plus one bright band, which is the highlight that sweeps during a flip. */
-  strip: string;
-  /** Height of that band in the reflection, -1..1. */
-  stripHeight: number;
-  stripWidth: number;
-  /** Overall strength of the fake reflection. */
-  envStrength: number;
+  keyIntensity: number;
+  kickIntensity: number;
+  fillIntensity: number;
+  /** Multiplier applied to the environment as a whole. */
+  envIntensity: number;
+
+  /** A light that rides the cursor, so the metal has something moving to catch. */
+  cursorLight: number;
+  cursorLightHeight: number;
+  cursorLightColor: string;
 };
 
 export const FLIP_GRID_DEFAULTS: FlipGridConfig = {
@@ -61,16 +92,28 @@ export const FLIP_GRID_DEFAULTS: FlipGridConfig = {
   damping: 9,
   massJitter: 1.4,
 
-  front: "#15151a",
-  back: "#e0b365",
-  edge: "#4a3a22",
+  // Darker than it looks like it needs to be: a studio bright enough to make
+  // gold glow also lights the resting faces, and these are meant to disappear.
+  front: "#0a0a0d",
+  back: "#f6cd76",
+  edge: "#6b5a33",
 
-  goldRoughness: 0.22,
+  roughness: 0.13,
 
-  ground: "#14141c",
-  sky: "#3a4665",
-  strip: "#fff0cf",
-  stripHeight: 0.05,
-  stripWidth: 0.5,
-  envStrength: 1,
+  flakeRepeat: 1,
+  flakeStrength: 0.25,
+  flakeRoughness: 0.3,
+  tiltJitter: 0.12,
+  curvature: 0.18,
+
+  ground: "#08080c",
+  sky: "#1a1f2b",
+  keyIntensity: 1.15,
+  kickIntensity: 26,
+  fillIntensity: 1.0,
+  envIntensity: 1,
+
+  cursorLight: 9,
+  cursorLightHeight: 3.5,
+  cursorLightColor: "#fff2d8",
 };

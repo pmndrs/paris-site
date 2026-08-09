@@ -1,11 +1,63 @@
 "use client";
 
-import { Canvas } from "@react-three/fiber/webgpu";
-import type { RefObject } from "react";
+import { Canvas, EnvironmentMap } from "@react-three/fiber/webgpu";
+import { useEffect, useMemo, type RefObject } from "react";
+import { ACESFilmicToneMapping } from "three/webgpu";
 
 import { DepthAttachmentSync } from "@/components/three/depth-attachment-sync";
-import { FlipGrid } from "@/components/three/flip-grid/flip-grid";
 import type { FlipGridConfig } from "@/components/three/flip-grid/config";
+import { FlipGrid } from "@/components/three/flip-grid/flip-grid";
+import {
+  createStudioEnvironment,
+  STUDIO_DEFAULT,
+} from "@/components/three/flip-grid/studio-env";
+
+/**
+ * Builds the studio environment and hands it to the scene.
+ *
+ * Rebuilt whenever a light changes, which is cheap — 256×128 of CPU-side float
+ * maths — but three has to re-run PMREM on the result, so it is deliberately
+ * *not* on the per-frame path.
+ */
+function Studio({ config }: { config: FlipGridConfig }) {
+  const texture = useMemo(() => {
+    const [key, kick, fill] = STUDIO_DEFAULT.softboxes;
+    return createStudioEnvironment({
+      ...STUDIO_DEFAULT,
+      ground: hexToLinear(config.ground),
+      sky: hexToLinear(config.sky),
+      softboxes: [
+        { ...key, intensity: config.keyIntensity },
+        { ...kick, intensity: config.kickIntensity },
+        { ...fill, intensity: config.fillIntensity },
+      ],
+    });
+  }, [
+    config.ground,
+    config.sky,
+    config.keyIntensity,
+    config.kickIntensity,
+    config.fillIntensity,
+  ]);
+
+  // The generator allocates a new DataTexture each time; the old one holds a
+  // GPU allocation until it's told to let go.
+  useEffect(() => () => texture.dispose(), [texture]);
+
+  return <EnvironmentMap map={texture} environmentIntensity={config.envIntensity} />;
+}
+
+/** sRGB hex to the linear triplet the environment builder works in. */
+function hexToLinear(hex: string): [number, number, number] {
+  const n = parseInt(hex.replace("#", ""), 16);
+  const toLinear = (c: number) =>
+    c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  return [
+    toLinear(((n >> 16) & 255) / 255),
+    toLinear(((n >> 8) & 255) / 255),
+    toLinear((n & 255) / 255),
+  ];
+}
 
 /**
  * The demo's own canvas.
@@ -30,10 +82,19 @@ export function FlipGridScene({
       // Odd/fractional drawing buffers desync the depth attachment from the
       // swap chain — see DepthAttachmentSync.
       forceEven
-      renderer={{ alpha: true, antialias: true }}
+      renderer={{
+        alpha: true,
+        antialias: true,
+        // The environment is HDR on purpose — softboxes sit well above 1 so a
+        // mirror-flat tile has something with real range to reflect. Without a
+        // tone map every one of those clips to flat white and the gold loses
+        // both its colour and its highlight shape.
+        toneMapping: ACESFilmicToneMapping,
+      }}
       style={{ pointerEvents: "none" }}
     >
       <DepthAttachmentSync />
+      <Studio config={config} />
       {/* Remounting on a resolution change is deliberate: the storage buffer is
           sized to cols × rows, and tearing it down is far simpler to reason
           about than resizing it in place. */}

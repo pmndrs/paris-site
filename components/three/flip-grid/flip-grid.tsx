@@ -9,7 +9,6 @@ import {
 } from "@react-three/fiber/webgpu";
 import { useEffect, useMemo, useRef, type RefObject } from "react";
 import {
-  abs,
   clamp,
   cos,
   dot,
@@ -21,27 +20,35 @@ import {
   instanceIndex,
   length,
   max,
-  mix,
+  normalize,
   normalLocal,
   positionLocal,
-  reflectVector,
   select,
   sin,
-  smoothstep,
   struct,
+  texture,
   transformNormalToView,
   uniform,
+  uv,
   vec2,
   vec3,
 } from "three/tsl";
 import {
   Color,
+  RepeatWrapping,
+  TextureLoader,
   Vector2,
   type Node,
+  type PointLight,
   type WebGPURenderer,
 } from "three/webgpu";
 
 import type { FlipGridConfig } from "./config";
+
+const FLAKE_DIR = "/materials/Gold_Parametric_Imperfections_1k_8b/textures";
+
+const FLAKE_NORMAL = `${FLAKE_DIR}/Gold_Parametric_Imperfections_normal.png`;
+const FLAKE_ROUGHNESS = `${FLAKE_DIR}/Gold_Parametric_Imperfections_roughness.png`;
 
 /**
  * A grid of tiles that flip to gold as the cursor sweeps them, and hold that
@@ -141,13 +148,12 @@ export function FlipGrid({
       uFront: uniform(new Color(config.front)),
       uBack: uniform(new Color(config.back)),
       uEdge: uniform(new Color(config.edge)),
-      uGoldRoughness: uniform(config.goldRoughness),
-      uGround: uniform(new Color(config.ground)),
-      uSky: uniform(new Color(config.sky)),
-      uStrip: uniform(new Color(config.strip)),
-      uStripHeight: uniform(config.stripHeight),
-      uStripWidth: uniform(config.stripWidth),
-      uEnv: uniform(config.envStrength),
+      uRoughness: uniform(config.roughness),
+      uFlakeRepeat: uniform(config.flakeRepeat),
+      uFlakeStrength: uniform(config.flakeStrength),
+      uFlakeRoughness: uniform(config.flakeRoughness),
+      uTiltJitter: uniform(config.tiltJitter),
+      uCurvature: uniform(config.curvature),
     }),
     // Created once for the life of the component; every later change is a value
     // write below, not a rebuild.
@@ -171,17 +177,55 @@ export function FlipGrid({
     u.uStiffness.value = config.stiffness;
     u.uDamping.value = config.damping;
     u.uMassJitter.value = config.massJitter;
-    u.uGoldRoughness.value = config.goldRoughness;
-    u.uStripHeight.value = config.stripHeight;
-    u.uStripWidth.value = config.stripWidth;
-    u.uEnv.value = config.envStrength;
+    u.uRoughness.value = config.roughness;
+    u.uFlakeRepeat.value = config.flakeRepeat;
+    u.uFlakeStrength.value = config.flakeStrength;
+    u.uFlakeRoughness.value = config.flakeRoughness;
+    u.uTiltJitter.value = config.tiltJitter;
+    u.uCurvature.value = config.curvature;
     u.uFront.value.set(config.front);
     u.uBack.value.set(config.back);
     u.uEdge.value.set(config.edge);
-    u.uGround.value.set(config.ground);
-    u.uSky.value.set(config.sky);
-    u.uStrip.value.set(config.strip);
   });
+
+  // The microfacet maps out of `Gold_Parametric_Imperfections.mtlx`. The MaterialX
+  // graph around them is a `standard_surface` with two constants and these two
+  // images, so the maps are the whole substance of it — running the graph through
+  // `MaterialXLoader` would hand back a complete material whose position and
+  // normal we'd immediately have to override for the per-instance flip. Loading
+  // an actual .mtlx is worth doing as its own demo, not smuggled into this one.
+  // Loaded imperatively rather than through `useTexture`, which suspends. With
+  // no `<Suspense>` inside the canvas the nearest boundary is outside it, so
+  // suspending tears the whole subtree down and rebuilds it — taking the
+  // storage buffer with it. A grid whose state is re-zeroed on every remount
+  // can never hold a flip, which is exactly the symptom.
+  //
+  // (Its array and record forms have a second problem anyway: `useLoader` maps
+  // over the keys and returns a fresh array each render, so the hook's registry
+  // effect re-runs, calls `store.setState`, and re-renders every store
+  // subscriber, without end.)
+  //
+  // `TextureLoader.load` hands back the Texture straight away and fills it in
+  // when the bytes arrive, which is the right trade for a decoration: the grid
+  // renders un-flaked for a frame or two instead of blocking on two PNGs.
+  const [flakeNormal, flakeRoughness] = useMemo(() => {
+    const loader = new TextureLoader();
+    const load = (url: string) => {
+      const map = loader.load(url);
+      map.wrapS = RepeatWrapping;
+      map.wrapT = RepeatWrapping;
+      return map;
+    };
+    return [load(FLAKE_NORMAL), load(FLAKE_ROUGHNESS)];
+  }, []);
+
+  useEffect(
+    () => () => {
+      flakeNormal.dispose();
+      flakeRoughness.dispose();
+    },
+    [flakeNormal, flakeRoughness],
+  );
 
   // Zero-filled at allocation, which is exactly "flat, still, not held".
   // `instancedArray` accepts a struct type at runtime but isn't typed for one
@@ -275,30 +319,91 @@ export function FlipGrid({
     // the `color` node type, and the arithmetic below wants a plain vector.
     const base = select(isFront, u.uFront, select(isBack, u.uBack, u.uEdge)).rgb;
     const metalness = float(
-      select(isFront, float(0.12), select(isBack, float(1), float(0.85))),
-    );
-    const roughness = float(
-      select(isFront, float(0.78), select(isBack, u.uGoldRoughness, float(0.38))),
+      select(isFront, float(0.12), select(isBack, float(1), float(0.9))),
     );
 
-    // A stand-in environment: a ground-to-sky gradient with one bright band in
-    // it, sampled by the reflect vector. Metal with nothing to reflect renders
-    // black, and a real IBL would mean shipping an HDR for a background — this
-    // is four lines and no bytes. As a tile turns, its reflect vector sweeps the
-    // band across the face, which is the "expensive metal" read.
-    // A tile at rest faces the camera dead-on, so its reflect vector points
-    // straight back down the view axis: `r.y` is ~0. That's why the band sits
-    // near the horizon rather than up in the "sky" — it is the softbox a flat
-    // panel actually looks at. Tilting through the flip walks `r.y` out to ±1,
-    // off the band and into the gradient, so the highlight rolls off the face
-    // and comes back as the tile settles.
-    const r = reflectVector.normalize();
-    const band = smoothstep(u.uStripWidth, 0, abs(r.y.sub(u.uStripHeight)));
-    const environment = mix(
-      u.uGround,
-      u.uSky,
-      smoothstep(-0.8, 0.8, r.y),
-    ).rgb.add(u.uStrip.rgb.mul(band));
+    /**
+     * Microfacet break-up — the thing that actually makes this read as metal.
+     *
+     * A flat tile has one normal, so it reflects exactly one direction of the
+     * environment and comes out a single flat colour however good the BRDF is.
+     * A curved surface reads as metal precisely because every fragment samples
+     * somewhere different. Perturbing the normal with a fine flake pattern buys
+     * that variation back on a flat face.
+     *
+     * The two flip faces are the box's ±Z, so their tangent space is just local
+     * XY and the map drops straight in with no tangent attribute. The four thin
+     * edges are left alone; nobody is reading microfacets off a 2px sliver.
+     */
+    const tileUv = uv()
+      .mul(u.uFlakeRepeat)
+      // Offset per instance, or all 1800 tiles wear an identical flake pattern
+      // and the grid reads as printed wallpaper.
+      .add(vec2(hash(instanceIndex), hash(instanceIndex.add(9871))));
+
+    const flake = texture(flakeNormal, tileUv).xyz.mul(2).sub(1);
+    const flakeRough = texture(flakeRoughness, tileUv).x;
+
+    /**
+     * A few degrees of per-tile lean, on top of the per-fragment flakes.
+     *
+     * Under an orthographic camera a distant environment doesn't care where a
+     * tile *is*, only which way it faces — so a grid of perfectly flat tiles
+     * with identical normals reflects one identical direction and settles into
+     * one identical colour, which is what makes it read as a painted swatch
+     * rather than a hundred small mirrors. Tilting each plate slightly is what
+     * real stamped metal does anyway, and it's what breaks the grid up.
+     */
+    const tilt = vec2(
+      hash(instanceIndex.add(31)),
+      hash(instanceIndex.add(77)),
+    )
+      .sub(0.5)
+      .mul(u.uTiltJitter);
+
+    /**
+     * A gentle dome across each tile — the single thing that makes this read as
+     * metal rather than as gold paint.
+     *
+     * A perfectly flat face has one normal, samples one direction, and comes
+     * back one colour; the choice is then between a mirror finish (binary: a
+     * tile either catches the key or goes black) and a rough one (everything
+     * averages to the same flat cream). Neither looks like metal. A curved face
+     * sweeps its normal across the environment and picks up a *gradient* —
+     * bright falling to dark within the same tile — which is exactly why a
+     * rounded object reads as gold and a flat swatch of the same material
+     * doesn't. Two lines of maths stand in for the curvature.
+     */
+    const dome = uv().sub(0.5).mul(2).mul(u.uCurvature);
+
+    const perturbed = normalize(
+      vec3(
+        dome.x.add(flake.x.mul(u.uFlakeStrength)).add(tilt.x),
+        dome.y.add(flake.y.mul(u.uFlakeStrength)).add(tilt.y),
+        // Sign follows the face, so the perturbation leans out of whichever
+        // side we're looking at rather than into it.
+        select(isBack, float(-1), float(1)),
+      ),
+    );
+    const faceNormal = select(
+      isFront.or(isBack),
+      perturbed,
+      normalLocal,
+    ) as Node<"vec3">;
+
+    // Roughness: near-mirror base, modulated by the map. Perfectly uniform
+    // roughness is another tell that a surface isn't real.
+    const roughness = float(
+      select(
+        isFront,
+        float(0.78),
+        select(
+          isBack,
+          u.uRoughness.add(flakeRough.mul(u.uFlakeRoughness)),
+          float(0.38),
+        ),
+      ),
+    ).clamp(0.02, 1);
 
     return {
       update,
@@ -306,13 +411,16 @@ export function FlipGrid({
       // The normal has to turn with the tile or the lighting won't sell the
       // flip. `normalNode` is read in view space, so the rotated local normal
       // goes through the model-normal matrix on the way out.
-      normalNode: transformNormalToView(spin(normalLocal)),
+      normalNode: transformNormalToView(spin(faceNormal)),
       colorNode: base,
       metalnessNode: metalness,
       roughnessNode: roughness,
-      // Tinted by the face colour and gated on metalness, so the dark side stays
-      // matte and only the gold picks the environment up.
-      emissiveNode: environment.mul(base).mul(metalness).mul(u.uEnv),
+      // No emissive term any more. The previous version faked reflections by
+      // adding a gradient to emissive, which is why the gold read as coloured
+      // plastic: emissive ignores fresnel, ignores roughness, and can't be
+      // occluded. The scene's environment map now drives real image-based
+      // lighting instead, and metalness routes it through the proper specular
+      // path.
     };
   });
 
@@ -343,12 +451,45 @@ export function FlipGrid({
       pointer.current.set((nx * viewport.width) / 2, (ny * viewport.height) / 2);
     };
 
+    /**
+     * Park the cursor. `pointermove` only fires while the cursor is *in* the
+     * document, so without these the last position sticks and whatever it was
+     * over stays flipped forever — leave the window and you leave a permanent
+     * gold blot behind. Each of these is a different way to lose the cursor
+     * without a final move event:
+     *  - `pointerout` with no `relatedTarget`: left the document entirely.
+     *  - `blur`: focus went to another window, or the OS took over.
+     *  - `visibilitychange`: tab hidden, or the machine slept.
+     */
+    const park = () => {
+      if (pointer.current.x === AWAY) return;
+      pointer.current.set(AWAY, AWAY);
+      warped.current = true;
+    };
+
+    const onOut = (event: PointerEvent) => {
+      if (!event.relatedTarget) park();
+    };
+    const onVisibility = () => {
+      if (document.hidden) park();
+    };
+
     // Listen on the window rather than the element: the canvas doesn't take
     // pointer events, and on the site the copy sitting on top of it would eat
     // them before the section ever saw them.
     window.addEventListener("pointermove", onMove, { passive: true });
-    return () => window.removeEventListener("pointermove", onMove);
+    document.addEventListener("pointerout", onOut);
+    window.addEventListener("blur", park);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerout", onOut);
+      window.removeEventListener("blur", park);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [bounds, viewport.width, viewport.height]);
+
+  const cursorLight = useRef<PointLight>(null);
 
   useFrame((_, delta) => {
     u.uDt.value = Math.min(delta, MAX_DT);
@@ -361,6 +502,18 @@ export function FlipGrid({
     warped.current = false;
     u.uPointer.value.copy(pointer.current);
 
+    // A specular highlight that travels is one of the strongest metal cues
+    // there is — a static one reads as a painted-on shine. Parked far away the
+    // light simply stops reaching the grid, so it needs no separate on/off.
+    const light = cursorLight.current;
+    if (light) {
+      light.position.set(
+        pointer.current.x,
+        pointer.current.y,
+        config.cursorLightHeight,
+      );
+    }
+
     // `useFrame` runs in the scheduler's update phase, ahead of this canvas's
     // render, so the vertex stage always reads angles the compute pass just
     // wrote.
@@ -369,12 +522,17 @@ export function FlipGrid({
 
   return (
     <>
-      <ambientLight intensity={0.3} />
-      <directionalLight position={[2, 3, 6]} intensity={2.2} color="#fff4e0" />
-      <directionalLight
-        position={[-3, -2, 4]}
-        intensity={0.9}
-        color="#9aa8d0"
+      {/* Deliberately dim. The environment map is doing the lighting now; these
+          only keep the dark front faces from crushing to black. */}
+      <ambientLight intensity={0.12} />
+      <directionalLight position={[2, 3, 6]} intensity={0.5} color="#fff4e0" />
+
+      <pointLight
+        ref={cursorLight}
+        intensity={config.cursorLight}
+        color={config.cursorLightColor}
+        distance={0}
+        decay={1.6}
       />
 
       <instancedMesh
@@ -392,7 +550,6 @@ export function FlipGrid({
           colorNode={nodes.colorNode}
           metalnessNode={nodes.metalnessNode}
           roughnessNode={nodes.roughnessNode}
-          emissiveNode={nodes.emissiveNode}
         />
       </instancedMesh>
     </>

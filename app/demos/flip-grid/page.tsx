@@ -43,15 +43,32 @@ export default function FlipGridDemo() {
       front: d.front,
       back: d.back,
       edge: d.edge,
-      goldRoughness: { value: d.goldRoughness, min: 0, max: 1, step: 0.01 },
+      roughness: { value: d.roughness, min: 0, max: 1, step: 0.01 },
+    }),
+    flakes: folder({
+      flakeRepeat: { value: d.flakeRepeat, min: 0.25, max: 24, step: 0.25 },
+      flakeStrength: { value: d.flakeStrength, min: 0, max: 2, step: 0.01 },
+      flakeRoughness: { value: d.flakeRoughness, min: 0, max: 1, step: 0.01 },
+      tiltJitter: { value: d.tiltJitter, min: 0, max: 1.5, step: 0.01 },
+      curvature: { value: d.curvature, min: 0, max: 2.5, step: 0.01 },
     }),
     environment: folder({
       ground: d.ground,
       sky: d.sky,
-      strip: d.strip,
-      stripHeight: { value: d.stripHeight, min: -1, max: 1, step: 0.01 },
-      stripWidth: { value: d.stripWidth, min: 0.01, max: 1, step: 0.01 },
-      envStrength: { value: d.envStrength, min: 0, max: 4, step: 0.05 },
+      keyIntensity: { value: d.keyIntensity, min: 0, max: 30, step: 0.1 },
+      kickIntensity: { value: d.kickIntensity, min: 0, max: 60, step: 0.5 },
+      fillIntensity: { value: d.fillIntensity, min: 0, max: 10, step: 0.1 },
+      envIntensity: { value: d.envIntensity, min: 0, max: 4, step: 0.05 },
+    }),
+    cursorLight: folder({
+      cursorLight: { value: d.cursorLight, min: 0, max: 60, step: 0.5 },
+      cursorLightHeight: {
+        value: d.cursorLightHeight,
+        min: 0.2,
+        max: 20,
+        step: 0.1,
+      },
+      cursorLightColor: d.cursorLightColor,
     }),
   });
 
