@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Advanced React Three Fiber — PMNDRS workshop, Paris, Sep 8–9 2026</title>
+<meta name="description" content="Two days in Paris: one day learning React Three Fiber v10 and the pmndrs ecosystem, one day building with it. Thirty seats, at Gobelins, alongside three.js conf.">
+<meta name="theme-color" content="#000000">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Advanced React Three Fiber — PMNDRS workshop, Paris">
+<meta property="og:description" content="September 8 & 9, 2026 · Gobelins, Paris. One teaching day, one build day. Thirty seats.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header class="site-header" data-header>
+  <div class="site-header__inner">
+    <div class="site-header__row">
+      <a class="brand" href="#top">
+        <span class="brand__mark">PMNDRS</span>
+        <span class="brand__rule"></span>
+        <span class="brand__meta">Advanced R3F · Sep 8–9</span>
+      </a>
+      <div class="header-right">
+        <nav class="navstrip" data-navstrip aria-label="Sections">
+          <a href="#overview">Overview</a>
+          <a href="#outcomes">Outcomes</a>
+          <a href="#two-days">Two days</a>
+          <a href="#instructors">Instructors</a>
+          <a href="#setup">Setup</a>
+          <a href="#venue">Venue</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <a class="header-cta" href="https://threejs.paris/" data-register>Register</a>
+      </div>
+    </div>
+    <div class="rail">
+      <div class="rail__fill"></div>
+      <div class="rail__marks" data-marks></div>
+    </div>
+  </div>
+</header>
+
+<section class="hero" id="top">
+  <div class="hero__sky"></div>
+  <div class="hero__city"></div>
+  <div class="hero__glints" data-glints aria-hidden="true"></div>
+
+  <div class="hero__bar">
+    <div class="hero__bar-left">
+      <span class="mark">pmndrs</span>
+      <span class="sub">Advanced R3F Workshop</span>
+    </div>
+    <a href="https://threejs.paris/" data-register>Register</a>
+  </div>
+
+  <div class="logotype" aria-hidden="true">
+    <div class="logotype__type logotype__type--back">
+      <span>P</span><span aria-hidden="true">M</span><span>N</span><span aria-hidden="true">D</span><span>R</span><span aria-hidden="true">S</span>
+    </div>
+    <div class="logotype__tower"></div>
+    <div class="logotype__type logotype__type--front">
+      <span aria-hidden="true">P</span><span>M</span><span aria-hidden="true">N</span><span>D</span><span aria-hidden="true">R</span><span>S</span>
+    </div>
+  </div>
+
+  <div class="hero__fade"></div>
+
+  <div class="hero__foot">
+    <div class="hero__copy">
+      <div class="hero__kicker">September 8 &amp; 9, 2026 · Gobelins, Paris</div>
+      <h1 class="hero__title">Advanced React<br>Three Fiber</h1>
+      <p class="hero__lede">One day learning React Three Fiber v10 and the pmndrs ecosystem, one day building with it. Thirty seats.</p>
+      <div class="hero__actions">
+        <a class="btn btn-solid" href="https://threejs.paris/" data-register>Register on threejs.paris</a>
+        <a class="btn btn-ghost" href="#two-days">See the two days</a>
+      </div>
+    </div>
+    <div class="tod">
+      <label class="tod__label" for="tod" data-tod-label>TIME OF DAY — NIGHT</label>
+      <input id="tod" type="range" min="0" max="100" value="12" data-tod>
+    </div>
+  </div>
+</section>
+
+<main>
+
+  <section id="overview">
+    <div class="wrap split">
+      <div>
+        <div class="eyebrow">01 · Overview</div>
+        <h2 class="section-title">Learn the stack, then build with it</h2>
+        <p class="prose">Day one is teaching. React Three Fiber v10 and what changed, then the wider React and pmndrs ecosystem around it: drei, the physics and post layers, state, loading, and how the pieces fit together when you are starting a real project.</p>
+        <p class="prose">Day two is a hackathon. Three tracks, one day, a tech lead sitting with each track. You pick a track in the morning and have something running by the end of the afternoon.</p>
+        <div class="slab slab-140" style="margin-top:28px">
+          <div><div class="k">Dates</div><div class="v">Sep 8 &amp; 9</div></div>
+          <div><div class="k">Format</div><div class="v">In person</div></div>
+          <div><div class="k">Seats</div><div class="v">30</div></div>
+          <div><div class="k">Level</div><div class="v">Intermediate</div></div>
+        </div>
+      </div>
+      <div class="plate">
+        <div class="plate__img"></div>
+        <div class="plate__cap">Concept frame · the block city at mid distance</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="outcomes">
+    <div class="wrap">
+      <div class="eyebrow">02 · Outcomes</div>
+      <h2 class="section-title">What you leave with</h2>
+      <div class="grid grid-260" style="margin-top:36px">
+        <div class="outcome">
+          <div class="outcome__n">01</div>
+          <div class="outcome__t">A working v10 setup</div>
+          <div class="outcome__d">React Three Fiber v10 running on your machine, configured the way we would start a real project.</div>
+        </div>
+        <div class="outcome">
+          <div class="outcome__n">02</div>
+          <div class="outcome__t">The ecosystem in your head</div>
+          <div class="outcome__d">Which pmndrs library solves which problem, so you stop rebuilding things that already exist.</div>
+        </div>
+        <div class="outcome">
+          <div class="outcome__n">03</div>
+          <div class="outcome__t">Something you built in a day</div>
+          <div class="outcome__d">Whatever your track produces on day two, plus the code and the notes from your track lead.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="two-days">
+    <div class="wrap">
+      <div style="display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:20px">
+        <div>
+          <div class="eyebrow">03 · Two days</div>
+          <h2 class="section-title">A teaching day, then a build day</h2>
+        </div>
+        <div class="note">09:30 – 17:30 · lunch and two breaks each day</div>
+      </div>
+
+      <div class="day-head" style="margin-top:40px">
+        <div class="day-head__n">Day 1</div>
+        <div class="day-head__meta">Sep 8 · Teaching · v10 and the ecosystem</div>
+      </div>
+      <div class="grid grid-280" style="margin-top:20px">
+        <div class="card">
+          <div class="card-head"><div class="k">Morning</div><div class="v">09:30 – 12:30</div></div>
+          <div class="card-body">
+            <div class="card-title">React Three Fiber v10</div>
+            <div class="card-text">What v10 changes, and the mental model that makes the rest of the stack make sense.</div>
+            <div class="ticks">
+              <div class="tick"><span>The scene graph as React, in v10 terms</span></div>
+              <div class="tick"><span>What moved, what is new, what to unlearn</span></div>
+              <div class="tick"><span>Cameras, controls, and framing a subject</span></div>
+              <div class="tick"><span>Materials and lighting that read well</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="k">Afternoon</div><div class="v">13:30 – 17:30</div></div>
+          <div class="card-body">
+            <div class="card-title">The pmndrs ecosystem</div>
+            <div class="card-text">The libraries around R3F and how they fit together on a real project.</div>
+            <div class="ticks">
+              <div class="tick"><span>drei: what to reach for and when</span></div>
+              <div class="tick"><span>State, loading, and asset pipeline</span></div>
+              <div class="tick"><span>Physics, post processing, and performance</span></div>
+              <div class="tick"><span>Starting a project you can keep working on</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="day-head" style="margin-top:56px; justify-content:space-between">
+        <div style="display:flex; align-items:baseline; gap:14px">
+          <div class="day-head__n">Day 2</div>
+          <div class="day-head__meta">Sep 9 · Hackathon · three tracks</div>
+        </div>
+        <div class="note">Tracks and leads to be confirmed</div>
+      </div>
+
+      <div class="slab slab-150" style="margin-top:20px">
+        <div><div class="k">09:30</div><div class="v">Kickoff and track briefs</div></div>
+        <div><div class="k">10:00</div><div class="v">Pick a track, start building</div></div>
+        <div><div class="k">13:00</div><div class="v">Lunch, then work continues</div></div>
+        <div><div class="k">16:30</div><div class="v">Demos, one per team</div></div>
+      </div>
+
+      <div class="grid grid-280" style="margin-top:20px">
+        <div class="card">
+          <div class="card-head"><div class="k">Track A</div><div class="v">10 seats</div></div>
+          <div class="card-body">
+            <div class="card-title">Track theme TBC</div>
+            <div class="card-text">One theme per track, briefed at kickoff. You work in small teams with the lead on hand all day.</div>
+            <div class="lead">
+              <div class="lead__avatar"></div>
+              <div style="min-width:0">
+                <div class="lead__name">Dennis Smolek</div>
+                <div class="lead__role">Track lead</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="k">Track B</div><div class="v">10 seats</div></div>
+          <div class="card-body">
+            <div class="card-title">Track theme TBC</div>
+            <div class="card-text">One theme per track, briefed at kickoff. You work in small teams with the lead on hand all day.</div>
+            <div class="lead">
+              <div class="lead__avatar"></div>
+              <div style="min-width:0">
+                <div class="lead__name">Kris Baumgartner</div>
+                <div class="lead__role">Track lead</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="k">Track C</div><div class="v">10 seats</div></div>
+          <div class="card-body">
+            <div class="card-title">Track theme TBC</div>
+            <div class="card-text">One theme per track, briefed at kickoff. You work in small teams with the lead on hand all day.</div>
+            <div class="lead">
+              <div class="lead__avatar"></div>
+              <div style="min-width:0">
+                <div class="lead__name">Lead TBC</div>
+                <div class="lead__role">Track lead</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="instructors">
+    <div class="wrap">
+      <div class="eyebrow">04 · Instructors</div>
+      <h2 class="section-title">Who is teaching</h2>
+      <div class="grid grid-220" style="margin-top:36px">
+        <div class="person">
+          <div class="person__portrait">portrait</div>
+          <div>
+            <div class="person__name">Dennis Smolek</div>
+            <div class="person__role">Lead instructor</div>
+            <div class="person__bio">Works on the pmndrs stack and builds production R3F for a living.</div>
+          </div>
+        </div>
+        <div class="person">
+          <div class="person__portrait">portrait</div>
+          <div>
+            <div class="person__name">Kris Baumgartner</div>
+            <div class="person__role">Lead instructor</div>
+            <div class="person__bio">Core pmndrs contributor, focused on rendering and performance.</div>
+          </div>
+        </div>
+        <div class="person">
+          <div class="person__portrait">portrait</div>
+          <div>
+            <div class="person__name">Ava</div>
+            <div class="person__role">Assistant · name TBC</div>
+            <div class="person__bio">On hand through both days for setup and one-to-one help.</div>
+          </div>
+        </div>
+        <div class="person">
+          <div class="person__portrait">portrait</div>
+          <div>
+            <div class="person__name">Faraz</div>
+            <div class="person__role">Assistant · name TBC</div>
+            <div class="person__bio">On hand through both days for setup and one-to-one help.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="setup">
+    <div class="wrap split">
+      <div>
+        <div class="eyebrow">05 · Prerequisites</div>
+        <h2 class="section-title">Come in ready</h2>
+        <p class="prose">This is aimed at React developers who are new to 3D, or who have shipped a scene and hit a wall. You do not need graphics experience. You do need a working React setup and comfort with hooks.</p>
+        <p class="prose" style="font-size:15px; line-height:1.6; color:var(--dim)">We send the repo and a setup check a week before. Run it on the machine you are bringing.</p>
+      </div>
+      <div class="grid">
+        <div class="checklist">
+          <div class="checklist__head">You should already know</div>
+          <div class="checklist__body">
+            <div class="checklist__row"><span>React with hooks</span><span>required</span></div>
+            <div class="checklist__row"><span>TypeScript basics</span><span>helpful</span></div>
+            <div class="checklist__row"><span>Any 3D or shader work</span><span>not needed</span></div>
+          </div>
+        </div>
+        <div class="checklist">
+          <div class="checklist__head">Install before you arrive</div>
+          <div class="checklist__body">
+            <div class="checklist__row"><span>Node</span><span>20 LTS or newer</span></div>
+            <div class="checklist__row"><span>pnpm</span><span>latest</span></div>
+            <div class="checklist__row"><span>Workshop repo</span><span>sent one week before</span></div>
+            <div class="checklist__row"><span>Laptop</span><span>discrete GPU preferred</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="venue">
+    <div class="wrap">
+      <div class="eyebrow">06 · Venue</div>
+      <h2 class="section-title">Getting there</h2>
+      <div class="grid grid-280" style="margin-top:36px; align-items:stretch">
+        <div class="map">map placeholder</div>
+        <div class="venue-card">
+          <div>
+            <div style="font-size:19px; font-weight:600; letter-spacing:-0.02em">Gobelins, Paris</div>
+            <div style="margin-top:8px; font-size:14px; line-height:1.6; color:var(--muted)">Same venue as the conference on the 10th and 11th. Address confirmed with your registration.</div>
+          </div>
+          <div class="venue-rows">
+            <div><span class="k">Venue</span><span class="v">Gobelins, Paris</span></div>
+            <div><span class="k">Workshop</span><span class="v">Sep 8 – 9</span></div>
+            <div><span class="k">Conference</span><span class="v">Sep 10 – 11</span></div>
+            <div><span class="k">Doors</span><span class="v">09:00</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="wrap-narrow">
+      <div class="eyebrow">07 · FAQ</div>
+      <h2 class="section-title">Questions</h2>
+      <div class="faq" data-faq>
+        <div class="faq__item is-open">
+          <button class="faq__q" type="button" aria-expanded="true">
+            <span>Do I need a conference ticket?</span><span class="faq__sign">–</span>
+          </button>
+          <div class="faq__a">The workshop is an add-on to your three.js conf ticket. Registration for both lives on threejs.paris.</div>
+        </div>
+        <div class="faq__item">
+          <button class="faq__q" type="button" aria-expanded="false">
+            <span>What if I have never written 3D code?</span><span class="faq__sign">+</span>
+          </button>
+          <div class="faq__a">That is the intended starting point. The workshop assumes React fluency and teaches the 3D from scratch.</div>
+        </div>
+        <div class="faq__item">
+          <button class="faq__q" type="button" aria-expanded="false">
+            <span>Do I need an idea for the hackathon?</span><span class="faq__sign">+</span>
+          </button>
+          <div class="faq__a">No. Each track is briefed at kickoff on day two and you pick the one you want. Bring an idea if you have one.</div>
+        </div>
+        <div class="faq__item">
+          <button class="faq__q" type="button" aria-expanded="false">
+            <span>Will the recordings be available?</span><span class="faq__sign">+</span>
+          </button>
+          <div class="faq__a">The workshop is not recorded. You keep the repo, the slides, and whatever your track builds.</div>
+        </div>
+        <div class="faq__item">
+          <button class="faq__q" type="button" aria-expanded="false">
+            <span>What hardware should I bring?</span><span class="faq__sign">+</span>
+          </button>
+          <div class="faq__a">Any laptop that can run a modern browser at 60fps. A discrete GPU makes the performance exercises more interesting.</div>
+        </div>
+        <div class="faq__item">
+          <button class="faq__q" type="button" aria-expanded="false">
+            <span>Is lunch included?</span><span class="faq__sign">+</span>
+          </button>
+          <div class="faq__a">Yes, both days, along with two breaks. Tell us about dietary requirements at registration.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="closer">
+    <div class="closer__inner">
+      <div class="closer__eyebrow">Thirty seats · September 8 &amp; 9, 2026</div>
+      <div class="closer__title">Add the workshop to your conference ticket</div>
+      <div class="closer__actions">
+        <a class="btn btn-solid" href="https://threejs.paris/" data-register>Register on threejs.paris</a>
+        <a class="btn btn-ghost" href="#two-days">Review the two days</a>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="site-footer__brand">
+      <strong>PMNDRS</strong>
+      <span>Advanced React Three Fiber</span>
+    </div>
+    <div class="site-footer__links">
+      <a href="https://threejs.paris/">threejs.paris</a>
+      <a href="https://pmnd.rs/">pmnd.rs</a>
+    </div>
+  </footer>
+</main>
+
+<script src="assets/main.js"></script>
+</body>
+</html>

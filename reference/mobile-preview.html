@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mobile preview — Paris Workshop at 390 × 844</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: #050506;
+    font-family: 'Geist', Helvetica, sans-serif;
+    color: #fafafa;
+  }
+  a { color: #fafafa; text-decoration: none; }
+  a:hover { color: #a1a1aa; }
+
+  .page {
+    padding: 56px clamp(20px, 4vw, 56px) 88px;
+    display: flex;
+    flex-direction: column;
+    gap: 36px;
+  }
+
+  .page__head {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .page__eyebrow {
+    font: 500 13px 'Geist Mono', monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #71717a;
+  }
+  .page__title { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+  .page__sub { font-size: 14px; color: #a1a1aa; }
+
+  .frames {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 44px;
+    align-items: flex-start;
+  }
+
+  .frame { display: flex; flex-direction: column; gap: 14px; width: 390px; }
+
+  .frame__label { display: flex; align-items: center; gap: 10px; }
+  .frame__n {
+    font: 500 11px 'Geist Mono', monospace;
+    background: #fafafa;
+    color: #09090b;
+    padding: 3px 7px;
+    border-radius: 4px;
+  }
+  .frame__name { font-size: 14px; font-weight: 500; }
+
+  .frame__device {
+    width: 390px;
+    height: 844px;
+    border: 1px solid #27272a;
+    border-radius: 36px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.9);
+  }
+  .frame__device iframe { width: 390px; height: 844px; border: 0; display: block; }
+
+  .frame__note { font: 400 12px 'Geist Mono', monospace; color: #52525b; }
+
+  .warning {
+    display: none;
+    border: 1px solid #452c1a;
+    background: #17110a;
+    border-radius: 10px;
+    padding: 16px 18px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #e8c99b;
+    max-width: 720px;
+  }
+  .warning.is-shown { display: block; }
+  .warning code {
+    font: 400 13px 'Geist Mono', monospace;
+    background: #241a10;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="page__head">
+    <div class="page__eyebrow">Mobile</div>
+    <h1 class="page__title">Paris Workshop at 390 × 844</h1>
+    <div class="page__sub">Live frames of the real page. Each one is scrolled to a different point — they scroll and tap like the site.</div>
+  </div>
+
+  <div class="warning" data-warning>
+    Frames could not be scrolled to their sections. Same-origin access is blocked when this file is opened
+    over <code>file://</code> — serve the folder instead, e.g. <code>npx serve .</code>, then open
+    <code>/mobile-preview.html</code>.
+  </div>
+
+  <div class="frames" data-frames></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var SRC = 'index.html';
+
+  var FRAMES = [
+    { n: '01', label: 'Poster',            target: null,        note: 'Hero fills the viewport, header hidden' },
+    { n: '02', label: 'Header + overview', target: 'overview',  note: 'Band and marker rail appear past the hero' },
+    { n: '03', label: 'Outcomes',          target: 'outcomes',  note: 'Cards stack to one column' },
+    { n: '04', label: 'Two days',          target: 'two-days',  note: 'Four half-day blocks, stacked' },
+    { n: '05', label: 'FAQ + close',       target: 'faq',       note: 'Accordion and final CTA' }
+  ];
+
+  var host = document.querySelector('[data-frames]');
+  var warning = document.querySelector('[data-warning]');
+  var blocked = false;
+
+  // A desktop scrollbar inside a phone frame reads as a rendering artefact.
+  // Injected into the frame only — the site itself is left alone.
+  function hideScrollbar(doc) {
+    if (doc.getElementById('preview-scrollbar-reset')) return;
+    var style = doc.createElement('style');
+    style.id = 'preview-scrollbar-reset';
+    style.textContent = 'html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar{display:none}';
+    doc.head.appendChild(style);
+  }
+
+  function place(iframe, target) {
+    try {
+      var doc = iframe.contentDocument;
+      if (!doc) throw new Error('no document');
+
+      hideScrollbar(doc);
+
+      var el = target ? doc.getElementById(target) : null;
+      var top = el
+        ? el.getBoundingClientRect().top + (iframe.contentWindow.scrollY || 0)
+        : 0;
+
+      iframe.contentWindow.scrollTo({ top: top, behavior: 'instant' });
+    } catch (e) {
+      if (!blocked) {
+        blocked = true;
+        warning.classList.add('is-shown');
+      }
+    }
+  }
+
+  FRAMES.forEach(function (f) {
+    var frame = document.createElement('div');
+    frame.className = 'frame';
+    frame.innerHTML =
+      '<div class="frame__label">' +
+        '<span class="frame__n"></span>' +
+        '<span class="frame__name"></span>' +
+      '</div>' +
+      '<div class="frame__device"><iframe loading="eager"></iframe></div>' +
+      '<div class="frame__note"></div>';
+
+    frame.querySelector('.frame__n').textContent = f.n;
+    frame.querySelector('.frame__name').textContent = f.label;
+    frame.querySelector('.frame__note').textContent = f.note;
+
+    var iframe = frame.querySelector('iframe');
+    iframe.title = f.label;
+
+    // The page inside settles its own layout (webfonts, hero measurement) after
+    // load, so let it land before reading section offsets.
+    iframe.addEventListener('load', function () {
+      setTimeout(function () { place(iframe, f.target); }, 350);
+    });
+    iframe.src = SRC;
+
+    host.appendChild(frame);
+  });
+
+  // Re-place after everything has settled, in case a late reflow moved sections.
+  window.addEventListener('load', function () {
+    setTimeout(function () {
+      var iframes = host.querySelectorAll('iframe');
+      FRAMES.forEach(function (f, i) { place(iframes[i], f.target); });
+    }, 600);
+  });
+})();
+</script>
+
+</body>
+</html>

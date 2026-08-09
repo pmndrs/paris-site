@@ -1,0 +1,34 @@
+import { PEOPLE } from "@/lib/content";
+import { Section, SectionTitle, Wrap } from "./section";
+
+export function Instructors() {
+  return (
+    <Section id="instructors">
+      <Wrap>
+        <div className="eyebrow">05 · Instructors</div>
+        <SectionTitle>Who is teaching</SectionTitle>
+
+        <div className="mt-9 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {PEOPLE.map(({ name, role, bio }) => (
+            <div key={name} className="flex flex-col gap-3.5">
+              <div className="flex aspect-square items-center justify-center rounded-xl border border-border bg-[#0d0d0f] font-mono text-[11px] text-ghost">
+                portrait
+              </div>
+              <div>
+                <div className="text-[17px] font-semibold tracking-[-0.02em]">
+                  {name}
+                </div>
+                <div className="mt-1 font-mono text-[11px] tracking-[0.08em] text-dim uppercase">
+                  {role}
+                </div>
+                <div className="mt-2.5 text-sm leading-[1.55] text-muted-foreground">
+                  {bio}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Wrap>
+    </Section>
+  );
+}
