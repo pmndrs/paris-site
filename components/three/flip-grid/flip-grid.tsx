@@ -15,6 +15,7 @@ import {
   exp,
   float,
   Fn,
+  fract,
   hash,
   instancedArray,
   instanceIndex,
@@ -26,7 +27,6 @@ import {
   select,
   sin,
   struct,
-  texture,
   transformNormalToView,
   uniform,
   uv,
@@ -35,8 +35,6 @@ import {
 } from "three/tsl";
 import {
   Color,
-  RepeatWrapping,
-  TextureLoader,
   Vector2,
   type Node,
   type PointLight,
@@ -44,11 +42,6 @@ import {
 } from "three/webgpu";
 
 import type { FlipGridConfig } from "./config";
-
-const FLAKE_DIR = "/materials/Gold_Parametric_Imperfections_1k_8b/textures";
-
-const FLAKE_NORMAL = `${FLAKE_DIR}/Gold_Parametric_Imperfections_normal.png`;
-const FLAKE_ROUGHNESS = `${FLAKE_DIR}/Gold_Parametric_Imperfections_roughness.png`;
 
 /**
  * A grid of tiles that flip to gold as the cursor sweeps them, and hold that
@@ -104,6 +97,15 @@ const MAX_DT = 1 / 20;
 type FloatNode = Node<"float">;
 type Vec2Node = Node<"vec2">;
 
+/**
+ * Cheap 2D value hash — the classic sin/fract trick.
+ *
+ * Not a good hash in any statistical sense, but grain doesn't need one, and it
+ * costs three instructions against a texture fetch and a mip chain.
+ */
+const hash2 = (p: Node<"vec2">) =>
+  fract(sin(dot(p, vec2(127.1, 311.7))).mul(43758.5453));
+
 export function FlipGrid({
   config,
   /**
@@ -150,11 +152,13 @@ export function FlipGrid({
       uBack: uniform(new Color(config.back)),
       uEdge: uniform(new Color(config.edge)),
       uRoughness: uniform(config.roughness),
-      uFlakeRepeat: uniform(config.flakeRepeat),
+      uFlakeCells: uniform(config.flakeCells),
       uFlakeStrength: uniform(config.flakeStrength),
       uFlakeRoughness: uniform(config.flakeRoughness),
       uTiltJitter: uniform(config.tiltJitter),
       uCurvature: uniform(config.curvature),
+      uToneJitter: uniform(config.toneJitter),
+      uRoughJitter: uniform(config.roughJitter),
     }),
     // Created once for the life of the component; every later change is a value
     // write below, not a rebuild.
@@ -179,59 +183,17 @@ export function FlipGrid({
     u.uDamping.value = config.damping;
     u.uMassJitter.value = config.massJitter;
     u.uRoughness.value = config.roughness;
-    u.uFlakeRepeat.value = config.flakeRepeat;
+    u.uFlakeCells.value = config.flakeCells;
     u.uFlakeStrength.value = config.flakeStrength;
     u.uFlakeRoughness.value = config.flakeRoughness;
     u.uTiltJitter.value = config.tiltJitter;
     u.uCurvature.value = config.curvature;
+    u.uToneJitter.value = config.toneJitter;
+    u.uRoughJitter.value = config.roughJitter;
     u.uFront.value.set(config.front);
     u.uBack.value.set(config.back);
     u.uEdge.value.set(config.edge);
   });
-
-  // The microfacet maps out of `Gold_Parametric_Imperfections.mtlx`. The MaterialX
-  // graph around them is a `standard_surface` with two constants and these two
-  // images, so the maps are the whole substance of it — running the graph through
-  // `MaterialXLoader` would hand back a complete material whose position and
-  // normal we'd immediately have to override for the per-instance flip. Loading
-  // an actual .mtlx is worth doing as its own demo, not smuggled into this one.
-  // Loaded imperatively rather than through `useTexture`, which suspends.
-  //
-  // `<Canvas>` does wrap its children in a Suspense boundary, but that
-  // boundary's fallback is `<Block>`, which lifts the promise back out to the
-  // *outer* tree — so CanvasImpl itself suspends, unmounts, and its cleanup
-  // calls `unmountComponentAtNode`, destroying the entire renderer root. The
-  // storage buffer goes with it, and a grid whose state is re-zeroed can never
-  // hold a flip. See pmndrs/react-three-fiber#3850.
-  //
-  // An explicit `<Suspense>` around this component would contain it, since the
-  // inner boundary would handle the promise and `Block` would never render.
-  // Loading two small PNGs imperatively is simpler than arranging that, and it
-  // also sidesteps #3849: `useTexture`'s array and record forms return a fresh
-  // result each render, so their registry effect re-runs, calls
-  // `store.setState`, and re-renders every store subscriber, without end.
-  //
-  // `TextureLoader.load` hands back the Texture straight away and fills it in
-  // when the bytes arrive, which is the right trade for a decoration: the grid
-  // renders un-flaked for a frame or two instead of blocking on two PNGs.
-  const [flakeNormal, flakeRoughness] = useMemo(() => {
-    const loader = new TextureLoader();
-    const load = (url: string) => {
-      const map = loader.load(url);
-      map.wrapS = RepeatWrapping;
-      map.wrapT = RepeatWrapping;
-      return map;
-    };
-    return [load(FLAKE_NORMAL), load(FLAKE_ROUGHNESS)];
-  }, []);
-
-  useEffect(
-    () => () => {
-      flakeNormal.dispose();
-      flakeRoughness.dispose();
-    },
-    [flakeNormal, flakeRoughness],
-  );
 
   // Zero-filled at allocation, which is exactly "flat, still, not held".
   // `instancedArray` accepts a struct type at runtime but isn't typed for one
@@ -321,34 +283,51 @@ export function FlipGrid({
     const isFront = normalLocal.z.greaterThan(0.5);
     const isBack = normalLocal.z.lessThan(-0.5);
 
-    // `.rgb`/`float` here are coercions, not conversions: uniform colours carry
-    // the `color` node type, and the arithmetic below wants a plain vector.
-    const base = select(isFront, u.uFront, select(isBack, u.uBack, u.uEdge)).rgb;
+    /**
+     * Per-tile tone, so neighbours aren't stamped from the same die.
+     *
+     * Real sheet metal varies: alloy, age, how it caught the polish. Even a few
+     * percent stops a grid of identical values from reading as printed.
+     */
+    const toneJitter = hash(instanceIndex.add(4919))
+      .sub(0.5)
+      .mul(u.uToneJitter);
+    const gold = u.uBack.rgb.mul(float(1).add(toneJitter));
+
+    const base = select(
+      isFront,
+      u.uFront.rgb,
+      select(isBack, gold, u.uEdge.rgb),
+    ) as Node<"vec3">;
     const metalness = float(
       select(isFront, float(0.12), select(isBack, float(1), float(0.9))),
     );
 
     /**
-     * Microfacet break-up — the thing that actually makes this read as metal.
+     * Grain, generated rather than sampled.
      *
-     * A flat tile has one normal, so it reflects exactly one direction of the
-     * environment and comes out a single flat colour however good the BRDF is.
-     * A curved surface reads as metal precisely because every fragment samples
-     * somewhere different. Perturbing the normal with a fine flake pattern buys
-     * that variation back on a flat face.
+     * The imperfection maps shipped with the MaterialX gold are 1k, and a tile
+     * is about 20px on screen — so whatever the repeat, they land on mip 5 or 6
+     * and average to flat before they ever reach the surface. That is why the
+     * gold read as plastic: the "microfacets" were a no-op, and every tile was
+     * showing nothing but a clean dome gradient.
      *
-     * The two flip faces are the box's ±Z, so their tangent space is just local
-     * XY and the map drops straight in with no tangent attribute. The four thin
-     * edges are left alone; nobody is reading microfacets off a 2px sliver.
+     * Detail only survives if it sits at a frequency the tile can resolve —
+     * a handful of cells across, so a few pixels each. A hash lattice gives
+     * exactly that, costs three ALU ops, and can't be mipped away. The maps are
+     * still the right tool when a surface is large on screen; this one isn't.
      */
-    const tileUv = uv()
-      .mul(u.uFlakeRepeat)
-      // Offset per instance, or all 1800 tiles wear an identical flake pattern
-      // and the grid reads as printed wallpaper.
-      .add(vec2(hash(instanceIndex), hash(instanceIndex.add(9871))));
+    const cellId = uv()
+      .mul(u.uFlakeCells)
+      .floor()
+      // Shift the lattice per instance, or every tile wears identical facets.
+      .add(vec2(float(instanceIndex.mod(29)), float(instanceIndex.mod(31))));
 
-    const flake = texture(flakeNormal, tileUv).xyz.mul(2).sub(1);
-    const flakeRough = texture(flakeRoughness, tileUv).x;
+    const grainX = hash2(cellId).sub(0.5);
+    const grainY = hash2(cellId.add(vec2(19.7, 7.3))).sub(0.5);
+    // Per-facet roughness too. Uniform roughness is its own tell — it's what
+    // makes a surface look moulded rather than worked.
+    const grainRough = hash2(cellId.add(vec2(3.1, 41.9)));
 
     /**
      * A few degrees of per-tile lean, on top of the per-fragment flakes.
@@ -384,8 +363,8 @@ export function FlipGrid({
 
     const perturbed = normalize(
       vec3(
-        dome.x.add(flake.x.mul(u.uFlakeStrength)).add(tilt.x),
-        dome.y.add(flake.y.mul(u.uFlakeStrength)).add(tilt.y),
+        dome.x.add(grainX.mul(u.uFlakeStrength)).add(tilt.x),
+        dome.y.add(grainY.mul(u.uFlakeStrength)).add(tilt.y),
         // Sign follows the face, so the perturbation leans out of whichever
         // side we're looking at rather than into it.
         select(isBack, float(-1), float(1)),
@@ -397,19 +376,15 @@ export function FlipGrid({
       normalLocal,
     ) as Node<"vec3">;
 
-    // Roughness: near-mirror base, modulated by the map. Perfectly uniform
-    // roughness is another tell that a surface isn't real.
+    // Roughness varies three ways: per facet, per tile, and by face. A single
+    // roughness across a whole surface is one of the reliable tells of CG.
+    const goldRoughness = u.uRoughness
+      .add(grainRough.mul(u.uFlakeRoughness))
+      .add(hash(instanceIndex.add(7717)).sub(0.5).mul(u.uRoughJitter));
+
     const roughness = float(
-      select(
-        isFront,
-        float(0.78),
-        select(
-          isBack,
-          u.uRoughness.add(flakeRough.mul(u.uFlakeRoughness)),
-          float(0.38),
-        ),
-      ),
-    ).clamp(0.02, 1);
+      select(isFront, float(0.78), select(isBack, goldRoughness, float(0.38))),
+    ).clamp(0.03, 1);
 
     return {
       update,

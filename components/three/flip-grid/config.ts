@@ -45,10 +45,15 @@ export type FlipGridConfig = {
    * metal surface has. Without it a flat tile reflects exactly one direction of
    * the environment and reads as paint. See `flip-grid.tsx`.
    */
-  flakeRepeat: number;
+  /** Grain facets across a tile. Aim for a few pixels each — see flip-grid.tsx. */
+  flakeCells: number;
   flakeStrength: number;
-  /** How much the roughness map modulates the base roughness. */
+  /** How far the grain pushes roughness around per facet. */
   flakeRoughness: number;
+  /** Per-tile brightness spread, so neighbours aren't identical. */
+  toneJitter: number;
+  /** Per-tile roughness spread. */
+  roughJitter: number;
   /**
    * Per-tile lean, in normal-space units (~0.3 is a few degrees). Without it
    * every settled tile faces the same way, reflects the same direction of a
@@ -63,7 +68,9 @@ export type FlipGridConfig = {
    */
   curvature: number;
 
-  /** Studio environment. Intensities are linear radiance, so >1 is expected. */
+  /** Which environment to reflect. Outdoor's hard horizon suits flat tiles. */
+  envPreset: "outdoor" | "studio";
+  /** Environment. Intensities are linear radiance, so >1 is expected. */
   ground: string;
   sky: string;
   keyIntensity: number;
@@ -100,17 +107,20 @@ export const FLIP_GRID_DEFAULTS: FlipGridConfig = {
 
   roughness: 0.13,
 
-  flakeRepeat: 1,
-  flakeStrength: 0.25,
-  flakeRoughness: 0.3,
+  flakeCells: 6,
+  flakeStrength: 0.09,
+  flakeRoughness: 0.18,
+  toneJitter: 0.3,
+  roughJitter: 0.18,
   tiltJitter: 0.12,
   curvature: 0.18,
 
-  ground: "#08080c",
-  sky: "#1a1f2b",
-  keyIntensity: 1.15,
-  kickIntensity: 26,
-  fillIntensity: 1.0,
+  envPreset: "outdoor",
+  ground: "#2a2018",
+  sky: "#6f83ad",
+  keyIntensity: 55,
+  kickIntensity: 2.2,
+  fillIntensity: 0.5,
   envIntensity: 1,
 
   cursorLight: 9,

@@ -9,7 +9,7 @@ import type { FlipGridConfig } from "@/components/three/flip-grid/config";
 import { FlipGrid } from "@/components/three/flip-grid/flip-grid";
 import {
   createStudioEnvironment,
-  STUDIO_DEFAULT,
+  ENV_PRESETS,
 } from "@/components/three/flip-grid/studio-env";
 
 /**
@@ -21,18 +21,22 @@ import {
  */
 function Studio({ config }: { config: FlipGridConfig }) {
   const texture = useMemo(() => {
-    const [key, kick, fill] = STUDIO_DEFAULT.softboxes;
+    const preset = ENV_PRESETS[config.envPreset];
+    // The three intensities are positional slots, not fixed roles: key/kick/fill
+    // in the studio, sun/haze/bounce outdoors.
+    const [a, b, c] = preset.softboxes;
     return createStudioEnvironment({
-      ...STUDIO_DEFAULT,
+      ...preset,
       ground: hexToLinear(config.ground),
       sky: hexToLinear(config.sky),
       softboxes: [
-        { ...key, intensity: config.keyIntensity },
-        { ...kick, intensity: config.kickIntensity },
-        { ...fill, intensity: config.fillIntensity },
+        { ...a, intensity: config.keyIntensity },
+        { ...b, intensity: config.kickIntensity },
+        { ...c, intensity: config.fillIntensity },
       ],
     });
   }, [
+    config.envPreset,
     config.ground,
     config.sky,
     config.keyIntensity,

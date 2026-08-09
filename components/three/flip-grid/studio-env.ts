@@ -45,6 +45,18 @@ export type StudioOptions = {
   softboxes: Softbox[];
   /** Softness of the softbox edges, 0..1 of their angular size. */
   falloff: number;
+  /**
+   * How abruptly ground becomes sky. 0 is a slow gradient across the whole
+   * sphere; 1 is a hard line at elevation 0.
+   *
+   * This matters more than it sounds. A settled tile looks at elevation 0, so
+   * the horizon lands in the middle of its reflection: with a hard line, the
+   * tile's own dome spans sky above and ground below and produces a strong
+   * light-to-dark gradient across one face, and the per-tile lean pushes each
+   * tile further into sky or into ground. A soft gradient gives every tile
+   * roughly the same mid-tone, which is what makes a grid read as flat paint.
+   */
+  horizon: number;
 };
 
 const WIDTH = 256;
@@ -84,9 +96,10 @@ export function createStudioEnvironment(options: StudioOptions): DataTexture {
       const u = (x + 0.5) / WIDTH;
       const azimuth = Math.PI / 2 - (u - 0.5) * Math.PI * 2;
 
-      // Base gradient. Deliberately dark: the softboxes are what should read,
-      // and a bright surround would wash the contrast out of every reflection.
-      const t = smoothstep(-0.45, 0.65, Math.sin(elevation));
+      // Ground to sky. The width of the transition is the `horizon` control:
+      // wide is an even studio wash, narrow is an outdoor skyline.
+      const band = Math.max(0.012, (1 - options.horizon) * 0.6);
+      const t = smoothstep(-band, band, Math.sin(elevation));
       let r = options.ground[0] + (options.sky[0] - options.ground[0]) * t;
       let g = options.ground[1] + (options.sky[1] - options.ground[1]) * t;
       let b = options.ground[2] + (options.sky[2] - options.ground[2]) * t;
@@ -147,6 +160,8 @@ export const STUDIO_DEFAULT: StudioOptions = {
   ground: [0.01, 0.01, 0.015],
   sky: [0.055, 0.065, 0.095],
   falloff: 0.75,
+  // Studios don't have a skyline; the wash is meant to be even.
+  horizon: 0.1,
   softboxes: [
     // Key — on-axis but deliberately not huge. A softbox wide enough to cover
     // every tile's reflection cone gives them all the same value back; keeping
@@ -181,3 +196,61 @@ export const STUDIO_DEFAULT: StudioOptions = {
     },
   ],
 };
+
+/**
+ * Outdoors, which suits these tiles far better than a studio does.
+ *
+ * The whole value is the hard horizon. A settled tile's reflection is centred
+ * on elevation 0, so the skyline falls across the middle of every face: the
+ * dome carries bright sky down to dark ground within one tile, and the per-tile
+ * lean decides how much of each a given tile gets. That is where the tonal
+ * spread between neighbours comes from — a studio wash gives every tile the
+ * same mid-grey and the grid goes flat.
+ *
+ * The sun is small and very hot on purpose. A handful of tiles will catch it
+ * outright and blow out; that sparse, uneven glinting is most of what separates
+ * gold from yellow paint.
+ */
+export const OUTDOOR_DEFAULT: StudioOptions = {
+  // Warm dark earth below, deep sky above, meeting at a hard line.
+  ground: [0.035, 0.028, 0.022],
+  sky: [0.34, 0.44, 0.72],
+  falloff: 0.5,
+  horizon: 0.6,
+  softboxes: [
+    // Sun — small and fierce.
+    {
+      azimuth: 22,
+      elevation: 27,
+      width: 11,
+      height: 11,
+      intensity: 55,
+      color: [1, 0.93, 0.78],
+    },
+    // Haze just above the skyline, which is what most of a settled tile sees.
+    {
+      azimuth: 10,
+      elevation: 5,
+      width: 150,
+      height: 16,
+      intensity: 1.5,
+      color: [1, 0.88, 0.72],
+    },
+    // Bounce off the ground, warm and dim, for faces tipped downward.
+    {
+      azimuth: -20,
+      elevation: -34,
+      width: 140,
+      height: 50,
+      intensity: 0.5,
+      color: [1, 0.78, 0.5],
+    },
+  ],
+};
+
+export const ENV_PRESETS = {
+  outdoor: OUTDOOR_DEFAULT,
+  studio: STUDIO_DEFAULT,
+} as const;
+
+export type EnvPreset = keyof typeof ENV_PRESETS;

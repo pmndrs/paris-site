@@ -4,7 +4,10 @@ import { Leva, useControls, folder } from "leva";
 import dynamic from "next/dynamic";
 import { useRef } from "react";
 
-import { FLIP_GRID_DEFAULTS } from "@/components/three/flip-grid/config";
+import {
+  FLIP_GRID_DEFAULTS,
+  type FlipGridConfig,
+} from "@/components/three/flip-grid/config";
 import { useWebGPU } from "@/lib/use-webgpu";
 
 // `@react-three/fiber/webgpu` touches `localStorage` at module scope, so it can
@@ -46,17 +49,20 @@ export default function FlipGridDemo() {
       roughness: { value: d.roughness, min: 0, max: 1, step: 0.01 },
     }),
     flakes: folder({
-      flakeRepeat: { value: d.flakeRepeat, min: 0.25, max: 24, step: 0.25 },
+      flakeCells: { value: d.flakeCells, min: 1, max: 24, step: 1 },
       flakeStrength: { value: d.flakeStrength, min: 0, max: 2, step: 0.01 },
       flakeRoughness: { value: d.flakeRoughness, min: 0, max: 1, step: 0.01 },
+      toneJitter: { value: d.toneJitter, min: 0, max: 1, step: 0.01 },
+      roughJitter: { value: d.roughJitter, min: 0, max: 1, step: 0.01 },
       tiltJitter: { value: d.tiltJitter, min: 0, max: 1.5, step: 0.01 },
       curvature: { value: d.curvature, min: 0, max: 2.5, step: 0.01 },
     }),
     environment: folder({
+      envPreset: { value: d.envPreset, options: ["outdoor", "studio"] },
       ground: d.ground,
       sky: d.sky,
-      keyIntensity: { value: d.keyIntensity, min: 0, max: 30, step: 0.1 },
-      kickIntensity: { value: d.kickIntensity, min: 0, max: 60, step: 0.5 },
+      keyIntensity: { value: d.keyIntensity, min: 0, max: 120, step: 0.5 },
+      kickIntensity: { value: d.kickIntensity, min: 0, max: 60, step: 0.1 },
       fillIntensity: { value: d.fillIntensity, min: 0, max: 10, step: 0.1 },
       envIntensity: { value: d.envIntensity, min: 0, max: 4, step: 0.05 },
     }),
@@ -72,13 +78,20 @@ export default function FlipGridDemo() {
     }),
   });
 
+  // Leva types a select as plain `string`, so the union has to be restored on
+  // the way out. Narrowing the one field beats casting the whole object.
+  const scene: FlipGridConfig = {
+    ...config,
+    envPreset: config.envPreset as FlipGridConfig["envPreset"],
+  };
+
   return (
     <main className="relative min-h-svh bg-[#08080b] text-white">
       <Leva collapsed={false} />
 
       <div ref={bounds} className="absolute inset-0">
         {support === "yes" ? (
-          <FlipGridScene config={config} bounds={bounds} />
+          <FlipGridScene config={scene} bounds={bounds} />
         ) : null}
       </div>
 
