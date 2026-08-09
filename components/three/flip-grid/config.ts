@@ -107,7 +107,7 @@ export const FLIP_GRID_DEFAULTS: FlipGridConfig = {
 
   roughness: 0.13,
 
-  flakeCells: 6,
+  flakeCells: 12,
   flakeStrength: 0.09,
   flakeRoughness: 0.18,
   toneJitter: 0.3,
