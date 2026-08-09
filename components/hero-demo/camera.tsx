@@ -1,17 +1,14 @@
 "use client";
 
 import { useCallback, useEffect } from "react";
-import {
-  CameraControls,
-  CameraControlsImpl,
-  PerspectiveCamera,
-} from "@react-three/drei";
+import { CameraControls, CameraControlsImpl } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber/webgpu";
 import { button, useControls } from "leva";
 import * as THREE from "three/webgpu";
 
 const _box = new THREE.Box3();
 const _size = new THREE.Vector3();
+const _center = new THREE.Vector3();
 
 export interface FramingOptions {
   /**
@@ -43,6 +40,22 @@ export interface FramingOptions {
    * in as the new defaults.
    */
   unlocked?: boolean;
+  /**
+   * Metres per scene unit, mirrored from the scene's `worldScale`.
+   *
+   * The clip planes have to live on *this* camera, not on `<Canvas camera>`:
+   * `makeDefault` replaces the Canvas camera outright, so those props never
+   * apply. Missing that meant the far plane stayed at three's default 2000 while
+   * `worldScale` pushed the city out to ~2000 units — the tower clipped away
+   * entirely, which looks exactly like "the glow stopped and the controls died".
+   */
+  worldScale?: number;
+  /**
+   * Bump to re-fit. Driven by the tower's GLTF landing, rather than the camera
+   * polling for a non-empty bounding box each frame — that retry loop is what
+   * made the fit "sometimes not fire".
+   */
+  refitKey?: number;
 }
 
 /**
@@ -70,41 +83,98 @@ export function Camera({
   autoRotateSpeed = 2,
   polarDegrees = 93,
   unlocked = false,
+  worldScale = 1,
+  refitKey = 0,
 }: FramingOptions & {
   targetRef: React.RefObject<THREE.Group | null>;
 }) {
   const size = useThree((state) => state.size);
+  const camera = useThree((state) => state.camera);
   const controls = useThree((state) => state.controls) as CameraControlsImpl;
+
+  // Clip planes track worldScale. `<Canvas camera={{ near, far }}>` only applies
+  // at creation, so scaling the world afterwards left the far plane at three's
+  // default 2000 while the city stretched to ~2000 units — the tower clipped out
+  // of existence.
+  useEffect(() => {
+    const cam = camera as THREE.PerspectiveCamera;
+    if (!cam.isPerspectiveCamera) return;
+    cam.fov = 30;
+    cam.near = 0.2 * worldScale;
+    // City outer radius is 400 scene units, so the far corner sits ~800·scale
+    // away with the camera backed off from it.
+    cam.far = 1400 * worldScale;
+    cam.updateProjectionMatrix();
+  }, [camera, worldScale]);
 
   const frame = useCallback(() => {
     const target = targetRef.current;
-    if (!controls || !target) return false;
+    const cam = camera as THREE.PerspectiveCamera;
+    if (!controls || !target || !cam?.isPerspectiveCamera) return false;
 
-    // The GLTF may not have populated the group yet on the first pass.
+    // Nothing below is meaningful before the canvas has a real size — aspect is
+    // 0 or NaN on the first pass, and that is what poisoned the camera to
+    // `[NaN, NaN, NaN]`: a NaN distance went into the controls and every
+    // subsequent frame inherited it.
+    if (!(cam.aspect > 0) || !Number.isFinite(cam.aspect)) return false;
+
+    // The GLTF may not have populated the group yet.
     _box.setFromObject(target);
     if (_box.isEmpty()) return false;
 
-    const angle = THREE.MathUtils.degToRad(polarDegrees);
-    const pad = padding * _box.getSize(_size).length();
+    _box.getSize(_size);
+    _box.getCenter(_center);
+    if (!Number.isFinite(_size.length()) || _size.length() === 0) return false;
 
-    // Release the polar limits so the fit isn't fighting its own 90° snap.
+    // Framing computed directly rather than via `controls.fitToBox`.
+    //
+    // fitToBox has burned three separate bugs here: its padding is in world
+    // units (not pixels), it snaps the polar angle to the nearest 90° while
+    // fitting, and it produced a NaN distance from a not-yet-sized camera. The
+    // maths it saves is six lines, and doing it here means every value can be
+    // checked finite before it reaches the camera.
+    const halfFov = THREE.MathUtils.degToRad(cam.fov) * 0.5;
+    // fov is vertical, so the horizontal fit has to divide by aspect — this is
+    // what keeps the tower framed in portrait as well as landscape.
+    const fitHeight = _size.y * 0.5 / Math.tan(halfFov);
+    const fitWidth = _size.x * 0.5 / (Math.tan(halfFov) * cam.aspect);
+    const distance = Math.max(fitHeight, fitWidth) * (1 + padding) + _size.z * 0.5;
+
+    if (!Number.isFinite(distance) || distance <= 0) return false;
+
+    const polar = THREE.MathUtils.degToRad(polarDegrees);
+    const azimuth = Number.isFinite(controls.azimuthAngle)
+      ? controls.azimuthAngle
+      : 0;
+
+    const sinPolar = Math.sin(polar);
+    const position = new THREE.Vector3(
+      _center.x + distance * sinPolar * Math.sin(azimuth),
+      _center.y + distance * Math.cos(polar),
+      _center.z + distance * sinPolar * Math.cos(azimuth),
+    );
+
+    if (!Number.isFinite(position.x + position.y + position.z)) return false;
+
+    // Limits have to be open while setting, or the assignment is clamped to the
+    // previous lock and the shot silently differs from the one computed.
     controls.minPolarAngle = 0;
     controls.maxPolarAngle = Math.PI;
-
-    controls.fitToBox(_box, false, {
-      cover: false,
-      paddingTop: pad,
-      paddingBottom: pad,
-      paddingLeft: pad,
-      paddingRight: pad,
-    });
-
-    // Now take the elevation we actually want, and lock it there.
-    controls.rotateTo(controls.azimuthAngle, angle, false);
-    controls.minPolarAngle = angle;
-    controls.maxPolarAngle = angle;
+    controls.setLookAt(
+      position.x,
+      position.y,
+      position.z,
+      _center.x,
+      _center.y,
+      _center.z,
+      false,
+    );
+    if (!unlocked) {
+      controls.minPolarAngle = polar;
+      controls.maxPolarAngle = polar;
+    }
     return true;
-  }, [controls, targetRef, padding, polarDegrees]);
+  }, [controls, camera, targetRef, padding, polarDegrees, unlocked]);
 
   useEffect(() => {
     if (!controls) return;
@@ -140,18 +210,17 @@ export function Camera({
       three: CameraControlsImpl.ACTION.TOUCH_ROTATE,
     };
 
+    // `refitKey` (the tower's GLTF landing) is the trigger, not a polling loop.
+    // One retry on the next frame is still kept, because a resize can arrive
+    // before R3F has written the new aspect onto the camera and `frame()`
+    // correctly refuses to compute against a stale one.
     if (frame()) return;
 
-    // Model wasn't ready — retry until the bounding box exists.
-    let raf = 0;
-    const retry = () => {
-      if (!frame()) raf = requestAnimationFrame(retry);
-    };
-    raf = requestAnimationFrame(retry);
+    const raf = requestAnimationFrame(() => frame());
     return () => cancelAnimationFrame(raf);
-    // `size` is not read here, but a resize must re-fit — that is the entire
-    // point of the rewrite.
-  }, [controls, frame, unlocked, size.width, size.height]);
+    // `size` is not read in `frame` directly, but a resize must re-fit — that
+    // is the entire point of the rewrite.
+  }, [controls, frame, unlocked, refitKey, size.width, size.height]);
 
   useFrame((_, delta) => {
     if (!controls || !autoRotate || unlocked || autoRotateSpeed === 0) return;
@@ -167,8 +236,15 @@ export function Camera({
 
   return (
     <>
+      {/* Only ONE camera. The original paired `<CameraControls makeDefault>`
+          with `<PerspectiveCamera makeDefault>`, and two components both
+          claiming "default" is a race: CameraControls binds to whatever
+          `state.camera` is when it mounts, so `fitToBox` can end up driving a
+          camera that is not the one being rendered — which presents as controls
+          that do nothing at all. The Canvas's own camera is the single default;
+          its clip planes are set imperatively above, because `<Canvas camera>`
+          props are applied once at creation and don't track `worldScale`. */}
       <CameraControls makeDefault />
-      <PerspectiveCamera position={[0, 4, 40]} makeDefault fov={30} />
     </>
   );
 }

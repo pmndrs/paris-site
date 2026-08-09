@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useRef } from "react";
+import { Suspense, useCallback, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber/webgpu";
 import { Sky } from "@pmndrs/sky/react";
 import { useControls } from "leva";
@@ -39,6 +39,11 @@ export function HeroDemoScene({
 }) {
   const towerRef = useRef<THREE.Group>(null);
 
+  // Bumped when the tower's GLTF has committed, which is the moment its
+  // bounding box becomes measurable and the camera can frame it.
+  const [refitKey, setRefitKey] = useState(0);
+  const onTowerReady = useCallback(() => setRefitKey((v) => v + 1), []);
+
   const { highRiseCount, lowRiseCount, treeCount, treeShadows } = useControls(
     "city",
     {
@@ -49,16 +54,56 @@ export function HeroDemoScene({
     },
   );
 
-  const { skyEnabled, timeOfDay, exposure, haze, hazeStrength, hazePolicy } =
-    useControls("sky", {
-      skyEnabled: true,
-      // Hours, 0..24. Real solar position for the latitude and day below.
-      timeOfDay: { value: 20.5, min: 0, max: 24, step: 0.05 },
-      exposure: { value: 40, min: 1, max: 200, step: 1 },
+  /**
+   * The full `SkyProps` surface.
+   *
+   * Split into two folders because the split is real, not cosmetic: everything
+   * in `sky` is applied through a setter on the live instance, while everything
+   * in `sky/rebuild` is a construction-time option that tears the `Sky` down and
+   * builds a new one (its `useMemo` deps are `preset`, `quality`, `cubeSize`,
+   * `enableAerialPerspective`, `apKmPerSlice`). Expect a hitch when touching the
+   * second group and none when touching the first.
+   */
+  const {
+    skyEnabled,
+    timeOfDay,
+    latitude,
+    dayOfYear,
+    exposure,
+    north,
+    sunDisc,
+    turbidity,
+    mirrorBelowHorizon,
+  } = useControls("sky", {
+    skyEnabled: true,
+    // Hours, 0..24. Real solar position for the latitude and day below.
+    timeOfDay: { value: 20.5, min: 0, max: 24, step: 0.05 },
+    latitude: { value: PARIS_LATITUDE, min: -90, max: 90, step: 0.01 },
+    dayOfYear: { value: CONFERENCE_DAY_OF_YEAR, min: 1, max: 365, step: 1 },
+    exposure: { value: 40, min: 1, max: 200, step: 1 },
+    north: { value: "+Z", options: ["+Z", "-Z", "+X", "-X"] },
+    sunDisc: true,
+    turbidity: { value: 1, min: 0, max: 10, step: 0.05 },
+    // Mirrors the sky's lower hemisphere for a ground-free IBL bake.
+    mirrorBelowHorizon: false,
+  });
+
+  const { preset, quality, cubeSize } = useControls("sky/rebuild", {
+    preset: { value: "earth", options: ["earth", "mars", "titan"] },
+    quality: { value: "medium", options: ["low", "medium", "high"] },
+    cubeSize: { value: 256, options: [64, 128, 256, 512] },
+  });
+
+  const { haze, hazeStrength, hazePolicy, apKmPerSlice } = useControls(
+    "sky/haze",
+    {
       haze: true,
       hazeStrength: { value: 1, min: 0, max: 3, step: 0.05 },
       hazePolicy: { value: "auto", options: ["auto", "ap", "raymarch"] },
-    });
+      // Construction-time: 8 km × 32 slices = 256 km of AP coverage.
+      apKmPerSlice: { value: 8, min: 1, max: 32, step: 1 },
+    },
+  );
 
   /**
    * Metres per scene unit.
@@ -113,6 +158,8 @@ export function HeroDemoScene({
         autoRotateSpeed={autoRotateSpeed}
         polarDegrees={polarDegrees}
         unlocked={unlocked}
+        worldScale={worldScale}
+        refitKey={refitKey}
       />
       <FramingTools />
 
@@ -129,8 +176,11 @@ export function HeroDemoScene({
         )}
 
         {/* The group stays mounted even when the tower is hidden — it is the
-            camera's fit target, and an empty box just means the fit retries. */}
-        <group ref={towerRef}>{tower && <Tower />}</group>
+            camera's fit target, and an empty box just means the fit is skipped
+            until `onReady` fires. */}
+        <group ref={towerRef}>
+          {tower && <Tower onReady={onTowerReady} />}
+        </group>
       </group>
 
       <Lights
@@ -157,22 +207,26 @@ export function HeroDemoScene({
       renderer={{ antialias: false, powerPreference: "high-performance" }}
       dpr={[1, 2]}
       forceEven
-      camera={{
-        position: [0, 4 * worldScale, 40 * worldScale],
-        fov: 30,
-        near: 0.2 * worldScale,
-        far: 1000 * worldScale,
-      }}
+      // No `camera` prop: `<PerspectiveCamera makeDefault>` in <Camera> replaces
+      // it wholesale, so anything set here is silently discarded. The clip
+      // planes live there, with worldScale applied.
     >
       <Suspense>
         {skyEnabled ? (
           <Sky
-            preset="earth"
+            preset={preset}
+            quality={quality}
+            cubeSize={cubeSize}
             timeOfDay={timeOfDay}
-            latitude={PARIS_LATITUDE}
-            dayOfYear={CONFERENCE_DAY_OF_YEAR}
+            latitude={latitude}
+            dayOfYear={dayOfYear}
             exposure={exposure}
+            north={north}
+            sunDisc={sunDisc}
+            turbidity={turbidity}
+            mirrorBelowHorizon={mirrorBelowHorizon}
             enableAerialPerspective={haze}
+            apKmPerSlice={apKmPerSlice}
           >
             {contents}
           </Sky>

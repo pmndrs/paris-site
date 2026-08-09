@@ -104,7 +104,7 @@ export function FX({
     if (sky && haze) sky.updateAerialPerspective();
   });
 
-  useRenderPipeline(
+  const { rebuild } = useRenderPipeline(
     // Main: build the effect graph and hand back an output node.
     ({ renderPipeline, passes, camera }) => {
       if (!renderPipeline || !passes?.scenePass) return;
@@ -209,6 +209,28 @@ export function FX({
       }
     },
   );
+
+  /**
+   * `useRenderPipeline` runs its callbacks exactly **once**.
+   *
+   * Its layout effect gates on `callbacksRanRef`, which latches true after the
+   * first run (`@react-three/fiber/dist/webgpu/index.mjs:16020`), and only a
+   * scene/camera swap clears it. So the graph is frozen at first mount: every
+   * option below was inert after that, and if the first run bailed early —
+   * before `sky` or `scenePass` existed — `outputNode` stays the raw scene pass
+   * and there is no bloom, no AO and no haze, permanently.
+   *
+   * `rebuild()` clears the latch and re-runs. The callbacks themselves are read
+   * from refs that update every render, so the re-run picks up current props.
+   *
+   * (Each rebuild constructs fresh bloom/ssao/traa nodes and drops the previous
+   * ones without disposing. Acceptable for a lab panel driven by hand; it would
+   * need `dispose()` on the old graph before this pattern went anywhere near
+   * the real hero.)
+   */
+  useEffect(() => {
+    rebuild();
+  }, [rebuild, enabled, velocity, ao, withBloom, haze, hazePolicy, sky]);
 
   return null;
 }

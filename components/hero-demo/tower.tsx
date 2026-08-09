@@ -8,6 +8,7 @@ Source: https://sketchfab.com/3d-models/free-la-tour-eiffel-8553f94d06e24cb4b0fd
 Title: ( FREE ) La tour Eiffel
 */
 
+import { useEffect } from "react";
 import { useGLTF } from "@react-three/drei";
 import * as THREE from "three/webgpu";
 
@@ -29,10 +30,18 @@ function Mat() {
   );
 }
 
-export function Tower() {
+export function Tower({ onReady }: { onReady?: () => void }) {
   const { nodes } = useGLTF(MODEL_URL) as unknown as {
     nodes: Record<string, THREE.Mesh>;
   };
+
+  // `useGLTF` suspends, so reaching this effect means the geometry exists and
+  // the meshes have committed — which is precisely when the camera can measure
+  // a real bounding box. The camera used to poll for that with a
+  // requestAnimationFrame retry loop, which fired inconsistently.
+  useEffect(() => {
+    onReady?.();
+  }, [onReady, nodes]);
 
   return (
     <group dispose={null} scale={0.2} rotation-y={THREE.MathUtils.degToRad(30)}>
