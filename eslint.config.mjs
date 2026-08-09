@@ -26,10 +26,23 @@ const eslintConfig = defineConfig([
     // `components/three/**` is the same story one level up: TSL uniforms are
     // mutable handles you write to from `useFrame`, which is the entire point
     // of a uniform.
-    files: ["components/hero/**/*.tsx", "components/three/**/*.tsx"],
+    files: [
+      "components/hero/**/*.tsx",
+      "components/three/**/*.tsx",
+      "components/hero-demo/**/*.tsx",
+    ],
     rules: {
       "react-hooks/immutability": "off",
       "react-hooks/refs": "off",
+    },
+  },
+  {
+    // Vendored verbatim from three.js / Faraz's demo so it stays diffable
+    // against upstream. Not ours to lint.
+    files: ["components/hero-demo/ssao-node.js"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": "off",
+      "prefer-const": "off",
     },
   },
 ]);
