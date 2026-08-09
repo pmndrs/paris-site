@@ -11,23 +11,49 @@ import { Environment } from "@react-three/drei";
  * hand-placed moon. Kept faithful for now so Stage 1 is a legible diff and we
  * have an honest before/after.
  */
-export function Lights({ shadowRadius = 60 }: { shadowRadius?: number }) {
+export function Lights({
+  shadowRadius = 60,
+  environment = true,
+  sunlight = true,
+}: {
+  shadowRadius?: number;
+  environment?: boolean;
+  /**
+   * Faraz's hand-placed moonlight + ambient + hemisphere fill.
+   *
+   * Off once sky is driving the scene: sky sets `scene.environment` from its own
+   * PMREM bake, so keeping these would double-count the ambient and light the
+   * city from a direction the sky doesn't agree with. The shadow-casting
+   * directional stays either way — sky provides illumination, not shadows.
+   */
+  sunlight?: boolean;
+}) {
   return (
     <>
       {/* Night sky cubemap, image-based lighting only — the sky itself is the
           scene background. Deleted at Stage 1. */}
-      <Environment
-        files={["px.png", "nx.png", "py.png", "ny.png", "pz.png", "nz.png"]}
-        path="/hero-demo/sky_81_cubemap_2k/"
-        environmentIntensity={0.12}
-        blur={0.5}
-      />
+      {environment && (
+        <Environment
+          files={["px.png", "nx.png", "py.png", "ny.png", "pz.png", "nz.png"]}
+          path="/hero-demo/sky_81_cubemap_2k/"
+          environmentIntensity={0.12}
+          blur={0.5}
+        />
+      )}
 
-      {/* Cool ambient fill so shadows stay a deep blue rather than black */}
-      <ambientLight color="#33456b" intensity={0.12} />
+      {sunlight && (
+        <>
+          {/* Cool ambient fill so shadows stay a deep blue rather than black */}
+          <ambientLight color="#33456b" intensity={0.12} />
 
-      {/* Sky/ground bounce to lift the scene subtly */}
-      <hemisphereLight color="#3a4d80" groundColor="#0a0f1c" intensity={0.1} />
+          {/* Sky/ground bounce to lift the scene subtly */}
+          <hemisphereLight
+            color="#3a4d80"
+            groundColor="#0a0f1c"
+            intensity={0.1}
+          />
+        </>
+      )}
 
       {/* Moonlight key light casting soft cool shadows.
           The ortho frustum is fitted to the near city rather than the full

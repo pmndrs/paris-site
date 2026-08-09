@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Archived copy of the original static port — kept for reference, not built.
     "reference/**",
+    // Build output copied in by `pnpm sync:sky` — not ours to lint.
+    "vendor/**",
   ]),
   {
     // React Three Fiber drives three.js by mutating objects the renderer owns:

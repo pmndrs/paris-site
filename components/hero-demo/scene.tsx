@@ -2,15 +2,21 @@
 
 import { Suspense, useRef } from "react";
 import { Canvas } from "@react-three/fiber/webgpu";
+import { Sky } from "@pmndrs/sky/react";
 import { useControls } from "leva";
 import * as THREE from "three/webgpu";
 
 import { Buildings } from "./buildings";
-import { Camera } from "./camera";
+import { Camera, FramingTools } from "./camera";
 import { FX } from "./fx";
 import { Lights } from "./lights";
 import { PerfProbe, type PerfSample } from "./perf-probe";
 import { Tower } from "./tower";
+
+/** Paris. The whole point of driving the sun from a real solar position. */
+const PARIS_LATITUDE = 48.8566;
+/** 2026-06-25, the workshop. Sun arc is seasonal, so the date is not cosmetic. */
+const CONFERENCE_DAY_OF_YEAR = 176;
 
 /**
  * The hero demo's own canvas.
@@ -21,6 +27,10 @@ import { Tower } from "./tower";
  * that when something is slow or wrong, the multi-canvas machinery is not a
  * suspect. Those constraints come back when a stage folds into
  * `components/hero/`.
+ *
+ * The `debug` controls exist so a validation error or a frame-time cliff can be
+ * bisected from the panel in a few seconds, instead of by editing and reloading:
+ * every object and every MRT attachment has its own switch.
  */
 export function HeroDemoScene({
   onSample,
@@ -29,43 +39,155 @@ export function HeroDemoScene({
 }) {
   const towerRef = useRef<THREE.Group>(null);
 
-  const { treeCount, lowRiseCount, highRiseCount, treeShadows, postFx } =
-    useControls("scene", {
+  const { highRiseCount, lowRiseCount, treeCount, treeShadows } = useControls(
+    "city",
+    {
       highRiseCount: { value: 300, min: 0, max: 1000, step: 10 },
       lowRiseCount: { value: 10000, min: 0, max: 20000, step: 500 },
       treeCount: { value: 20000, min: 0, max: 40000, step: 1000 },
       treeShadows: false,
-      postFx: true,
+    },
+  );
+
+  const { skyEnabled, timeOfDay, exposure, haze, hazeStrength, hazePolicy } =
+    useControls("sky", {
+      skyEnabled: true,
+      // Hours, 0..24. Real solar position for the latitude and day below.
+      timeOfDay: { value: 20.5, min: 0, max: 24, step: 0.05 },
+      exposure: { value: 40, min: 1, max: 200, step: 1 },
+      haze: true,
+      hazeStrength: { value: 1, min: 0, max: 3, step: 0.05 },
+      hazePolicy: { value: "auto", options: ["auto", "ap", "raymarch"] },
     });
+
+  /**
+   * Metres per scene unit.
+   *
+   * `@pmndrs/sky` has no scale knob — it reads `camera.position.y` as **metres**
+   * (SkyAtmosphereBaker.ts:289). At Faraz's authored scale the tower is ~66
+   * units and the city ~400, so taken literally this is a 66 m tower in a 400 m
+   * town, and atmospheric extinction over 400 m is nil: the aerial perspective
+   * — the main thing sky is here for — would be invisible and we'd be tempted to
+   * fake it with `hazeStrength`.
+   *
+   * A root-group scale is the cheap fix: at 5, the tower lands near its real
+   * 330 m and the city spans ~2 km, where haze is actually a physical quantity.
+   * Exposed as a slider because watching haze arrive as you scale is the clearest
+   * possible demonstration of why the number matters.
+   */
+  const { worldScale } = useControls("world", {
+    worldScale: { value: 5, min: 1, max: 20, step: 0.5 },
+  });
+
+  const { padding, autoRotate, autoRotateSpeed, unlocked, polarDegrees } =
+    useControls("framing", {
+      // Hands the camera over: free orbit, wheel dolly, no polar lock, no
+      // auto-fit. Pair with the `logFraming` button to capture values by hand.
+      unlocked: false,
+      padding: { value: 0.1, min: 0, max: 1.5, step: 0.01 },
+      polarDegrees: { value: 93, min: 30, max: 150, step: 0.5 },
+      autoRotate: true,
+      autoRotateSpeed: { value: 2, min: 0, max: 30, step: 0.5 },
+    });
+
+  const { postFx, velocity, ao, bloom } = useControls("post", {
+    postFx: true,
+    velocity: true,
+    ao: true,
+    bloom: true,
+  });
+
+  const { buildings, tower, environment, shadows } = useControls("debug", {
+    buildings: true,
+    tower: true,
+    environment: false,
+    shadows: true,
+  });
+
+  const contents = (
+    <>
+      <Camera
+        targetRef={towerRef}
+        padding={padding}
+        autoRotate={autoRotate}
+        autoRotateSpeed={autoRotateSpeed}
+        polarDegrees={polarDegrees}
+        unlocked={unlocked}
+      />
+      <FramingTools />
+
+      {/* Everything with a physical size lives under one scale, so the metres
+          conversion is a single number rather than sprinkled constants. */}
+      <group scale={worldScale}>
+        {buildings && (
+          <Buildings
+            count={highRiseCount}
+            lowRiseCount={lowRiseCount}
+            treeCount={treeCount}
+            treeShadows={treeShadows}
+          />
+        )}
+
+        {/* The group stays mounted even when the tower is hidden — it is the
+            camera's fit target, and an empty box just means the fit retries. */}
+        <group ref={towerRef}>{tower && <Tower />}</group>
+      </group>
+
+      <Lights
+        environment={environment && !skyEnabled}
+        shadowRadius={60 * worldScale}
+        sunlight={!skyEnabled}
+      />
+
+      <FX
+        enabled={postFx}
+        velocity={velocity}
+        ao={ao}
+        bloom={bloom}
+        haze={haze && skyEnabled}
+        hazeStrength={hazeStrength}
+        hazePolicy={hazePolicy}
+      />
+    </>
+  );
 
   return (
     <Canvas
-      shadows
+      shadows={shadows}
       renderer={{ antialias: false, powerPreference: "high-performance" }}
       dpr={[1, 2]}
       forceEven
-      // The original disabled events entirely; CameraControls needs them.
-      camera={{ position: [0, 4, 40], fov: 30, near: 0.1, far: 1000 }}
+      camera={{
+        position: [0, 4 * worldScale, 40 * worldScale],
+        fov: 30,
+        near: 0.2 * worldScale,
+        far: 1000 * worldScale,
+      }}
     >
-      <color attach="background" args={["#0b1428"]} />
-      <fogExp2 attach="fog" args={["#0b1428", 0.001]} />
-
       <Suspense>
-        <Camera targetRef={towerRef} />
-
-        <Buildings
-          count={highRiseCount}
-          lowRiseCount={lowRiseCount}
-          treeCount={treeCount}
-          treeShadows={treeShadows}
-        />
-
-        <group ref={towerRef}>
-          <Tower />
-        </group>
-
-        <Lights />
-        <FX enabled={postFx} />
+        {skyEnabled ? (
+          <Sky
+            preset="earth"
+            timeOfDay={timeOfDay}
+            latitude={PARIS_LATITUDE}
+            dayOfYear={CONFERENCE_DAY_OF_YEAR}
+            exposure={exposure}
+            enableAerialPerspective={haze}
+          >
+            {contents}
+          </Sky>
+        ) : (
+          <>
+            <color attach="background" args={["#0b1428"]} />
+            {/* Sky's aerial perspective replaces this once it is on — running
+                both would double up the distance falloff. */}
+            <fogExp2
+              attach="fog"
+              args={["#0b1428", 0.001 / worldScale]}
+            />
+            {contents}
+          </>
+        )}
       </Suspense>
 
       <PerfProbe onSample={onSample} />

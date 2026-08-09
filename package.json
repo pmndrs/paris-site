@@ -6,10 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "sync:sky": "node scripts/sync-sky.mjs"
   },
   "dependencies": {
-    "@pmndrs/sky": "portal:/Users/dex/Developer/SebH-TSL-Sky",
+    "@pmndrs/sky": "link:./vendor/pmndrs-sky",
     "@pmndrs/upscaler": "^0.2.0",
     "@react-three/drei": "11.0.0-alpha.5",
     "@react-three/fiber": "10.0.0-alpha.3",

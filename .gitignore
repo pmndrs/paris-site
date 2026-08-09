@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Hero demo scratch
 /.next-hero
+
+# pnpm was used in this worktree; the repo's committed lockfile is yarn.lock
+pnpm-lock.yaml
