@@ -5,12 +5,12 @@ import { useMemo } from "react";
 import * as THREE from "three/webgpu";
 import {
   cos,
-  dot,
-  floor,
-  fract,
+  float,
+  fwidth,
   length,
   mix,
   mx_fractal_noise_float,
+  mx_noise_float,
   screenCoordinate,
   sin,
   smoothstep,
@@ -24,18 +24,25 @@ import { SectionCanvas } from "./section-canvas";
 
 /**
  * The grain gradient behind the closing CTA, and the demo at
- * /demos/grain-gradient.
+ * /demos/grain-gradient. Modelled on Paper Shaders' grain gradient — written in
+ * TSL rather than ported, but following its structure, which gets two things
+ * right that are easy to get wrong.
  *
- * Two passes, and the second is what gives it the look:
+ * **The grain does not animate.** It is a static field locked to pixels, so it
+ * reads as a sheet of paper the shape moves underneath. Resampling it per frame
+ * instead — the obvious way to build "film grain" — makes the whole thing look
+ * like an x-ray or a noisy video feed. Nothing else about the effect survives
+ * that mistake.
  *
- *  1. A smooth field — a few soft blobs drifting on a slow noise warp, so the
- *     shape kneads rather than pulses.
- *  2. A *dither*, not an overlay. The smooth field is quantised into a handful
- *     of levels with per-pixel noise added before the rounding, so pixels near
- *     a level boundary flip between the two. Grain therefore appears densest in
- *     the falloff and disappears inside the solids and the black — which is the
- *     characteristic of the effect. Laying grain over the top uniformly gives a
- *     dusty photo instead.
+ * **The grain is added to the shape, not painted over it.** Noise perturbs the
+ * scalar field *before* the colour ramp reads it, so grain in a dark region
+ * pushes that pixel up into the next band and takes on its colour. The practical
+ * effect is that grain brightens as it nears a blob, as though the blob were
+ * lighting it. An overlay cannot do that — it just sits there being dust.
+ *
+ * Two separate noise quantities do that work, as in the original:
+ *  - `distort` displaces the field in both directions, roughening the bands.
+ *  - `lift` is clamped positive, so it only ever brightens.
  *
  * Grayscale by default, and transparent: it lifts the black behind the type
  * rather than painting over it.
@@ -44,24 +51,26 @@ import { SectionCanvas } from "./section-canvas";
  * the demo's controls take effect without recompiling the shader on each drag.
  */
 
+/** Gradient stops. Three is enough for a grayscale ramp to band visibly. */
+const STOPS = 3;
+
 export type GrainParams = {
-  /** Quantisation steps. Fewer = chunkier banding, more room for stipple. */
-  levels: number;
-  /** How far a pixel can be pushed across a level boundary. ~1 = fully stippled. */
-  grain: number;
-  /**
-   * Device pixels per grain dot. At 1 the grain lands sub-CSS-pixel on any
-   * retina display and averages back into a smooth gradient — a faint sheen
-   * rather than grit. Clumping a few pixels per dot is what makes it read.
-   */
-  grainPx: number;
-  /** Grain resamples this many times a second — film, not strobe. */
-  grainHz: number;
-  /** Width of the falloff ramp. The stipple lives in this band. */
+  /** Band edge width. 0 = hard steps, 1 = smooth gradient. */
   softness: number;
-  /** Peak opacity. The field is transparent so it lifts whatever is behind. */
+  /** How far the grain displaces the field. Roughens the band edges. */
   intensity: number;
-  /** How fast the warp kneads the shape. */
+  /** Positive-only grain. This is the one that lights up near the blobs. */
+  noise: number;
+  /**
+   * Device pixels per grain unit. Grain is keyed to screen coordinates, not
+   * UVs, so it never scales with the shape — but on a retina display a value
+   * of 1 is already sub-CSS-pixel and averages into a smooth sheen. Raise it
+   * until it reads as grit.
+   */
+  grainSize: number;
+  /** Peak alpha. The field is transparent so it lifts whatever is behind. */
+  opacity: number;
+  /** How fast the warp kneads the shape. The shape moves; the grain does not. */
   speed: number;
   /** Below 1 enlarges the blobs, above 1 shrinks them. */
   scale: number;
@@ -69,35 +78,27 @@ export type GrainParams = {
   rotation: number;
   offsetX: number;
   offsetY: number;
-  /** Brightest point of the ramp. */
-  light: string;
-  /** Where the field bottoms out, before opacity takes it to nothing. */
-  dark: string;
+  /** Ramp stops, darkest to lightest. */
+  color1: string;
+  color2: string;
+  color3: string;
 };
 
 export const GRAIN_DEFAULTS: GrainParams = {
-  levels: 4,
-  grain: 1.45,
-  grainPx: 2.5,
-  grainHz: 12,
-  softness: 0.9,
-  intensity: 0.46,
+  softness: 0.5,
+  intensity: 0.5,
+  noise: 0.28,
+  grainSize: 2,
+  opacity: 0.62,
   speed: 1,
   scale: 1,
   rotation: 0,
   offsetX: 0,
   offsetY: 0,
-  light: "#adadbd",
-  dark: "#1a1a1d",
+  color1: "#22222a",
+  color2: "#6e6e7a",
+  color3: "#c8c8d4",
 };
-
-/**
- * Per-pixel white noise, from raw pixel coordinates rather than UVs — grain
- * that scales with geometry reads as texture, not as grain.
- */
-function hash(p: Parameters<typeof dot>[0]) {
-  return fract(sin(dot(p, vec2(12.9898, 78.233))).mul(43758.5453));
-}
 
 export function GrainField({ params }: { params: GrainParams }) {
   const { viewport } = useThree();
@@ -106,41 +107,43 @@ export function GrainField({ params }: { params: GrainParams }) {
     () => ({
       time: uniform(0),
       aspect: uniform(1),
-      levels: uniform(0),
-      grain: uniform(0),
-      grainPx: uniform(1),
-      grainHz: uniform(1),
       softness: uniform(0),
       intensity: uniform(0),
+      noise: uniform(0),
+      grainSize: uniform(1),
+      opacity: uniform(1),
       speed: uniform(1),
       scale: uniform(1),
       rotation: uniform(0),
       offset: uniform(new THREE.Vector2()),
-      light: uniform(new THREE.Color()),
-      dark: uniform(new THREE.Color()),
+      color1: uniform(new THREE.Color()),
+      color2: uniform(new THREE.Color()),
+      color3: uniform(new THREE.Color()),
     }),
     [],
   );
 
   u.aspect.value = viewport.width / viewport.height;
-  u.levels.value = params.levels;
-  u.grain.value = params.grain;
-  u.grainPx.value = params.grainPx;
-  u.grainHz.value = params.grainHz;
   u.softness.value = params.softness;
   u.intensity.value = params.intensity;
+  u.noise.value = params.noise;
+  u.grainSize.value = params.grainSize;
+  u.opacity.value = params.opacity;
   u.speed.value = params.speed;
   u.scale.value = params.scale;
   u.rotation.value = params.rotation;
   u.offset.value.set(params.offsetX, params.offsetY);
-  u.light.value.set(params.light);
-  u.dark.value.set(params.dark);
+  u.color1.value.set(params.color1);
+  u.color2.value.set(params.color2);
+  u.color3.value.set(params.color3);
 
   useFrame((state) => {
     u.time.value = state.elapsed;
   });
 
   const { colorNode, opacityNode } = useMemo(() => {
+    // --- the shape ------------------------------------------------------
+    //
     // Blob centres live in *frame* space — a fraction of the width and height,
     // independent of aspect — so the composition holds whether this is the
     // closer's wide band on a desktop, the same section stacked tall on a
@@ -190,36 +193,88 @@ export function GrainField({ params }: { params: GrainParams }) {
     // Pushed out to the edges rather than centred. The headline sits in the
     // middle of the closing section, and a bright core behind white type costs
     // more than the shape gains.
-    const field = blob(-0.26, -0.1, 0.6, 0.34)
+    const shape = blob(-0.26, -0.1, 0.6, 0.34)
       .add(blob(0.24, 0.16, 0.56, 0.3))
       .add(blob(0.04, -0.52, 0.42, 0.26).mul(0.8))
       .clamp(0, 1);
 
-    // Ease the ramp so the mid-tones — where the stipple lives — occupy more of
-    // the frame than a linear falloff would give them.
-    const half = u.softness.mul(0.48);
-    const shaped = smoothstep(
-      half.oneMinus().mul(0.5).add(0.01),
-      half.add(0.5).clamp(0, 1),
-      field,
+    // --- the grain ------------------------------------------------------
+    //
+    // Keyed to screen coordinates and, critically, with no time term: this
+    // field never changes. The shape slides underneath a fixed sheet.
+    const g = screenCoordinate.xy.div(u.grainSize);
+    const fine = mx_noise_float(vec3(g.mul(0.5), 0));
+    const mid = mx_noise_float(vec3(g.mul(0.2), 0));
+
+    // Very low frequencies, so grain density clumps and thins across the frame
+    // instead of sitting at one uniform level.
+    //
+    // These are remapped to *positive* on purpose. The original builds its fbm
+    // by summing value noise sampled 0..1, so the sums are one-sided and
+    // subtracting them pushes the result down. Using signed fractal noise here
+    // instead leaves the subtraction positive half the time, the grain fires
+    // almost everywhere, and the frame washes out to flat grey — which is
+    // exactly what the first attempt did. Amplitudes match theirs: three
+    // octaves from 0.2 falling by 0.6 sum to ~0.39.
+    const positive = (n: ReturnType<typeof mx_noise_float>, amp: number) =>
+      n.mul(0.5).add(0.5).mul(amp);
+    const cloudA = positive(
+      mx_fractal_noise_float(vec3(g.mul(0.002), 0), 3, 2, 0.6, 1),
+      0.39,
+    );
+    const cloudB = positive(
+      mx_fractal_noise_float(vec3(g.mul(0.003), 0), 3, 2, 0.6, 1),
+      0.39,
+    );
+    const cloudC = positive(
+      mx_fractal_noise_float(vec3(g.mul(0.001), 0), 3, 2, 0.6, 1),
+      0.78,
     );
 
-    // Quantise with noise mixed in *before* rounding. That is the whole trick:
-    // pixels sitting near a boundary get pushed either side of it, so the step
-    // between levels dissolves into stipple.
-    const frame = floor(u.time.mul(u.grainHz));
-    const grainCell = floor(screenCoordinate.xy.div(u.grainPx));
-    const n = hash(grainCell.add(frame.mul(vec2(37.0, 17.0))));
-    const level = floor(
-      shaped.mul(u.levels).add(n.sub(0.5).mul(u.grain)),
-    ).clamp(0, u.levels);
-    const tone = level.div(u.levels);
+    /** Signed: roughens band edges in both directions. */
+    const distort = fine.mul(mid).sub(cloudA).sub(cloudB);
+    /**
+     * Clamped positive, and mostly zero — the subtraction leaves only the
+     * peaks standing. That sparseness is what makes it read as grain rather
+     * than as a fog sitting over everything.
+     */
+    const lift = fine.mul(0.75).sub(cloudC).clamp(0, 1);
+
+    // The whole point — grain enters the field the ramp reads, so it inherits
+    // the colour and brightness of wherever it lands.
+    const field = shape
+      .add(distort.add(0.5).mul(u.intensity).mul(2).div(STOPS))
+      .add(lift.mul(u.noise).mul(10).div(STOPS));
+
+    // --- the ramp -------------------------------------------------------
+    //
+    // fwidth keeps the band edges from aliasing into stair-steps once softness
+    // is low enough for them to read as hard.
+    const aa = fwidth(field);
+    const v = field.sub(float(0.5).div(STOPS)).clamp(0, 1);
+
+    /** Fades the whole thing out at the bottom of the ramp. */
+    const coverage = smoothstep(
+      0,
+      u.softness.add(aa.mul(2)),
+      v.mul(STOPS).clamp(0, 1),
+    );
+
+    const mixer = v.mul(STOPS - 1);
+    const edge = (i: number) =>
+      smoothstep(
+        float(0.5).sub(u.softness.mul(0.5)).sub(aa),
+        float(0.5).add(u.softness.mul(0.5)).add(aa),
+        mixer.sub(i).clamp(0, 1),
+      );
+
+    const ramp = mix(mix(u.color1, u.color2, edge(0)), u.color3, edge(1));
 
     return {
-      colorNode: mix(u.dark, u.light, tone),
-      // Alpha is quantised too, so the grain reads as stipple over whatever is
-      // behind rather than as a haze sitting on top of it.
-      opacityNode: tone.mul(u.intensity),
+      colorNode: ramp,
+      // Not premultiplied — three does the blend, so the colour stays full
+      // strength and coverage drives alpha alone.
+      opacityNode: coverage.mul(u.opacity),
     };
   }, [u]);
 
@@ -242,7 +297,7 @@ export function NoiseFieldCanvas() {
       className="absolute inset-0"
       orthographic
       camera={{ position: [0, 0, 10], zoom: 1 }}
-      // The grain needs a real resample rate to read as grain; at 24 it strobes.
+      // Only the shape moves now, and slowly — this does not need 60.
       fps={30}
     >
       <GrainField params={GRAIN_DEFAULTS} />

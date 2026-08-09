@@ -19,12 +19,11 @@ import { WebGPUGate } from "./webgpu-gate";
  */
 export function GrainGradientStandalone() {
   const params = useControls("grain gradient", {
-    levels: { value: GRAIN_DEFAULTS.levels, min: 2, max: 12, step: 1 },
-    grain: { value: GRAIN_DEFAULTS.grain, min: 0, max: 3, step: 0.05 },
-    grainPx: { value: GRAIN_DEFAULTS.grainPx, min: 1, max: 8, step: 0.5 },
-    grainHz: { value: GRAIN_DEFAULTS.grainHz, min: 0, max: 60, step: 1 },
-    softness: { value: GRAIN_DEFAULTS.softness, min: 0.02, max: 1, step: 0.01 },
+    softness: { value: GRAIN_DEFAULTS.softness, min: 0, max: 1, step: 0.01 },
     intensity: { value: GRAIN_DEFAULTS.intensity, min: 0, max: 1, step: 0.01 },
+    noise: { value: GRAIN_DEFAULTS.noise, min: 0, max: 1, step: 0.01 },
+    grainSize: { value: GRAIN_DEFAULTS.grainSize, min: 0.5, max: 8, step: 0.25 },
+    opacity: { value: GRAIN_DEFAULTS.opacity, min: 0, max: 1, step: 0.01 },
     speed: { value: GRAIN_DEFAULTS.speed, min: 0, max: 5, step: 0.05 },
     scale: { value: GRAIN_DEFAULTS.scale, min: 0.2, max: 4, step: 0.05 },
     rotation: {
@@ -35,8 +34,9 @@ export function GrainGradientStandalone() {
     },
     offsetX: { value: GRAIN_DEFAULTS.offsetX, min: -1.5, max: 1.5, step: 0.01 },
     offsetY: { value: GRAIN_DEFAULTS.offsetY, min: -1.5, max: 1.5, step: 0.01 },
-    light: GRAIN_DEFAULTS.light,
-    dark: GRAIN_DEFAULTS.dark,
+    color1: GRAIN_DEFAULTS.color1,
+    color2: GRAIN_DEFAULTS.color2,
+    color3: GRAIN_DEFAULTS.color3,
   });
 
   return (

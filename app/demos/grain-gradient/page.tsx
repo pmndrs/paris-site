@@ -7,7 +7,7 @@ import { GrainGradientStandalone } from "@/components/three/scenes";
 export const metadata: Metadata = {
   title: "Grain gradient — R3F v10 demo",
   description:
-    "A dithered grain gradient written in TSL and rendered on WebGPU. Soft drifting blobs quantised with per-pixel noise, so the grit concentrates in the falloff.",
+    "A grain gradient written in TSL and rendered on WebGPU. Drifting blobs under a static sheet of grain that brightens as it nears them.",
   robots: { index: false, follow: false },
 };
 
@@ -29,47 +29,44 @@ export default function GrainGradientDemoPage() {
         </p>
       </div>
 
-      <InfoDialog title="Grain gradient" subtitle="TSL · WebGPU · dithered">
-        <InfoSection heading="The grain is a dither, not an overlay">
+      <InfoDialog title="Grain gradient" subtitle="TSL · WebGPU · static grain">
+        <InfoSection heading="The grain doesn't move">
           <p>
-            That distinction is the entire effect. A smooth field of drifting
-            blobs is quantised into a handful of brightness levels — but
-            per-pixel noise is added <em>before</em> the rounding. Pixels sitting
-            near a level boundary get pushed either side of it, so the hard step
-            between two levels dissolves into stipple.
-          </p>
-          <p>
-            The grit therefore concentrates in the falloff and disappears inside
-            the solids and the black, which is what your eye reads as film grain.
-            Laying uniform noise over the top instead gives a dusty photograph —
-            the giveaway that something is faking it.
+            It is a static field locked to pixels, so it reads as a sheet of
+            paper that the shape slides underneath. Resampling it every frame —
+            the obvious way to build &ldquo;film grain&rdquo; — turns the whole
+            thing into an x-ray or a noisy video feed, and nothing else about
+            the effect survives that. Only the blobs are animated.
           </p>
         </InfoSection>
 
-        <InfoSection heading="Grain has to be measured in pixels">
+        <InfoSection heading="The grain is added to the shape, not over it">
           <p>
-            The noise is keyed to raw screen coordinates rather than the
-            surface&apos;s UVs. Grain that scales with geometry reads as texture;
-            grain fixed to the display reads as grain.
+            Noise perturbs the scalar field <em>before</em> the colour ramp
+            reads it. So grain landing in a dark region pushes that pixel up
+            into the next band and takes on its colour — which is why the grain
+            appears to brighten as it nears a blob, as though the blob were
+            lighting it. An overlay can&apos;t do that; it just sits there being
+            dust.
           </p>
           <p>
-            <code>grainPx</code> then clumps several device pixels into one grain
-            dot. At 1 it lands sub-CSS-pixel on any retina display and averages
-            straight back into a smooth gradient — visible as a faint sheen and
-            nothing more. That was the first version of this, and it looked
-            broken in a way that was hard to see.
+            Two noise quantities do the work. One is signed and roughens the
+            band edges in both directions. The other is clamped positive, so it
+            only ever brightens — and it is built by subtracting a one-sided fbm
+            from fine noise, which leaves it mostly at zero. That sparseness is
+            what makes it read as grain rather than fog.
           </p>
         </InfoSection>
 
         <InfoSection heading="Dials worth reaching for">
           <ul className="grid gap-1.5">
             {[
-              ["levels", "Fewer steps, chunkier banding, more room for stipple."],
-              ["grain", "How far a pixel can cross a boundary. ~1 is fully stippled; 0 is clean banding."],
-              ["grainPx", "Device pixels per grain dot. The difference between grit and sheen."],
-              ["grainHz", "Resample rate. 12 reads as film; 60 strobes; 0 freezes it."],
-              ["softness", "Width of the falloff — the band the stipple lives in."],
-              ["intensity", "Peak opacity. The field is transparent so it lifts what's behind."],
+              ["softness", "Band edge width. 0 is hard steps, 1 is a smooth gradient."],
+              ["intensity", "How far grain displaces the field. Roughens the edges of the bands."],
+              ["noise", "The positive-only grain — the one that lights up near the blobs."],
+              ["grainSize", "Device pixels per grain unit. At 1 it's sub-pixel on retina and averages into a sheen."],
+              ["opacity", "Peak alpha. The field is transparent so it lifts whatever is behind."],
+              ["speed", "Moves the blobs. The grain stays put regardless."],
               ["scale / rotation / offset", "Moves the field rather than the blobs. One transform, composes."],
             ].map(([k, v]) => (
               <li key={k} className="flex gap-3">
@@ -100,7 +97,7 @@ export default function GrainGradientDemoPage() {
             renderer and takes the full frame. Same component, different host.
           </p>
           <p>
-            Inspired by{" "}
+            Modelled on{" "}
             <a
               href="https://shaders.paper.design"
               className="text-foreground underline underline-offset-4"
@@ -109,8 +106,8 @@ export default function GrainGradientDemoPage() {
             >
               Paper Shaders
             </a>
-            &apos; grain gradient; written from scratch in TSL rather than
-            ported.
+            &apos; grain gradient — read the source, then written in TSL rather
+            than ported.
           </p>
         </InfoSection>
 
