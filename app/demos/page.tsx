@@ -25,6 +25,13 @@ const DEMOS = [
       "Drifting blobs under a static sheet of grain. The grain feeds the colour ramp rather than sitting over it, so it brightens as it nears a blob. Every dial is live.",
     tags: ["TSL", "static grain", "tunable"],
   },
+  {
+    href: "/demos/flip-grid",
+    title: "A grid that flips to gold",
+    blurb:
+      "Tiles that flip as the cursor sweeps them and hold the pose before falling back. Angle, velocity and hold timer live in a storage buffer a compute pass integrates — the CPU writes five floats a frame however many tiles there are.",
+    tags: ["compute shader", "storage buffer", "TSL struct"],
+  },
 ];
 
 export default function DemosPage() {

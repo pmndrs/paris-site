@@ -1,9 +1,9 @@
 "use client";
 
-import { Leva } from "leva";
 import { SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 
+import { LevaPanel } from "@/components/three/leva-panel";
 import { cn } from "@/lib/utils";
 
 /**
@@ -18,16 +18,17 @@ import { cn } from "@/lib/utils";
  * panel's own corner instead of somewhere unrelated. `InfoDialog` takes the
  * opposite corner.
  *
- * Mounted always and hidden with Leva's own `hidden` flag rather than
- * unmounted: unmounting drops the store, so closing the panel would silently
- * reset every value you had just dialled in.
+ * The panel itself is `LevaPanel`, so there is exactly one thing on the site
+ * that mounts `<Leva>` and the `?debug` gate keeps working here too. It stays
+ * mounted and toggles `hidden` rather than unmounting — unmounting drops the
+ * store, which would silently reset every value you had just dialled in.
  */
 export function ControlsToggle({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <Leva hidden={!open} collapsed={false} />
+      <LevaPanel alwaysOpen={open} />
 
       <button
         type="button"
