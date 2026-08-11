@@ -10,6 +10,7 @@ import { Buildings } from "./buildings";
 import { Camera, FramingTools } from "./camera";
 import { FX } from "./fx";
 import { Lights } from "./lights";
+import { Lettering } from "./lettering";
 import { PerfProbe, type PerfSample } from "./perf-probe";
 import { Terrain } from "./terrain";
 import { Tower, type TowerMode } from "./tower";
@@ -73,12 +74,14 @@ export function HeroDemoScene({
    * state (dark iron + random emissive pops → bloom). The beacon is the
    * summit's rotating double beam, faked with additive cones.
    */
-  const { towerMode, beacon } = useControls("tower", {
+  const { towerMode, beacon, lettering } = useControls("tower", {
     towerMode: {
       value: "glow" as TowerMode,
       options: ["glow", "metal", "sparkle"] as TowerMode[],
     },
     beacon: false,
+    // The PMNDRS letters stepping down the tower, PARIS-poster style.
+    lettering: true,
   });
 
   /**
@@ -276,6 +279,8 @@ export function HeroDemoScene({
         <group ref={towerRef}>
           {tower && <Tower onReady={onTowerReady} mode={towerMode} beacon={beacon} />}
         </group>
+
+        {lettering && <Lettering />}
       </group>
 
       <Lights

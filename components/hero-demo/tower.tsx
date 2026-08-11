@@ -59,11 +59,20 @@ function makeSparkleMaterial() {
 }
 
 /**
- * The summit beacon: two opposed fake-volumetric beams. Each is an open
- * cone flaring away from the hub, additive, no depth write, opacity falling
- * off along the length — the standard lighthouse cheat. Real volumetrics
- * would want the scene depth to occlude the shaft; at hero distance against
- * a dusk sky the cheat is indistinguishable and free.
+ * The summit beacon: two opposed fake-volumetric beams, shaded the way
+ * drei's `<SpotLight volumetric>` (pmndrs volumetric-spotlight example)
+ * does its cone — a TSL port of that GLSL SpotLightMaterial, which can't
+ * run on WebGPU directly. Two terms multiply:
+ *
+ * 1. Linear distance attenuation from the hub along the beam.
+ * 2. `anglePower` falloff on the view-space normal: silhouette-edge
+ *    fragments (normal ⟂ view) fade out, the tube's core (normal toward
+ *    camera) stays bright. This is what turns a hard-edged cone into a
+ *    soft light shaft with a luminous core.
+ *
+ * The example's third trick — depth-buffer soft intersection — is skipped:
+ * these beams live in the sky and rarely cross geometry. Additive, no
+ * depth write, double-sided (abs() covers the flipped back-face normals).
  */
 function makeBeamMaterial() {
   const material = new THREE.MeshBasicNodeMaterial({
@@ -73,25 +82,30 @@ function makeBeamMaterial() {
     side: THREE.DoubleSide,
     depthWrite: false,
   });
-  // v = 0 at the hub after the geometry translate below.
-  material.opacityNode = TSL.pow(TSL.oneMinus(TSL.uv().y), 2.0).mul(0.3);
+  // Geometry below is translated so the hub is at y = 0, beam along +y.
+  const along = TSL.positionLocal.y.div(BEAM_LENGTH).clamp(0.0, 1.0);
+  const distanceFade = TSL.oneMinus(along);
+  const angleFade = TSL.pow(TSL.abs(TSL.normalView.z), 4.0);
+  material.opacityNode = distanceFade.mul(angleFade).mul(0.6);
   return material;
 }
 
 /** Beam length/flare in the tower's local (pre-scale-0.2) units. */
 const BEAM_LENGTH = 600;
-const BEAM_FLARE = 20;
+const BEAM_FLARE = 36;
 
 function Beacon({ speed = 0.6 }: { speed?: number }) {
   const spinRef = useRef<THREE.Group>(null);
 
   const geometry = useMemo(() => {
+    // High radial segmentation on purpose: the anglePower falloff shades by
+    // interpolated silhouette normals, and a coarse tube shows facets.
     const g = new THREE.CylinderGeometry(
       BEAM_FLARE,
       1.5,
       BEAM_LENGTH,
-      12,
-      1,
+      64,
+      8,
       true,
     );
     // Hub end at the origin, beam extending along +y (then rotated flat).
