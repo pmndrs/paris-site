@@ -39,6 +39,13 @@ const DEMOS = [
       "A single mesh gaining one capability at a time — edges, contact shadows, metalness, and finally an environment to reflect. The fourth stage turns it black on purpose: metal has no colour of its own.",
     tags: ["drei", "generated IBL", "no re-renders"],
   },
+  {
+    href: "/demos/takehome-grid",
+    title: "A directory, turning over",
+    blurb:
+      "Six tiles that turn one at a time to name the other demos on this site. The same effect as the flip grid, built the opposite way — no instancing, no storage buffer, no compute pass, because six tiles on a fixed timeline have no history to keep.",
+    tags: ["CanvasTexture", "no GPU state", "the simple version"],
+  },
 ];
 
 export default function DemosPage() {

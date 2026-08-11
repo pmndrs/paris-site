@@ -50,6 +50,15 @@ export const NoiseFieldCanvas = dynamic(
   { ssr: false },
 );
 
+/** The "demos" outcome card. Tiles that turn to name what you leave with. */
+export const TakehomeGridCanvas = dynamic(
+  () =>
+    import("./takehome-grid/takehome-grid-canvas").then(
+      (m) => m.TakehomeGridCanvas,
+    ),
+  { ssr: false },
+);
+
 /** The "ecosystem" outcome card. One box, gaining a capability at a time. */
 export const BlendingCubeCanvas = dynamic(
   () =>

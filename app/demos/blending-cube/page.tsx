@@ -38,7 +38,7 @@ export default function BlendingCubeDemoPage() {
       >
         <InfoSection heading="The same mesh the whole way through">
           <p>
-            There is one <code>boxGeometry</code> on screen and it is never
+            There is one <code>RoundedBox</code> on screen and it is never
             replaced. Every stage adds something around it — a drei component, a
             material property, a light — and the caption names whatever just
             arrived. That is the argument the card next to it makes: the
@@ -67,10 +67,10 @@ export default function BlendingCubeDemoPage() {
         <InfoSection heading="The environment is generated, not downloaded">
           <p>
             The HDR the cube reflects is rasterised at runtime — a ground-to-sky
-            gradient with three soft-edged rectangles standing in for lights,
-            written into an equirectangular float texture. Three of them, spread
-            around the azimuth, so a face is always sliding into or out of one
-            as the cube turns. A still highlight reads as a gold-coloured
+            gradient with four soft-edged rectangles standing in for lights,
+            written into an equirectangular float texture. They are spread around
+            the azimuth, so a face is always sliding into or out of one as the
+            cube turns. A still highlight reads as a gold-coloured
             surface; a travelling one reads as metal.
           </p>
           <p>

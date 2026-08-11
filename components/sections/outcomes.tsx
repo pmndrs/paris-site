@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 
-import { BlendingCubeCanvas, MagicBoxCanvas } from "@/components/three/scenes";
+import {
+  BlendingCubeCanvas,
+  MagicBoxCanvas,
+  TakehomeGridCanvas,
+} from "@/components/three/scenes";
 import { Card } from "@/components/ui/card";
 import { OUTCOMES } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
@@ -43,7 +47,10 @@ const SLOTS: { label: string; scene?: ReactNode }[] = [
       <BlendingCubeCanvas camera={{ position: [3.2, 2.1, 4.0], fov: 30 }} />
     ),
   },
-  { label: "Scene pending", scene: undefined },
+  {
+    label: "Everything on this page, yours",
+    scene: <TakehomeGridCanvas />,
+  },
 ];
 
 export function Outcomes() {
