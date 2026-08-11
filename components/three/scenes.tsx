@@ -19,6 +19,7 @@ export const TrackCanvas = dynamic(
   { ssr: false },
 );
 
+/** The "Why now" backdrop. Brings its own wrapper — see the component. */
 export const FlipGridCanvas = dynamic(
   () => import("./flip-grid/flip-grid-canvas").then((m) => m.FlipGridCanvas),
   { ssr: false },
