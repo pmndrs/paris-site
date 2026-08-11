@@ -51,12 +51,15 @@ export function SectionCanvas({
   className,
   camera,
   orthographic,
+  interactive = false,
 }: {
   children: ReactNode;
   fps?: number;
   className?: string;
   camera?: Record<string, unknown>;
   orthographic?: boolean;
+  /** Opt in to pointer events. Only for canvases the visitor is meant to grab. */
+  interactive?: boolean;
 }) {
   const support = useWebGPU();
   const ready = usePrimaryReady();
@@ -76,7 +79,9 @@ export function SectionCanvas({
       // and since these canvases are pointer-events: none, re-measuring on
       // scroll buys us nothing to begin with.
       forceEven
-      resize={{ scroll: false }}
+      // Interactive canvases keep it: R3F maps pointer coordinates through
+      // size.top/left, which goes stale the moment the page scrolls.
+      resize={interactive ? undefined : { scroll: false }}
       renderer={{
         alpha: true,
         antialias: true,
@@ -86,8 +91,13 @@ export function SectionCanvas({
         scheduler: { after: PRIMARY, fps },
       }}
       // Backgrounds must never eat clicks or text selection. Where a scene
-      // needs the cursor it reads it from the window instead.
-      style={{ pointerEvents: "none" }}
+      // needs the cursor it reads it from the window instead. Interactive
+      // canvases also claim the drag, so the page doesn't scroll under them.
+      style={
+        interactive
+          ? { touchAction: "none", cursor: "grab" }
+          : { pointerEvents: "none" }
+      }
     >
       <DepthAttachmentSync />
       {children}

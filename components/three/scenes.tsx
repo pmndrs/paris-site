@@ -25,6 +25,24 @@ export const FlipGridCanvas = dynamic(
   { ssr: false },
 );
 
+export const MagicBoxCanvas = dynamic(
+  () => import("./magic-box").then((m) => m.MagicBoxCanvas),
+  { ssr: false },
+);
+
+/** The same scene as its own primary canvas — see /demos/magic-box. */
+export const MagicBoxStandalone = dynamic(
+  () => import("./magic-box-standalone").then((m) => m.MagicBoxStandalone),
+  { ssr: false },
+);
+
+/** The same field as its own primary canvas, with controls — /demos/grain-gradient. */
+export const GrainGradientStandalone = dynamic(
+  () =>
+    import("./grain-gradient-standalone").then((m) => m.GrainGradientStandalone),
+  { ssr: false },
+);
+
 export const NoiseFieldCanvas = dynamic(
   () => import("./noise-field").then((m) => m.NoiseFieldCanvas),
   { ssr: false },

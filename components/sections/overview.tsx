@@ -52,8 +52,10 @@ export function Overview() {
             className="overflow-hidden rounded-xl border border-border bg-card"
             data-reveal
           >
-            {/* Poster today; the live block-city scene drops in as children
-                once v10 lands — see SPEC.md §4. */}
+            {/* Poster only. The magic box lived here for a while and moved to
+                the Outcomes cards, where it illustrates something; the block
+                city is still the right subject for this slot, whether that ends
+                up a live scene or a better frame. See SPEC.md §4. */}
             <SceneSlot
               poster="/concept/city-wide.png"
               alt="Concept frame of the block city at mid distance"
