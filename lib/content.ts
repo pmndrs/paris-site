@@ -72,8 +72,8 @@ export const OUTCOMES = [
   },
   {
     n: "03",
-    t: "Something you built in a day",
-    d: "Whatever your track produces on day two, plus the code and the notes from your track lead.",
+    t: "The demos, not just the notes",
+    d: "Every demo we build on day one, running and yours to reuse — including the ones on this page.",
   },
 ];
 

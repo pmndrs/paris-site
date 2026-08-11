@@ -13,7 +13,7 @@ export function Overview() {
               01 · Overview
             </div>
             <SectionTitle data-reveal>
-              Learn the stack, then build with it
+              Learn the pieces, then build with them
             </SectionTitle>
             <p
               className="mt-4 text-base leading-[1.65] text-muted-foreground"
