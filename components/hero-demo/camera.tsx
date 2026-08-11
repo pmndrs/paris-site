@@ -118,6 +118,14 @@ export function Camera({
     // subsequent frame inherited it.
     if (!(cam.aspect > 0) || !Number.isFinite(cam.aspect)) return false;
 
+    // Force the parent chain current before measuring. `Box3.setFromObject`
+    // refreshes the target's own descendants but NOT its ancestors — and this
+    // fit can run from an effect before the first render has ever computed
+    // the `worldScale` group's matrixWorld. Measured then, the tower reads at
+    // 1/worldScale size and the camera parks 5× too close (tgt y 12 instead
+    // of 60, dist 57 instead of 285 — the "camera inside the letters" boot).
+    target.updateWorldMatrix(true, true);
+
     // The GLTF may not have populated the group yet.
     _box.setFromObject(target);
     if (_box.isEmpty()) return false;

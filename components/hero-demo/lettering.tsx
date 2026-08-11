@@ -1,14 +1,22 @@
 "use client";
 
-import { Billboard, Center, Text3D } from "@react-three/drei";
+import { useMemo } from "react";
+import { Billboard } from "@react-three/drei";
+import { useLoader } from "@react-three/fiber/webgpu";
+import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
+import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
 
 /**
  * The PMNDRS lettering, restored from Faraz's `Text.tsx` — specifically the
  * commented-out PARIS-poster layout rather than the two-line version that
  * was live: single huge letters stepping down the tower, alternating sides,
- * the way the reference photo stacks P-A-R-I-S around the spire. Positions
- * are in city units against the ~24-unit tower, so the letters keep his
- * poster proportions (letter ≈ ⅕ tower height).
+ * the way the reference photo stacks P-A-R-I-S around the spire.
+ *
+ * Built on three's own FontLoader/TextGeometry rather than drei's `<Text3D>`:
+ * the installed drei's runtime and types disagree about the extrusion-depth
+ * prop name (`height` vs `depth`), and in practice NEITHER reached the
+ * geometry — every letter extruded at TextGeometry's default depth and came
+ * out deeper than it was tall. Owning the geometry call ends the guessing.
  *
  * One `<Billboard>` wraps the whole arrangement: the letters hold their
  * positions in the tower's frame but always face the orbiting camera, so
@@ -17,6 +25,15 @@ import { Billboard, Center, Text3D } from "@react-three/drei";
  */
 
 const FONT_URL = "/hero-demo/Geist_SemiBold.json";
+
+/**
+ * This Geist typeface JSON renders glyphs ~2.5× the nominal `size`
+ * (font-conversion scaling), so 1.9 lands the ~5-unit cap height these
+ * positions are designed around — letter ≈ ⅕ of the ~24-unit tower, the
+ * poster proportion.
+ */
+const LETTER_SIZE = 1.9;
+const LETTER_DEPTH = 0.12;
 
 const LETTERS: { char: string; position: [number, number, number] }[] = [
   { char: "P", position: [-4.5, 20, 0] },
@@ -28,29 +45,35 @@ const LETTERS: { char: string; position: [number, number, number] }[] = [
 ];
 
 export function Lettering() {
+  const font = useLoader(FontLoader, FONT_URL);
+
+  const geometries = useMemo(
+    () =>
+      LETTERS.map(({ char }) => {
+        const geometry = new TextGeometry(char, {
+          font,
+          size: LETTER_SIZE,
+          depth: LETTER_DEPTH,
+          bevelEnabled: true,
+          bevelSize: 0.04,
+          bevelThickness: 0.04,
+          bevelSegments: 2,
+          curveSegments: 10,
+        });
+        // Center per letter so `position` places the letter's middle, not
+        // its baseline corner.
+        geometry.center();
+        return geometry;
+      }),
+    [font],
+  );
+
   return (
     <Billboard>
-      {LETTERS.map(({ char, position }) => (
-        <group key={char} position={position}>
-          <Center>
-            <Text3D
-              font={FONT_URL}
-              size={5}
-              // TextGeometry's extrusion depth DEFAULTS TO 50 units when
-              // unset — deeper than the letters are tall. Poster letters
-              // want to be near-flat slabs.
-              depth={0.4}
-              bevelEnabled
-              bevelSize={0.1}
-              bevelThickness={0.1}
-              bevelSegments={3}
-              curveSegments={12}
-            >
-              {char}
-              <meshBasicMaterial />
-            </Text3D>
-          </Center>
-        </group>
+      {LETTERS.map(({ char, position }, i) => (
+        <mesh key={char} position={position} geometry={geometries[i]}>
+          <meshBasicMaterial />
+        </mesh>
       ))}
     </Billboard>
   );
