@@ -32,6 +32,13 @@ const DEMOS = [
       "Tiles that flip as the cursor sweeps them and hold the pose before falling back. Angle, velocity and hold timer live in a storage buffer a compute pass integrates — the CPU writes five floats a frame however many tiles there are.",
     tags: ["compute shader", "storage buffer", "TSL struct"],
   },
+  {
+    href: "/demos/blending-cube",
+    title: "One box, four imports",
+    blurb:
+      "A single mesh gaining one capability at a time — edges, contact shadows, metalness, and finally an environment to reflect. The fourth stage turns it black on purpose: metal has no colour of its own.",
+    tags: ["drei", "generated IBL", "no re-renders"],
+  },
 ];
 
 export default function DemosPage() {

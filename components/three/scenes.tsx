@@ -39,11 +39,22 @@ export const MagicBoxStandalone = dynamic(
 /** The same field as its own primary canvas, with controls — /demos/grain-gradient. */
 export const GrainGradientStandalone = dynamic(
   () =>
-    import("./grain-gradient-standalone").then((m) => m.GrainGradientStandalone),
+    import("./grain-gradient-standalone").then(
+      (m) => m.GrainGradientStandalone,
+    ),
   { ssr: false },
 );
 
 export const NoiseFieldCanvas = dynamic(
   () => import("./noise-field").then((m) => m.NoiseFieldCanvas),
+  { ssr: false },
+);
+
+/** The "ecosystem" outcome card. One box, gaining a capability at a time. */
+export const BlendingCubeCanvas = dynamic(
+  () =>
+    import("./blending-cube/blending-cube-canvas").then(
+      (m) => m.BlendingCubeCanvas,
+    ),
   { ssr: false },
 );

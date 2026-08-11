@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { MagicBoxCanvas } from "@/components/three/scenes";
+import { BlendingCubeCanvas, MagicBoxCanvas } from "@/components/three/scenes";
 import { Card } from "@/components/ui/card";
 import { OUTCOMES } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
@@ -31,9 +31,18 @@ const SLOTS: { label: string; scene?: ReactNode }[] = [
     label: "Ten, written six ways",
     // Closer than the demo's framing — the slot is short and wide, so the
     // vertical field of view is what limits it.
-    scene: <MagicBoxCanvas camera={{ position: [-3.3, 1.55, 3.75], fov: 40 }} />,
+    scene: (
+      <MagicBoxCanvas camera={{ position: [-3.3, 1.55, 3.75], fov: 40 }} />
+    ),
   },
-  { label: "Scene pending", scene: undefined },
+  {
+    label: "One box, four imports",
+    // Pulled in and lifted slightly: the default framing leaves room under the
+    // cube for a contact shadow that a 190px slot has no vertical budget for.
+    scene: (
+      <BlendingCubeCanvas camera={{ position: [3.2, 2.1, 4.0], fov: 30 }} />
+    ),
+  },
   { label: "Scene pending", scene: undefined },
 ];
 
