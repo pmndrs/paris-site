@@ -300,8 +300,16 @@ export function MagicBoxScene() {
 
 /**
  * In-page version: a secondary canvas borrowing the hero's renderer.
+ *
+ * `camera` is overridable because BOX_CAMERA frames the box for a full screen;
+ * dropped into a short, wide card slot the same framing leaves it marooned in
+ * the middle. Callers pull in rather than the box growing.
  */
-export function MagicBoxCanvas() {
+export function MagicBoxCanvas({
+  camera = BOX_CAMERA,
+}: {
+  camera?: { position: readonly [number, number, number]; fov: number };
+} = {}) {
   return (
     <>
       <LevaPanel />
@@ -310,7 +318,7 @@ export function MagicBoxCanvas() {
         // It is the one thing on the page you can grab, so it gets a real
         // framerate rather than the backdrop budget.
         fps={60}
-        camera={BOX_CAMERA}
+        camera={camera}
       >
         <MagicBoxScene />
       </SectionCanvas>

@@ -1,6 +1,5 @@
 import { RevealGroup } from "@/components/motion/reveal";
 import { SceneSlot } from "@/components/three/scene-slot";
-import { MagicBoxCanvas } from "@/components/three/scenes";
 import { FACTS } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
 
@@ -53,18 +52,18 @@ export function Overview() {
             className="overflow-hidden rounded-xl border border-border bg-card"
             data-reveal
           >
-            {/* Six portals, six writing systems, one shared renderer. The
-                poster stays underneath for anyone without WebGPU. */}
+            {/* Poster only. The magic box lived here for a while and moved to
+                the Outcomes cards, where it illustrates something; the block
+                city is still the right subject for this slot, whether that ends
+                up a live scene or a better frame. See SPEC.md §4. */}
             <SceneSlot
               poster="/concept/city-wide.png"
               alt="Concept frame of the block city at mid distance"
               sizes="(max-width: 768px) 100vw, 50vw"
-              className="h-[240px] md:h-[300px] lg:h-[360px]"
-            >
-              <MagicBoxCanvas />
-            </SceneSlot>
+              className="h-[240px] opacity-85 md:h-[300px] lg:h-[360px]"
+            />
             <div className="border-t border-border px-4.5 py-4 font-mono text-[11px] text-faint">
-              Ten, written six ways · drag to turn it
+              Concept frame · the block city at mid distance
             </div>
           </div>
         </RevealGroup>
