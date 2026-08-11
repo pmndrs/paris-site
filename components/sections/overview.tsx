@@ -1,5 +1,6 @@
 import { RevealGroup } from "@/components/motion/reveal";
 import { SceneSlot } from "@/components/three/scene-slot";
+import { BlockCityCanvas } from "@/components/three/scenes";
 import { FACTS } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
 
@@ -52,18 +53,22 @@ export function Overview() {
             className="overflow-hidden rounded-xl border border-border bg-card"
             data-reveal
           >
-            {/* Poster only. The magic box lived here for a while and moved to
-                the Outcomes cards, where it illustrates something; the block
-                city is still the right subject for this slot, whether that ends
-                up a live scene or a better frame. See SPEC.md §4. */}
+            {/* The poster stays the base layer and the scene fades in over it,
+                so this still reads without WebGPU. The city is its own
+                component rather than the hero's: that one is shaped around the
+                tower it stands in, and leaves a hole in the middle here. */}
             <SceneSlot
               poster="/concept/city-wide.png"
               alt="Concept frame of the block city at mid distance"
               sizes="(max-width: 768px) 100vw, 50vw"
               className="h-[240px] opacity-85 md:h-[300px] lg:h-[360px]"
-            />
+            >
+              <BlockCityCanvas />
+            </SceneSlot>
+            {/* Deliberately true of both layers: the live scene when there is
+                WebGPU, the concept frame when there isn't. */}
             <div className="border-t border-border px-4.5 py-4 font-mono text-[11px] text-faint">
-              Concept frame · the block city at mid distance
+              The block city · at mid distance
             </div>
           </div>
         </RevealGroup>

@@ -50,6 +50,12 @@ export const NoiseFieldCanvas = dynamic(
   { ssr: false },
 );
 
+/** The Overview slot: a skyline that builds itself. */
+export const BlockCityCanvas = dynamic(
+  () => import("./block-city/block-city-canvas").then((m) => m.BlockCityCanvas),
+  { ssr: false },
+);
+
 /** The "demos" outcome card. Tiles that turn to name what you leave with. */
 export const TakehomeGridCanvas = dynamic(
   () =>

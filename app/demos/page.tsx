@@ -46,6 +46,13 @@ const DEMOS = [
       "Six tiles that turn one at a time to name the other demos on this site. The same effect as the flip grid, built the opposite way — no instancing, no storage buffer, no compute pass, because six tiles on a fixed timeline have no history to keep.",
     tags: ["CanvasTexture", "no GPU state", "the simple version"],
   },
+  {
+    href: "/demos/block-city",
+    title: "A city that builds itself",
+    blurb:
+      "A few hundred instanced blocks rising out of the ground in a wave and settling. The layout is a hash of the instance index rather than an array, and the frame loop latches off once the last block lands.",
+    tags: ["InstancedMesh", "deterministic layout", "emissive maps"],
+  },
 ];
 
 export default function DemosPage() {
