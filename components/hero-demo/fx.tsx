@@ -279,22 +279,11 @@ export function FX({
     pass.aoIntensity.value = ssgiAoIntensity;
   }, [ssgiSlices, ssgiSteps, ssgiRadius, ssgiIntensity, ssgiAoIntensity]);
 
-  /**
-   * The aerial-perspective LUT depends on camera position and orientation, so it
-   * has to be re-rendered every frame — and **nothing in the React bindings does
-   * it**. `<Sky>`'s own `useFrame` calls `sky.update(camera)`, whose
-   * `baker.update()` refreshes the transmittance / multi-scatter / sky-view LUTs
-   * but explicitly not AP (SkyAtmosphereBaker.ts:460). `<AutoHaze>` doesn't call
-   * it either. The vanilla README does, in its animation loop. So on the React
-   * path the haze is computed against a stale LUT and won't track the camera.
-   *
-   * Driving it here, and flagged as an upstream fix in HERO-DEMO-SPEC.md.
-   * `<Sky>` is our parent, so its `useFrame` is registered first and
-   * `sky.update(camera)` has already run for this frame.
-   */
+  // Per-frame AP LUT refresh is upstream's job now: the react binding's
+  // useFrame calls `sky.updateAerialPerspective()` when `applyHaze` has been
+  // wired (`sky._hazeApplied`), which was our flagged fix — driving it here
+  // too would just pay the ~half-frame AP cost twice.
   useFrame(({ camera }) => {
-    if (sky && haze) sky.updateAerialPerspective();
-
     // Sky fog reconstructs rays from the *scene* camera, which output-node
     // TSL can't reach implicitly (see makeFogUniforms).
     if (useSkyFog) {

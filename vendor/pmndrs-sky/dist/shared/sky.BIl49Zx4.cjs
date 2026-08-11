@@ -1907,6 +1907,9 @@ class SkyAtmosphereBaker {
     __publicField$6(this, "_cameraPositionKm");
     __publicField$6(this, "_cameraUp");
     __publicField$6(this, "_cameraAltitudeM");
+    __publicField$6(this, "_lastSkyViewHeightKm");
+    __publicField$6(this, "_lastSkyViewZenith");
+    __publicField$6(this, "_lastCubeZenith");
     this.renderer = renderer;
     this.cubeSize = cubeSize;
     this.lutResolutions = { ...LUT_RESOLUTIONS, ...lutResolutions || {} };
@@ -1972,6 +1975,9 @@ class SkyAtmosphereBaker {
     this._cameraUp = new webgpu.Vector3(0, 1, 0);
     this._skyViewSunZenith = 1;
     this._cameraAltitudeM = 1;
+    this._lastSkyViewHeightKm = NaN;
+    this._lastSkyViewZenith = NaN;
+    this._lastCubeZenith = NaN;
   }
   get texture() {
     return this.cubeRenderTarget.texture;
@@ -2024,15 +2030,18 @@ class SkyAtmosphereBaker {
     this.skyViewLUT.viewHeight = viewHeightKm;
     this.sky.viewHeight.value = viewHeightKm;
     this.sky.upVector.value.copy(this._cameraUp);
-    const prevZenith = this._skyViewSunZenith;
     this._syncSkyViewSunFrame();
-    if (Math.abs(this._skyViewSunZenith - prevZenith) > 1e-3) {
+    if (!(Math.abs(this._skyViewSunZenith - this._lastCubeZenith) <= 1e-3)) {
       this.cubeDirty = true;
     }
     if (this.aerialPerspectiveLUT) {
       this.aerialPerspectiveLUT.setCamera(camera, { planetCenter });
     }
-    this.cameraDirty = true;
+    const heightChanged = !(Math.abs(viewHeightKm - this._lastSkyViewHeightKm) <= 1e-6);
+    const zenithChanged = !(Math.abs(this._skyViewSunZenith - this._lastSkyViewZenith) <= 1e-6);
+    if (heightChanged || zenithChanged) {
+      this.cameraDirty = true;
+    }
   }
   /**
    * Push the sun direction into the SkyView LUT's Z-up local frame, using the
@@ -2158,6 +2167,10 @@ class SkyAtmosphereBaker {
     } else if (this.sunDirty || this.cameraDirty) {
       this.skyViewLUT.render();
     }
+    if (skyDirty) {
+      this._lastSkyViewHeightKm = this.sky.viewHeight.value;
+      this._lastSkyViewZenith = this._skyViewSunZenith;
+    }
     const skyContentChanged = this.atmosDirty || this.sunDirty || this.cubeDirty;
     if (skyContentChanged) {
       const prevShowSunDisc = this.sky.showSunDisc.value;
@@ -2175,6 +2188,7 @@ class SkyAtmosphereBaker {
       } else {
         this.pmremGenerator.fromCubemap(this.cubeRenderTarget.texture, this._pmremTarget);
       }
+      this._lastCubeZenith = this._skyViewSunZenith;
     }
     this.sunDirty = false;
     this.atmosDirty = false;
@@ -3049,6 +3063,7 @@ function createHazeOutputNode({
   raymarchBlendEndKm = null,
   raymarchCoverageBlendKm = null,
   enableRaymarchFallback = false,
+  raymarchSampleCount = 64,
   atmosphereUniforms = null,
   sunDirection = null,
   viewHeightKm = null,
@@ -3113,7 +3128,7 @@ function createHazeOutputNode({
     const policyWeight = isRaymarchMode.select(tsl.float(1), isApMode.select(apWeight, autoWeight));
     const forceRaymarch = raymarchOnlyUniform ? raymarchOnlyUniform.greaterThan(tsl.float(0.5)) : null;
     const raymarchWeight = forceRaymarch ? forceRaymarch.select(tsl.float(1), policyWeight) : policyWeight;
-    const useRaymarch = raymarchWeight.greaterThan(tsl.float(0));
+    const useRaymarch = raymarchWeight.greaterThan(tsl.float(0)).and(isSky.not());
     if (debugMode === "ap-rgb") return tsl.vec4(ap.rgb.mul(luminanceScale).mul(5), 1);
     if (debugMode === "ap-alpha") return tsl.vec4(tsl.vec3(ap.a), 1);
     if (debugMode === "w") return tsl.vec4(tsl.vec3(w), 1);
@@ -3150,7 +3165,7 @@ function createHazeOutputNode({
           // produces visible rings/banding closer to the planet
           // horizon. 64 samples (~16 km/step on a 1000 km ray) cleans
           // it up at modest cost — geometry pixels only, not sky.
-          sampleCount: 64,
+          sampleCount: raymarchSampleCount,
           ground: false,
           // we already have the surface in the scene; don't double-count
           mieRayPhase: true,
@@ -3193,6 +3208,8 @@ function applyHaze(sceneColorNode, {
   logarithmicDepthBuffer = false,
   useCameraFar,
   includeSkyCubeBlend = false,
+  raymarchFallback = true,
+  raymarchSampleCount = 64,
   debugMode = null
 } = {}) {
   if (!sky) throw new Error("applyHaze: `sky` is required.");
@@ -3202,6 +3219,10 @@ function applyHaze(sceneColorNode, {
   if (!ap) {
     throw new Error("applyHaze: Sky was constructed with `enableAerialPerspective: false`.");
   }
+  if (!raymarchFallback && policy === "raymarch") {
+    console.warn("applyHaze: policy 'raymarch' has no effect with raymarchFallback: false.");
+  }
+  sky._hazeApplied = true;
   if (!sky._hazeStrength) sky._hazeStrength = tsl.uniform(strength);
   else sky._hazeStrength.value = strength;
   if (!sky._hazePolicy) sky._hazePolicy = tsl.uniform(policyToHazeMode(policy));
@@ -3233,10 +3254,11 @@ function applyHaze(sceneColorNode, {
     cameraWorldUniform: ap.cameraWorldUniform,
     cameraFarUniform: useCameraFar ? sky._cameraFar : null,
     logarithmicDepthBuffer,
-    // Always wire the raymarch path so live policy switching works without
-    // rebuild. Users wanting the smaller AP-only shader can call
-    // `createHazeOutputNode` directly.
-    enableRaymarchFallback: true,
+    // On by default so live policy switching works without rebuild; scenes
+    // that never exceed AP coverage can pass `raymarchFallback: false` for a
+    // far smaller shader (see the option's JSDoc).
+    enableRaymarchFallback: raymarchFallback,
+    raymarchSampleCount,
     atmosphereUniforms: baker.atmosphereUniforms,
     sunDirection: baker.sky.sunDirection,
     viewHeightKm: baker.sky.viewHeight,
@@ -3353,6 +3375,9 @@ class Sky {
     __publicField(this, "_hazeRaymarchOnly");
     __publicField(this, "_hazeAltStart");
     __publicField(this, "_hazeAltEnd");
+    /** Set by `applyHaze` — signals that the AP LUT has a consumer and needs
+     *  its per-frame `updateAerialPerspective()` refresh. */
+    __publicField(this, "_hazeApplied");
     __publicField(this, "_night");
     const baseAtmosphere = resolvePreset(preset);
     let merged = atmosphere ? mergeAtmosphereParams(baseAtmosphere, atmosphere) : baseAtmosphere;

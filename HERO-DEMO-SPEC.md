@@ -300,6 +300,26 @@ after each `outputNode` assignment. Upstream fix belongs in fiber's
 recompiles, which blanks the canvas for a few seconds on heavy graphs — that is
 the recompile, not a hang.
 
+### 6. React StrictMode disposed the memoized Sky — live sky knobs all dead (fixed upstream, 2026-08-12)
+
+The sky react binding's attach effect ran `sky.detach(); sky.dispose()`
+synchronously in its cleanup. StrictMode's dev mount → cleanup → mount cycle
+therefore disposed the `useMemo`'d instance's internals (sky-scene dome
+mesh, LUT/cube targets) and re-attached the husk. Symptom, with zero
+console errors: the sky renders its construction-time bake forever. Every
+re-bake setter (timeOfDay, latitude, dayOfYear, turbidity, mirror) updates
+instance state and clears dirty flags — but the cube bake renders an
+**empty** sky scene into a lazily recreated texture that no long-lived
+pipeline samples, while the screen keeps showing the original bake through
+a cached GPU binding. Uniform-backed knobs (exposure, hazeStrength) keep
+working, which disguises it as "some sliders are dead". Diagnosed by
+instrumenting `renderer.render` during a manual bake: all six cube-face
+renders executed against a skyScene with **zero children**. Fixed in the
+sky checkout (`fix/react-strictmode-dispose`): disposal deferred one
+cancelable tick, so the StrictMode remount cancels it and real unmounts
+still dispose. Dev-only bug — production builds without StrictMode never
+hit it, and the vanilla (non-React) demos never could.
+
 ### Also
 
 - **npm name** — `@pmndrs/sky` 404s; npm has only the older `tsl-sky`. Deploying

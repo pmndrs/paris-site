@@ -422,6 +422,9 @@ declare class Sky {
     _hazeRaymarchOnly?: any;
     _hazeAltStart?: any;
     _hazeAltEnd?: any;
+    /** Set by `applyHaze` — signals that the AP LUT has a consumer and needs
+     *  its per-frame `updateAerialPerspective()` refresh. */
+    _hazeApplied?: boolean;
     _night?: any;
     constructor(renderer: any, { preset, quality, cubeSize, atmosphere, exposure, north, sunDisc, timeOfDay, latitude, dayOfYear, sunDirection, turbidity, groundAlbedo, enableAerialPerspective, apKmPerSlice, mirrorBelowHorizon, }?: SkyOptions);
     get texture(): any;
@@ -674,6 +677,8 @@ interface ApplyHazeOptions {
     logarithmicDepthBuffer?: boolean;
     useCameraFar?: boolean;
     includeSkyCubeBlend?: boolean;
+    raymarchFallback?: boolean;
+    raymarchSampleCount?: number;
     debugMode?: string | null;
 }
 /**
@@ -718,10 +723,22 @@ interface ApplyHazeOptions {
  *   creates a `cameraFar` uniform refreshed each frame in `sky.update`.
  *   Defaults to `true` when `camera.far > 1e6`, else `false`.
  * @param {boolean} [options.includeSkyCubeBlend=false]  legacy shim — see HazePostProcess.js
+ * @param {boolean} [options.raymarchFallback=true]      compile the per-pixel
+ *   raymarch fallback into the shader. Default on so live policy switching
+ *   works. Pass `false` for scenes whose geometry never exceeds AP coverage
+ *   (a city under the default 256 km cap): the haze shader shrinks to a LUT
+ *   sample + composite — much smaller WGSL, dramatically faster pipeline
+ *   compile. With it off, `policy: 'raymarch'` and altitude blending are
+ *   inert (geometry past coverage clamps to the LUT's last slice).
+ * @param {number} [options.raymarchSampleCount=64]      samples per pixel on the
+ *   raymarch fallback path (geometry past AP coverage / raymarch policy). 64
+ *   keeps orbit-altitude grazing rays band-free; ground-level scenes can use
+ *   32 or lower for a cheaper shader. Build-time constant — rebuild the node
+ *   (call `applyHaze` again) to change it.
  * @param {string} [options.debugMode]                   AP debug mode passthrough
  * @returns {THREE.Node} vec4 output node
  */
-declare function applyHaze(sceneColorNode: any, { sky, scenePass, policy, strength, altitudeBlend, logarithmicDepthBuffer, useCameraFar, includeSkyCubeBlend, debugMode, }?: ApplyHazeOptions): any;
+declare function applyHaze(sceneColorNode: any, { sky, scenePass, policy, strength, altitudeBlend, logarithmicDepthBuffer, useCameraFar, includeSkyCubeBlend, raymarchFallback, raymarchSampleCount, debugMode, }?: ApplyHazeOptions): any;
 
 /**
  * NOAA solar-position calculator (simplified).
@@ -1197,6 +1214,9 @@ declare class SkyAtmosphereBaker {
     _cameraPositionKm: Vector3;
     _cameraUp: Vector3;
     _cameraAltitudeM: number;
+    _lastSkyViewHeightKm: number;
+    _lastSkyViewZenith: number;
+    _lastCubeZenith: number;
     constructor(renderer: any, { cubeSize, atmosphere, lutResolutions, enableAerialPerspective, apKmPerSlice, apResolution, mirrorBelowHorizon, }?: SkyAtmosphereBakerOptions);
     get texture(): Texture;
     get environmentTexture(): Texture | null;
@@ -1371,6 +1391,14 @@ interface CreateHazeOutputNodeArgs {
     raymarchBlendEndKm?: any;
     raymarchCoverageBlendKm?: any;
     enableRaymarchFallback?: boolean;
+    /**
+     * Sample count for the per-pixel raymarch fallback. Default 64 — chosen to
+     * keep 1000+ km grazing rays band-free at orbit altitude (see the comment at
+     * the integrator call). Ground-level scenes whose raymarch rays stay short
+     * can drop this to 32 (or SebH's production-equivalent ~14) for a cheaper
+     * shader. Build-time constant: changing it requires rebuilding the node.
+     */
+    raymarchSampleCount?: number;
     atmosphereUniforms?: any;
     sunDirection?: any;
     viewHeightKm?: any;
@@ -1467,6 +1495,6 @@ interface CreateHazeOutputNodeArgs {
  *   `RenderPipeline.outputNode = ...` (or the deprecated `PostProcessing`).
  */
 declare function createHazeOutputNode({ scenePass, sceneColorNode, aerialPerspectiveTexture, luminanceScale, invProjUniform, resZ, kmPerSlice, // must match AerialPerspectiveLUT default
-hazeStrength, skyCube, cameraWorldUniform, cameraFarUniform, logarithmicDepthBuffer, hazeModeUniform, raymarchBlendStartKm, raymarchBlendEndKm, raymarchCoverageBlendKm, enableRaymarchFallback, atmosphereUniforms, sunDirection, viewHeightKm, cameraPositionKm, transmittanceLUT, multiScatterLUT, raymarchOnlyUniform, debugMode, }: CreateHazeOutputNodeArgs): any;
+hazeStrength, skyCube, cameraWorldUniform, cameraFarUniform, logarithmicDepthBuffer, hazeModeUniform, raymarchBlendStartKm, raymarchBlendEndKm, raymarchCoverageBlendKm, enableRaymarchFallback, raymarchSampleCount, atmosphereUniforms, sunDirection, viewHeightKm, cameraPositionKm, transmittanceLUT, multiScatterLUT, raymarchOnlyUniform, debugMode, }: CreateHazeOutputNodeArgs): any;
 
 export { AerialPerspectiveLUT, EARTH, GroundedSkybox, LUT_RESOLUTIONS, MultiScatterLUT, Sky, SkyAtmosphereBaker, SkyAtmosphereMesh, SkyGround, SkyHelper, SkyMoon, SkyNight, SkySun, SkyViewLUT, TransmittanceLUT, applyHaze, createHazeOutputNode, mergeAtmosphereParams, presets, resolvePreset, solarPosition };

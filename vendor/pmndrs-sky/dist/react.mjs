@@ -1,13 +1,31 @@
 import { jsx } from 'react/jsx-runtime';
 import { useMemo, useEffect } from 'react';
 import { useThree, useFrame } from '@react-three/fiber/webgpu';
-import { S as Sky$1 } from './shared/sky.CXSOQikB.mjs';
+import { S as Sky$1 } from './shared/sky.ButMu2p_.mjs';
 import { S as SkyContext } from './shared/sky.R90MEu9W.mjs';
 export { u as useSky } from './shared/sky.R90MEu9W.mjs';
 import 'three/webgpu';
 import 'three/tsl';
 import 'three/addons/tsl/display/GaussianBlurNode.js';
 
+const pendingDisposal = /* @__PURE__ */ new Map();
+function cancelScheduledDispose(sky) {
+  const timer = pendingDisposal.get(sky);
+  if (timer !== void 0) {
+    clearTimeout(timer);
+    pendingDisposal.delete(sky);
+  }
+}
+function scheduleDispose(sky) {
+  cancelScheduledDispose(sky);
+  pendingDisposal.set(
+    sky,
+    setTimeout(() => {
+      pendingDisposal.delete(sky);
+      sky.dispose();
+    }, 0)
+  );
+}
 function Sky({
   preset = "earth",
   quality = "medium",
@@ -53,10 +71,11 @@ function Sky({
     });
   }, [renderer, preset, quality, cubeSize, enableAerialPerspective, apKmPerSlice]);
   useEffect(() => {
+    cancelScheduledDispose(sky);
     sky.attach(scene);
     return () => {
       sky.detach();
-      sky.dispose();
+      scheduleDispose(sky);
     };
   }, [sky, scene]);
   useEffect(() => {
@@ -103,6 +122,7 @@ function Sky({
   }, [sky, hazeAltitudeBlend]);
   useFrame((state) => {
     sky.update(state.camera);
+    if (sky._hazeApplied) void sky.updateAerialPerspective();
   });
   return /* @__PURE__ */ jsx(SkyContext.Provider, { value: sky, children });
 }
