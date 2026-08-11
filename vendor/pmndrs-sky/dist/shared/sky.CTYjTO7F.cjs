@@ -1,22 +1,24 @@
-import { Vector3, RenderTarget, ClampToEdgeWrapping, LinearFilter, HalfFloatType, NodeMaterial, RendererUtils, QuadMesh, Storage3DTexture, RGBAFormat, Matrix4, Mesh, BoxGeometry, BackSide, DataTexture, RepeatWrapping, Scene, CubeRenderTarget, LinearMipmapLinearFilter, CubeCamera, PMREMGenerator, MathUtils, SphereGeometry, PlaneGeometry, MeshStandardMaterial, Color, DirectionalLight, Object3D, Box3 } from 'three/webgpu';
-import { uniform, vec3, length, max, float, select, min, PI, dot, Loop, exp, texture, saturate, vec2, normalize, Fn, acos, cos, sin, sqrt, clamp, wgslFn, vec4, uv, floor, instanceIndex, uint, textureStore, ivec3, int, fract, step, smoothstep, pow, mix, positionWorld, cameraPosition, abs, cross, If, equirectUV, modelViewProjection, positionLocal, reflect, cubeTexture, reflector, logarithmicDepthToViewZ, viewZToOrthographicDepth, texture3D } from 'three/tsl';
-import { gaussianBlur } from 'three/addons/tsl/display/GaussianBlurNode.js';
+'use strict';
+
+const webgpu = require('three/webgpu');
+const tsl = require('three/tsl');
+const GaussianBlurNode_js = require('three/addons/tsl/display/GaussianBlurNode.js');
 
 const EARTH = {
   // Planet / atmosphere geometry (km)
   bottomRadius: 6360,
   topRadius: 6460,
   // Rayleigh
-  rayleighScattering: new Vector3(5802e-6, 0.013558, 0.0331),
+  rayleighScattering: new webgpu.Vector3(5802e-6, 0.013558, 0.0331),
   // 1/km
   rayleighDensityExpScale: -1 / 8,
   // 1/km, density = exp(scale * altitude)
   // Mie
-  mieScattering: new Vector3(3996e-6, 3996e-6, 3996e-6),
+  mieScattering: new webgpu.Vector3(3996e-6, 3996e-6, 3996e-6),
   // 1/km
-  mieExtinction: new Vector3(444e-5, 444e-5, 444e-5),
+  mieExtinction: new webgpu.Vector3(444e-5, 444e-5, 444e-5),
   // 1/km
-  mieAbsorption: new Vector3(444e-6, 444e-6, 444e-6),
+  mieAbsorption: new webgpu.Vector3(444e-6, 444e-6, 444e-6),
   // extinction - scattering
   miePhaseG: 0.8,
   mieDensityExpScale: -1 / 1.2,
@@ -24,7 +26,7 @@ const EARTH = {
   // Ozone absorption — Bruneton tent function, two linear segments around ~25 km.
   // Values taken from Unreal's `SetupEarthAtmosphere` (Application/SkyAtmosphereCommon.cpp)
   // which maps to the HLSL `absorption_density` via `GetAtmosphereParameters`.
-  absorptionExtinction: new Vector3(65e-5, 1881e-6, 85e-6),
+  absorptionExtinction: new webgpu.Vector3(65e-5, 1881e-6, 85e-6),
   // 1/km
   absorptionDensity0LayerWidth: 25,
   // km — tent switches segments at this altitude
@@ -36,15 +38,15 @@ const EARTH = {
   // 1/km
   // Back-compat aliases — kept so code written against the original shape still reads;
   // the LUT pipeline uses the absorptionDensity* fields above.
-  ozoneAbsorption: new Vector3(65e-5, 1881e-6, 85e-6),
+  ozoneAbsorption: new webgpu.Vector3(65e-5, 1881e-6, 85e-6),
   ozoneLayerCenterAltitude: 25,
   ozoneLayerHalfWidth: 15,
   // Ground albedo used by multi-scattering LUT
-  groundAlbedo: new Vector3(0.3, 0.3, 0.3),
+  groundAlbedo: new webgpu.Vector3(0.3, 0.3, 0.3),
   // Sun
   sunAngularRadius: 4675e-6,
   // radians (~0.268 deg)
-  sunIlluminance: new Vector3(1, 1, 1)
+  sunIlluminance: new webgpu.Vector3(1, 1, 1)
 };
 function mergeAtmosphereParams(base, partial) {
   const out = { ...base };
@@ -52,9 +54,9 @@ function mergeAtmosphereParams(base, partial) {
   for (const key of Object.keys(partial)) {
     const src = partial[key];
     const cur = out[key];
-    if (cur instanceof Vector3) {
+    if (cur instanceof webgpu.Vector3) {
       const next = cur.clone();
-      if (src instanceof Vector3) {
+      if (src instanceof webgpu.Vector3) {
         next.copy(src);
       } else if (Array.isArray(src)) {
         next.fromArray(src);
@@ -73,26 +75,26 @@ function mergeAtmosphereParams(base, partial) {
 function createAtmosphereUniforms(params) {
   return {
     // Geometry
-    bottomRadius: uniform(params.bottomRadius),
-    topRadius: uniform(params.topRadius),
+    bottomRadius: tsl.uniform(params.bottomRadius),
+    topRadius: tsl.uniform(params.topRadius),
     // Rayleigh
-    rayleighScattering: uniform(params.rayleighScattering.clone()),
-    rayleighDensityExpScale: uniform(params.rayleighDensityExpScale),
+    rayleighScattering: tsl.uniform(params.rayleighScattering.clone()),
+    rayleighDensityExpScale: tsl.uniform(params.rayleighDensityExpScale),
     // Mie
-    mieScattering: uniform(params.mieScattering.clone()),
-    mieExtinction: uniform(params.mieExtinction.clone()),
-    mieAbsorption: uniform(params.mieAbsorption.clone()),
-    mieDensityExpScale: uniform(params.mieDensityExpScale),
-    miePhaseG: uniform(params.miePhaseG),
+    mieScattering: tsl.uniform(params.mieScattering.clone()),
+    mieExtinction: tsl.uniform(params.mieExtinction.clone()),
+    mieAbsorption: tsl.uniform(params.mieAbsorption.clone()),
+    mieDensityExpScale: tsl.uniform(params.mieDensityExpScale),
+    miePhaseG: tsl.uniform(params.miePhaseG),
     // Ozone absorption (Bruneton tent)
-    absorptionExtinction: uniform(params.absorptionExtinction.clone()),
-    absorptionDensity0LayerWidth: uniform(params.absorptionDensity0LayerWidth),
-    absorptionDensity0ConstantTerm: uniform(params.absorptionDensity0ConstantTerm),
-    absorptionDensity0LinearTerm: uniform(params.absorptionDensity0LinearTerm),
-    absorptionDensity1ConstantTerm: uniform(params.absorptionDensity1ConstantTerm),
-    absorptionDensity1LinearTerm: uniform(params.absorptionDensity1LinearTerm),
+    absorptionExtinction: tsl.uniform(params.absorptionExtinction.clone()),
+    absorptionDensity0LayerWidth: tsl.uniform(params.absorptionDensity0LayerWidth),
+    absorptionDensity0ConstantTerm: tsl.uniform(params.absorptionDensity0ConstantTerm),
+    absorptionDensity0LinearTerm: tsl.uniform(params.absorptionDensity0LinearTerm),
+    absorptionDensity1ConstantTerm: tsl.uniform(params.absorptionDensity1ConstantTerm),
+    absorptionDensity1LinearTerm: tsl.uniform(params.absorptionDensity1LinearTerm),
     // Ground
-    groundAlbedo: uniform(params.groundAlbedo.clone())
+    groundAlbedo: tsl.uniform(params.groundAlbedo.clone())
   };
 }
 function updateAtmosphereUniforms(uniforms, params) {
@@ -114,7 +116,7 @@ function updateAtmosphereUniforms(uniforms, params) {
   copyVec3(uniforms.groundAlbedo.value, params.groundAlbedo);
 }
 function copyVec3(dst, src) {
-  if (src instanceof Vector3) dst.copy(src);
+  if (src instanceof webgpu.Vector3) dst.copy(src);
   else if (Array.isArray(src)) dst.fromArray(src);
   else if (src && typeof src === "object") dst.set(src.x ?? dst.x, src.y ?? dst.y, src.z ?? dst.z);
 }
@@ -132,59 +134,59 @@ const LUT_RESOLUTIONS = {
 };
 
 function fromUnitToSubUvs(u, resolution) {
-  return u.add(float(0.5).div(resolution)).mul(resolution.div(resolution.add(float(1))));
+  return u.add(tsl.float(0.5).div(resolution)).mul(resolution.div(resolution.add(tsl.float(1))));
 }
 function fromSubUvsToUnit(u, resolution) {
-  return u.sub(float(0.5).div(resolution)).mul(resolution.div(resolution.sub(float(1))));
+  return u.sub(tsl.float(0.5).div(resolution)).mul(resolution.div(resolution.sub(tsl.float(1))));
 }
 const PLANET_RADIUS_OFFSET = 0.01;
-const rayleighPhase = /* @__PURE__ */ Fn(([cosTheta]) => {
-  const factor = float(3).div(float(16).mul(PI));
-  return factor.mul(float(1).add(cosTheta.mul(cosTheta)));
+const rayleighPhase = /* @__PURE__ */ tsl.Fn(([cosTheta]) => {
+  const factor = tsl.float(3).div(tsl.float(16).mul(tsl.PI));
+  return factor.mul(tsl.float(1).add(cosTheta.mul(cosTheta)));
 });
-const hgPhase = /* @__PURE__ */ Fn(([cosTheta, g]) => {
+const hgPhase = /* @__PURE__ */ tsl.Fn(([cosTheta, g]) => {
   const g2 = g.mul(g);
-  const numer = float(1).sub(g2);
-  const denom = float(1).add(g2).add(float(2).mul(g).mul(cosTheta));
-  return numer.div(float(4).mul(PI).mul(denom).mul(sqrt(denom)));
+  const numer = tsl.float(1).sub(g2);
+  const denom = tsl.float(1).add(g2).add(tsl.float(2).mul(g).mul(cosTheta));
+  return numer.div(tsl.float(4).mul(tsl.PI).mul(denom).mul(tsl.sqrt(denom)));
 });
-const raySphereIntersectNearest = /* @__PURE__ */ Fn(([ro, rd, center, radius]) => {
-  const a = dot(rd, rd);
+const raySphereIntersectNearest = /* @__PURE__ */ tsl.Fn(([ro, rd, center, radius]) => {
+  const a = tsl.dot(rd, rd);
   const s0_r0 = ro.sub(center);
-  const b = float(2).mul(dot(rd, s0_r0));
-  const c = dot(s0_r0, s0_r0).sub(radius.mul(radius));
-  const delta = b.mul(b).sub(float(4).mul(a).mul(c));
+  const b = tsl.float(2).mul(tsl.dot(rd, s0_r0));
+  const c = tsl.dot(s0_r0, s0_r0).sub(radius.mul(radius));
+  const delta = b.mul(b).sub(tsl.float(4).mul(a).mul(c));
   const noHit = delta.lessThan(0);
-  const sqrtDelta = sqrt(max(delta, float(0)));
-  const denomInv = float(1).div(max(float(2).mul(a), float(1e-20)));
+  const sqrtDelta = tsl.sqrt(tsl.max(delta, tsl.float(0)));
+  const denomInv = tsl.float(1).div(tsl.max(tsl.float(2).mul(a), tsl.float(1e-20)));
   const sol0 = b.negate().sub(sqrtDelta).mul(denomInv);
   const sol1 = b.negate().add(sqrtDelta).mul(denomInv);
   const bothNegative = sol0.lessThan(0).and(sol1.lessThan(0));
   const onlySol0Neg = sol0.lessThan(0);
   const onlySol1Neg = sol1.lessThan(0);
-  const candidate = select(
+  const candidate = tsl.select(
     bothNegative,
-    float(-1),
-    select(
+    tsl.float(-1),
+    tsl.select(
       onlySol0Neg,
-      max(float(0), sol1),
-      select(onlySol1Neg, max(float(0), sol0), max(float(0), min(sol0, sol1)))
+      tsl.max(tsl.float(0), sol1),
+      tsl.select(onlySol1Neg, tsl.max(tsl.float(0), sol0), tsl.max(tsl.float(0), tsl.min(sol0, sol1)))
     )
   );
-  return select(noHit, float(-1), candidate);
+  return tsl.select(noHit, tsl.float(-1), candidate);
 });
 function computeScatteringAbsorption(height, params) {
-  const densityMie = exp(params.mieDensityExpScale.mul(height));
-  const densityRay = exp(params.rayleighDensityExpScale.mul(height));
+  const densityMie = tsl.exp(params.mieDensityExpScale.mul(height));
+  const densityRay = tsl.exp(params.rayleighDensityExpScale.mul(height));
   const ozoneLayer0 = params.absorptionDensity0LinearTerm.mul(height).add(params.absorptionDensity0ConstantTerm);
   const ozoneLayer1 = params.absorptionDensity1LinearTerm.mul(height).add(params.absorptionDensity1ConstantTerm);
-  const densityOzo = saturate(select(height.lessThan(params.absorptionDensity0LayerWidth), ozoneLayer0, ozoneLayer1));
+  const densityOzo = tsl.saturate(tsl.select(height.lessThan(params.absorptionDensity0LayerWidth), ozoneLayer0, ozoneLayer1));
   const scatteringMie = params.mieScattering.mul(densityMie);
   const absorptionMie = params.mieAbsorption.mul(densityMie);
   const extinctionMie = params.mieExtinction.mul(densityMie);
   const scatteringRay = params.rayleighScattering.mul(densityRay);
   const extinctionRay = scatteringRay;
-  const scatteringOzo = vec3(0, 0, 0);
+  const scatteringOzo = tsl.vec3(0, 0, 0);
   const absorptionOzo = params.absorptionExtinction.mul(densityOzo);
   const extinctionOzo = absorptionOzo;
   const scattering = scatteringMie.add(scatteringRay).add(scatteringOzo);
@@ -200,15 +202,15 @@ function computeScatteringAbsorption(height, params) {
   };
 }
 function moveToTopAtmosphere(worldPos, worldDir, params) {
-  const center = vec3(0, 0, 0);
-  const viewHeight = length(worldPos);
+  const center = tsl.vec3(0, 0, 0);
+  const viewHeight = tsl.length(worldPos);
   const tTop = raySphereIntersectNearest(worldPos, worldDir, center, params.topRadius);
-  const upVector = worldPos.div(max(viewHeight, float(1e-6)));
-  const offset = upVector.mul(float(-PLANET_RADIUS_OFFSET));
+  const upVector = worldPos.div(tsl.max(viewHeight, tsl.float(1e-6)));
+  const offset = upVector.mul(tsl.float(-PLANET_RADIUS_OFFSET));
   const clippedPos = worldPos.add(worldDir.mul(tTop)).add(offset);
   const aboveAtmo = viewHeight.greaterThan(params.topRadius);
   const missed = aboveAtmo.and(tTop.lessThan(0));
-  const newPos = select(aboveAtmo, clippedPos, worldPos);
+  const newPos = tsl.select(aboveAtmo, clippedPos, worldPos);
   const valid = missed.not();
   return { newPos, valid };
 }
@@ -217,56 +219,56 @@ function uvToTransmittanceLutParams(uvNode, params) {
   const x_r = uvNode.y;
   const topR2 = params.topRadius.mul(params.topRadius);
   const botR2 = params.bottomRadius.mul(params.bottomRadius);
-  const H = sqrt(max(float(0), topR2.sub(botR2)));
+  const H = tsl.sqrt(tsl.max(tsl.float(0), topR2.sub(botR2)));
   const rho = H.mul(x_r);
-  const viewHeight = sqrt(rho.mul(rho).add(botR2));
+  const viewHeight = tsl.sqrt(rho.mul(rho).add(botR2));
   const d_min = params.topRadius.sub(viewHeight);
   const d_max = rho.add(H);
   const d = d_min.add(x_mu.mul(d_max.sub(d_min)));
-  const viewZenithCosAngleRaw = select(
-    d.lessThanEqual(float(0)),
-    float(1),
-    H.mul(H).sub(rho.mul(rho)).sub(d.mul(d)).div(max(float(2).mul(viewHeight).mul(d), float(1e-20)))
+  const viewZenithCosAngleRaw = tsl.select(
+    d.lessThanEqual(tsl.float(0)),
+    tsl.float(1),
+    H.mul(H).sub(rho.mul(rho)).sub(d.mul(d)).div(tsl.max(tsl.float(2).mul(viewHeight).mul(d), tsl.float(1e-20)))
   );
-  const viewZenithCosAngle = clamp(viewZenithCosAngleRaw, float(-1), float(1));
+  const viewZenithCosAngle = tsl.clamp(viewZenithCosAngleRaw, tsl.float(-1), tsl.float(1));
   return { viewHeight, viewZenithCosAngle };
 }
 function transmittanceLutParamsToUv(viewHeight, viewZenithCosAngle, params) {
   const topR2 = params.topRadius.mul(params.topRadius);
   const botR2 = params.bottomRadius.mul(params.bottomRadius);
-  const H = sqrt(max(float(0), topR2.sub(botR2)));
-  const rho = sqrt(max(float(0), viewHeight.mul(viewHeight).sub(botR2)));
+  const H = tsl.sqrt(tsl.max(tsl.float(0), topR2.sub(botR2)));
+  const rho = tsl.sqrt(tsl.max(tsl.float(0), viewHeight.mul(viewHeight).sub(botR2)));
   const discriminant = viewHeight.mul(viewHeight).mul(viewZenithCosAngle.mul(viewZenithCosAngle).sub(1)).add(topR2);
-  const d = max(
-    float(0),
-    viewHeight.negate().mul(viewZenithCosAngle).add(sqrt(max(discriminant, float(0))))
+  const d = tsl.max(
+    tsl.float(0),
+    viewHeight.negate().mul(viewZenithCosAngle).add(tsl.sqrt(tsl.max(discriminant, tsl.float(0))))
   );
   const d_min = params.topRadius.sub(viewHeight);
   const d_max = rho.add(H);
-  const x_mu = d.sub(d_min).div(max(d_max.sub(d_min), float(1e-20)));
-  const x_r = rho.div(max(H, float(1e-20)));
-  return vec2(x_mu, x_r);
+  const x_mu = d.sub(d_min).div(tsl.max(d_max.sub(d_min), tsl.float(1e-20)));
+  const x_r = rho.div(tsl.max(H, tsl.float(1e-20)));
+  return tsl.vec2(x_mu, x_r);
 }
 function uvToSkyViewLutParams(atmosphere, viewHeight, uvNode) {
-  const resX = float(192);
-  const resY = float(108);
+  const resX = tsl.float(192);
+  const resY = tsl.float(108);
   const uCorr = fromSubUvsToUnit(uvNode.x, resX);
   const vCorr = fromSubUvsToUnit(uvNode.y, resY);
   const botR2 = atmosphere.bottomRadius.mul(atmosphere.bottomRadius);
   const vh2 = viewHeight.mul(viewHeight);
-  const vHorizon = sqrt(max(vh2.sub(botR2), float(0)));
-  const cosBeta = vHorizon.div(max(viewHeight, float(1e-6)));
-  const beta = acos(clamp(cosBeta, float(-1), float(1)));
-  const zenithHorizonAngle = float(PI).sub(beta);
-  const coordAbove0 = float(2).mul(vCorr);
-  const coordAbove1 = float(1).sub(coordAbove0);
+  const vHorizon = tsl.sqrt(tsl.max(vh2.sub(botR2), tsl.float(0)));
+  const cosBeta = vHorizon.div(tsl.max(viewHeight, tsl.float(1e-6)));
+  const beta = tsl.acos(tsl.clamp(cosBeta, tsl.float(-1), tsl.float(1)));
+  const zenithHorizonAngle = tsl.float(tsl.PI).sub(beta);
+  const coordAbove0 = tsl.float(2).mul(vCorr);
+  const coordAbove1 = tsl.float(1).sub(coordAbove0);
   const coordAbove2 = coordAbove1.mul(coordAbove1);
-  const coordAbove3 = float(1).sub(coordAbove2);
-  const vzAbove = cos(zenithHorizonAngle.mul(coordAbove3));
+  const coordAbove3 = tsl.float(1).sub(coordAbove2);
+  const vzAbove = tsl.cos(zenithHorizonAngle.mul(coordAbove3));
   const coordBelow0 = vCorr.mul(2).sub(1);
   const coordBelow1 = coordBelow0.mul(coordBelow0);
-  const vzBelow = cos(zenithHorizonAngle.add(beta.mul(coordBelow1)));
-  const viewZenithCosAngle = select(vCorr.lessThan(0.5), vzAbove, vzBelow);
+  const vzBelow = tsl.cos(zenithHorizonAngle.add(beta.mul(coordBelow1)));
+  const viewZenithCosAngle = tsl.select(vCorr.lessThan(0.5), vzAbove, vzBelow);
   const uSq = uCorr.mul(uCorr);
   const lightViewCosAngle = uSq.mul(2).sub(1).negate();
   return { viewZenithCosAngle, lightViewCosAngle };
@@ -274,36 +276,36 @@ function uvToSkyViewLutParams(atmosphere, viewHeight, uvNode) {
 function skyViewLutParamsToUv(atmosphere, intersectsGround, viewZenithCosAngle, lightViewCosAngle, viewHeight) {
   const botR2 = atmosphere.bottomRadius.mul(atmosphere.bottomRadius);
   const vh2 = viewHeight.mul(viewHeight);
-  const vHorizon = sqrt(max(vh2.sub(botR2), float(0)));
-  const cosBeta = vHorizon.div(max(viewHeight, float(1e-6)));
-  const beta = acos(clamp(cosBeta, float(-1), float(1)));
-  const zenithHorizonAngle = float(PI).sub(beta);
-  const vzAcos = acos(clamp(viewZenithCosAngle, float(-1), float(1)));
-  const coordSky0 = vzAcos.div(max(zenithHorizonAngle, float(1e-6)));
-  const coordSky1 = float(1).sub(coordSky0);
-  const coordSky2 = sqrt(max(coordSky1, float(0)));
-  const coordSky3 = float(1).sub(coordSky2);
+  const vHorizon = tsl.sqrt(tsl.max(vh2.sub(botR2), tsl.float(0)));
+  const cosBeta = vHorizon.div(tsl.max(viewHeight, tsl.float(1e-6)));
+  const beta = tsl.acos(tsl.clamp(cosBeta, tsl.float(-1), tsl.float(1)));
+  const zenithHorizonAngle = tsl.float(tsl.PI).sub(beta);
+  const vzAcos = tsl.acos(tsl.clamp(viewZenithCosAngle, tsl.float(-1), tsl.float(1)));
+  const coordSky0 = vzAcos.div(tsl.max(zenithHorizonAngle, tsl.float(1e-6)));
+  const coordSky1 = tsl.float(1).sub(coordSky0);
+  const coordSky2 = tsl.sqrt(tsl.max(coordSky1, tsl.float(0)));
+  const coordSky3 = tsl.float(1).sub(coordSky2);
   const uvY_sky = coordSky3.mul(0.5);
-  const coordGnd0 = vzAcos.sub(zenithHorizonAngle).div(max(beta, float(1e-6)));
-  const coordGnd1 = sqrt(max(coordGnd0, float(0)));
+  const coordGnd0 = vzAcos.sub(zenithHorizonAngle).div(tsl.max(beta, tsl.float(1e-6)));
+  const coordGnd1 = tsl.sqrt(tsl.max(coordGnd0, tsl.float(0)));
   const uvY_gnd = coordGnd1.mul(0.5).add(0.5);
-  const uvY = select(intersectsGround, uvY_gnd, uvY_sky);
-  const uvXraw = sqrt(saturate(lightViewCosAngle.negate().mul(0.5).add(0.5)));
-  const resX = float(192);
-  const resY = float(108);
-  const uv = vec2(fromUnitToSubUvs(uvXraw, resX), fromUnitToSubUvs(uvY, resY));
+  const uvY = tsl.select(intersectsGround, uvY_gnd, uvY_sky);
+  const uvXraw = tsl.sqrt(tsl.saturate(lightViewCosAngle.negate().mul(0.5).add(0.5)));
+  const resX = tsl.float(192);
+  const resY = tsl.float(108);
+  const uv = tsl.vec2(fromUnitToSubUvs(uvXraw, resX), fromUnitToSubUvs(uvY, resY));
   return uv;
 }
-const getSphericalDir = /* @__PURE__ */ Fn(([iPlusHalf, jPlusHalf, sqrtSampleCount]) => {
+const getSphericalDir = /* @__PURE__ */ tsl.Fn(([iPlusHalf, jPlusHalf, sqrtSampleCount]) => {
   const randA = iPlusHalf.div(sqrtSampleCount);
   const randB = jPlusHalf.div(sqrtSampleCount);
-  const theta = float(2).mul(PI).mul(randA);
-  const phi = acos(float(1).sub(float(2).mul(randB)));
-  const cosPhi = cos(phi);
-  const sinPhi = sin(phi);
-  const cosTheta = cos(theta);
-  const sinTheta = sin(theta);
-  return vec3(cosTheta.mul(sinPhi), sinTheta.mul(sinPhi), cosPhi);
+  const theta = tsl.float(2).mul(tsl.PI).mul(randA);
+  const phi = tsl.acos(tsl.float(1).sub(tsl.float(2).mul(randB)));
+  const cosPhi = tsl.cos(phi);
+  const sinPhi = tsl.sin(phi);
+  const cosTheta = tsl.cos(theta);
+  const sinTheta = tsl.sin(theta);
+  return tsl.vec3(cosTheta.mul(sinPhi), sinTheta.mul(sinPhi), cosPhi);
 });
 function integrateScatteredLuminance({
   worldPos,
@@ -329,54 +331,54 @@ function integrateScatteredLuminance({
   sampleJitter = null,
   extEpsNode = void 0
 }) {
-  const earthO = vec3(0, 0, 0);
+  const earthO = tsl.vec3(0, 0, 0);
   const SAMPLE_SEGMENT_T = 0.3;
-  const segmentT = sampleJitter ? sampleJitter : float(SAMPLE_SEGMENT_T);
-  const extEps = extEpsNode !== void 0 && extEpsNode !== null ? extEpsNode : float(1e-6);
+  const segmentT = sampleJitter ? sampleJitter : tsl.float(SAMPLE_SEGMENT_T);
+  const extEps = extEpsNode !== void 0 && extEpsNode !== null ? extEpsNode : tsl.float(1e-6);
   const tBottom = raySphereIntersectNearest(worldPos, worldDir, earthO, params.bottomRadius);
   const tTop = raySphereIntersectNearest(worldPos, worldDir, earthO, params.topRadius);
-  const tMaxIfNoBottom = tTop.lessThan(0).select(float(0), tTop);
+  const tMaxIfNoBottom = tTop.lessThan(0).select(tsl.float(0), tTop);
   const tMaxIfBoth = tTop.greaterThan(0).select(tTop.min(tBottom), tBottom);
   const tMaxClipped = tBottom.lessThan(0).select(tMaxIfNoBottom, tMaxIfBoth);
-  const tMax = (tMaxOverride ? min(tMaxClipped, tMaxOverride) : tMaxClipped).toVar();
-  const uniformPhase = float(1).div(float(4).mul(PI));
-  const cosTheta = dot(sunDir, worldDir);
+  const tMax = (tMaxOverride ? tsl.min(tMaxClipped, tMaxOverride) : tMaxClipped).toVar();
+  const uniformPhase = tsl.float(1).div(tsl.float(4).mul(tsl.PI));
+  const cosTheta = tsl.dot(sunDir, worldDir);
   const miePhaseValue = hgPhase(cosTheta.negate(), params.miePhaseG);
   const rayleighPhaseValue = rayleighPhase(cosTheta);
-  const L = vec3(0, 0, 0).toVar();
-  const throughput = vec3(1, 1, 1).toVar();
-  const opticalDepth = vec3(0, 0, 0).toVar();
-  const multiScatAs1 = vec3(0, 0, 0).toVar();
-  const tPrev = float(0).toVar();
-  Loop({ start: 0, end: sampleCount, type: "int" }, ({ i }) => {
-    const newT = tMax.mul(float(i).add(segmentT).div(float(sampleCount)));
+  const L = tsl.vec3(0, 0, 0).toVar();
+  const throughput = tsl.vec3(1, 1, 1).toVar();
+  const opticalDepth = tsl.vec3(0, 0, 0).toVar();
+  const multiScatAs1 = tsl.vec3(0, 0, 0).toVar();
+  const tPrev = tsl.float(0).toVar();
+  tsl.Loop({ start: 0, end: sampleCount, type: "int" }, ({ i }) => {
+    const newT = tMax.mul(tsl.float(i).add(segmentT).div(tsl.float(sampleCount)));
     const dt = newT.sub(tPrev);
     const P = worldPos.add(worldDir.mul(newT));
-    const pHeight = length(P);
+    const pHeight = tsl.length(P);
     const altitude = pHeight.sub(params.bottomRadius);
-    const upVector = P.div(max(pHeight, float(1e-6)));
+    const upVector = P.div(tsl.max(pHeight, tsl.float(1e-6)));
     const medium = computeScatteringAbsorption(altitude, params);
-    const extSafe = max(medium.extinction, vec3(extEps, extEps, extEps));
+    const extSafe = tsl.max(medium.extinction, tsl.vec3(extEps, extEps, extEps));
     const sampleOpticalDepth = medium.extinction.mul(dt);
-    const sampleTransmittance = exp(sampleOpticalDepth.negate());
+    const sampleTransmittance = tsl.exp(sampleOpticalDepth.negate());
     opticalDepth.addAssign(sampleOpticalDepth);
-    const sunZenithCos = dot(sunDir, upVector);
+    const sunZenithCos = tsl.dot(sunDir, upVector);
     const tLutUv = transmittanceLutParamsToUv(pHeight, sunZenithCos, params);
-    const transmittanceToSun = texture(transmittanceLUT, tLutUv).rgb;
+    const transmittanceToSun = tsl.texture(transmittanceLUT, tLutUv).rgb;
     const phaseTimesScattering = mieRayPhase ? medium.mieScattering.mul(miePhaseValue).add(medium.rayleighScattering.mul(rayleighPhaseValue)) : medium.scattering.mul(uniformPhase);
-    const shadowOrigin = P.add(upVector.mul(float(PLANET_RADIUS_OFFSET)));
+    const shadowOrigin = P.add(upVector.mul(tsl.float(PLANET_RADIUS_OFFSET)));
     const tEarth = raySphereIntersectNearest(shadowOrigin, sunDir, earthO, params.bottomRadius);
-    const earthShadow = select(tEarth.greaterThanEqual(0), float(0), float(1));
+    const earthShadow = tsl.select(tEarth.greaterThanEqual(0), tsl.float(0), tsl.float(1));
     const directInScatter = earthShadow.mul(transmittanceToSun).mul(phaseTimesScattering);
     let S;
     if (multiScatterLUT) {
       const atmosphereThickness = params.topRadius.sub(params.bottomRadius);
-      const altitude01 = saturate(altitude.div(max(atmosphereThickness, float(1e-6))));
-      const msUvRaw = vec2(sunZenithCos.mul(0.5).add(0.5), altitude01);
-      const msRes = float(32);
-      const msUvX = msUvRaw.x.add(float(0.5).div(msRes)).mul(msRes.div(msRes.add(float(1))));
-      const msUvY = msUvRaw.y.add(float(0.5).div(msRes)).mul(msRes.div(msRes.add(float(1))));
-      const multiScatteredLuminance = texture(multiScatterLUT, vec2(msUvX, msUvY)).rgb;
+      const altitude01 = tsl.saturate(altitude.div(tsl.max(atmosphereThickness, tsl.float(1e-6))));
+      const msUvRaw = tsl.vec2(sunZenithCos.mul(0.5).add(0.5), altitude01);
+      const msRes = tsl.float(32);
+      const msUvX = msUvRaw.x.add(tsl.float(0.5).div(msRes)).mul(msRes.div(msRes.add(tsl.float(1))));
+      const msUvY = msUvRaw.y.add(tsl.float(0.5).div(msRes)).mul(msRes.div(msRes.add(tsl.float(1))));
+      const multiScatteredLuminance = tsl.texture(multiScatterLUT, tsl.vec2(msUvX, msUvY)).rgb;
       S = directInScatter.add(multiScatteredLuminance.mul(medium.scattering));
     } else {
       S = directInScatter;
@@ -392,14 +394,14 @@ function integrateScatteredLuminance({
   if (ground) {
     const hitGround = tBottom.greaterThan(0).and(tMax.equal(tBottom));
     const P = worldPos.add(worldDir.mul(tBottom));
-    const pHeight = length(P);
-    const upVector = P.div(max(pHeight, float(1e-6)));
-    const sunZenithCos = dot(sunDir, upVector);
+    const pHeight = tsl.length(P);
+    const upVector = P.div(tsl.max(pHeight, tsl.float(1e-6)));
+    const sunZenithCos = tsl.dot(sunDir, upVector);
     const tLutUv = transmittanceLutParamsToUv(pHeight, sunZenithCos, params);
-    const transmittanceToSun = texture(transmittanceLUT, tLutUv).rgb;
-    const NdotL = saturate(dot(normalize(upVector), normalize(sunDir)));
-    const groundL = transmittanceToSun.mul(throughput).mul(NdotL).mul(params.groundAlbedo).div(PI);
-    L.assign(select(hitGround, L.add(groundL), L));
+    const transmittanceToSun = tsl.texture(transmittanceLUT, tLutUv).rgb;
+    const NdotL = tsl.saturate(tsl.dot(tsl.normalize(upVector), tsl.normalize(sunDir)));
+    const groundL = transmittanceToSun.mul(throughput).mul(NdotL).mul(params.groundAlbedo).div(tsl.PI);
+    L.assign(tsl.select(hitGround, L.add(groundL), L));
   }
   return { L, multiScatAs1, transmittance: throughput, opticalDepth };
 }
@@ -887,23 +889,23 @@ fn multiScatterLutPixel(
 `
 );
 
-const raySphereFn = /* @__PURE__ */ wgslFn(RAY_SPHERE);
-const uvToTransmittanceLutParamsFn = /* @__PURE__ */ wgslFn(UV_TO_TRANSMITTANCE);
-const rayleighPhaseFn = /* @__PURE__ */ wgslFn(RAYLEIGH_PHASE);
-const hgPhaseFn = /* @__PURE__ */ wgslFn(HG_PHASE);
-const bilinearSample2DFn = /* @__PURE__ */ wgslFn(BILINEAR_SAMPLE_2D);
-const transmittanceLutPixelFn = /* @__PURE__ */ wgslFn(TRANSMITTANCE_LUT_PIXEL, [
+const raySphereFn = /* @__PURE__ */ tsl.wgslFn(RAY_SPHERE);
+const uvToTransmittanceLutParamsFn = /* @__PURE__ */ tsl.wgslFn(UV_TO_TRANSMITTANCE);
+const rayleighPhaseFn = /* @__PURE__ */ tsl.wgslFn(RAYLEIGH_PHASE);
+const hgPhaseFn = /* @__PURE__ */ tsl.wgslFn(HG_PHASE);
+const bilinearSample2DFn = /* @__PURE__ */ tsl.wgslFn(BILINEAR_SAMPLE_2D);
+const transmittanceLutPixelFn = /* @__PURE__ */ tsl.wgslFn(TRANSMITTANCE_LUT_PIXEL, [
   raySphereFn,
   uvToTransmittanceLutParamsFn
 ]);
-const getSphericalDirFn = /* @__PURE__ */ wgslFn(SPHERICAL_DIR);
-const skyViewLutPixelFn = /* @__PURE__ */ wgslFn(SKYVIEW_LUT_PIXEL, [
+const getSphericalDirFn = /* @__PURE__ */ tsl.wgslFn(SPHERICAL_DIR);
+const skyViewLutPixelFn = /* @__PURE__ */ tsl.wgslFn(SKYVIEW_LUT_PIXEL, [
   raySphereFn,
   rayleighPhaseFn,
   hgPhaseFn,
   bilinearSample2DFn
 ]);
-const multiScatterLutPixelFn = /* @__PURE__ */ wgslFn(MULTISCATTER_LUT_PIXEL, [
+const multiScatterLutPixelFn = /* @__PURE__ */ tsl.wgslFn(MULTISCATTER_LUT_PIXEL, [
   getSphericalDirFn,
   raySphereFn,
   bilinearSample2DFn
@@ -933,8 +935,8 @@ function transmittanceLutColorNode(uvNode, params) {
 function skyViewLutColorNode(uvNode, params, transmittanceTex, multiScatterTex, sunDirNode, viewHeightNode) {
   return skyViewLutPixelFn({
     uv: uvNode,
-    transmittanceLut: texture(transmittanceTex),
-    multiScatterLut: texture(multiScatterTex),
+    transmittanceLut: tsl.texture(transmittanceTex),
+    multiScatterLut: tsl.texture(multiScatterTex),
     sunDirWorld: sunDirNode,
     viewHeightIn: viewHeightNode,
     bottomRadius: params.bottomRadius,
@@ -951,7 +953,7 @@ function skyViewLutColorNode(uvNode, params, transmittanceTex, multiScatterTex, 
 function multiScatterLutColorNode(uvNode, params, transmittanceTex) {
   return multiScatterLutPixelFn({
     uv: uvNode,
-    transmittanceLut: texture(transmittanceTex),
+    transmittanceLut: tsl.texture(transmittanceTex),
     bottomRadius: params.bottomRadius,
     topRadius: params.topRadius,
     ...atmosphereDensityArgs(params),
@@ -966,7 +968,7 @@ function multiScatterLutColorNode(uvNode, params, transmittanceTex) {
 var __defProp$b = Object.defineProperty;
 var __defNormalProp$b = (obj, key, value) => key in obj ? __defProp$b(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField$b = (obj, key, value) => __defNormalProp$b(obj, typeof key !== "symbol" ? key + "" : key, value);
-const _quadMesh$2 = /* @__PURE__ */ new QuadMesh();
+const _quadMesh$2 = /* @__PURE__ */ new webgpu.QuadMesh();
 let _rendererState$2;
 class TransmittanceLUT {
   constructor(renderer, { resolution = LUT_RESOLUTIONS.transmittance, atmosphereUniforms, backend = "auto" } = {}) {
@@ -981,17 +983,17 @@ class TransmittanceLUT {
     this.resolution = { ...resolution };
     this.atmosphereUniforms = atmosphereUniforms;
     this.backend = backend;
-    this.renderTarget = new RenderTarget(resolution.width, resolution.height, {
-      type: HalfFloatType,
-      minFilter: LinearFilter,
-      magFilter: LinearFilter,
-      wrapS: ClampToEdgeWrapping,
-      wrapT: ClampToEdgeWrapping,
+    this.renderTarget = new webgpu.RenderTarget(resolution.width, resolution.height, {
+      type: webgpu.HalfFloatType,
+      minFilter: webgpu.LinearFilter,
+      magFilter: webgpu.LinearFilter,
+      wrapS: webgpu.ClampToEdgeWrapping,
+      wrapT: webgpu.ClampToEdgeWrapping,
       generateMipmaps: false,
       depthBuffer: false
     });
     this.renderTarget.texture.name = "TransmittanceLUT";
-    this.material = new NodeMaterial();
+    this.material = new webgpu.NodeMaterial();
     this.material.name = "TransmittanceLUT";
     this.material.colorNode = this._buildColorNode();
   }
@@ -1003,27 +1005,27 @@ class TransmittanceLUT {
     const isWebGPU = this.renderer.backend?.isWebGPUBackend === true;
     const useWGSL = this.backend === "wgsl" || this.backend === "auto" && isWebGPU;
     if (useWGSL) {
-      return vec4(transmittanceLutColorNode(uv(), params), float(1));
+      return tsl.vec4(transmittanceLutColorNode(tsl.uv(), params), tsl.float(1));
     }
     const SAMPLE_COUNT = 40;
     const SAMPLE_SEGMENT_T = 0.3;
-    return Fn(() => {
-      const lutUv = uv();
+    return tsl.Fn(() => {
+      const lutUv = tsl.uv();
       const { viewHeight, viewZenithCosAngle } = uvToTransmittanceLutParams(lutUv, params);
-      const worldPos = vec3(float(0), viewHeight, float(0));
-      const sinZ = sqrt(max(float(0), float(1).sub(viewZenithCosAngle.mul(viewZenithCosAngle))));
-      const worldDir = vec3(sinZ, viewZenithCosAngle, float(0));
-      const earthO = vec3(0, 0, 0);
+      const worldPos = tsl.vec3(tsl.float(0), viewHeight, tsl.float(0));
+      const sinZ = tsl.sqrt(tsl.max(tsl.float(0), tsl.float(1).sub(viewZenithCosAngle.mul(viewZenithCosAngle))));
+      const worldDir = tsl.vec3(sinZ, viewZenithCosAngle, tsl.float(0));
+      const earthO = tsl.vec3(0, 0, 0);
       const tBottom = raySphereIntersectNearest(worldPos, worldDir, earthO, params.bottomRadius);
       const tTop = raySphereIntersectNearest(worldPos, worldDir, earthO, params.topRadius);
-      const tMaxIfNoBottom = tTop.lessThan(0).select(float(0), tTop);
+      const tMaxIfNoBottom = tTop.lessThan(0).select(tsl.float(0), tTop);
       const tMaxIfBoth = tTop.greaterThan(0).select(tTop.min(tBottom), tBottom);
       const tMax = tBottom.lessThan(0).select(tMaxIfNoBottom, tMaxIfBoth).toVar();
-      const opticalDepth = vec3(0, 0, 0).toVar();
-      const tPrev = float(0).toVar();
-      const tCur = float(0).toVar();
+      const opticalDepth = tsl.vec3(0, 0, 0).toVar();
+      const tPrev = tsl.float(0).toVar();
+      const tCur = tsl.float(0).toVar();
       for (let s = 0; s < SAMPLE_COUNT; s++) {
-        const newT = tMax.mul(float(s + SAMPLE_SEGMENT_T).div(float(SAMPLE_COUNT)));
+        const newT = tMax.mul(tsl.float(s + SAMPLE_SEGMENT_T).div(tsl.float(SAMPLE_COUNT)));
         const dt = newT.sub(tPrev);
         tCur.assign(newT);
         const P = worldPos.add(worldDir.mul(tCur));
@@ -1032,8 +1034,8 @@ class TransmittanceLUT {
         opticalDepth.addAssign(medium.extinction.mul(dt));
         tPrev.assign(newT);
       }
-      const transmittance = exp(opticalDepth.negate());
-      return vec4(transmittance, float(1));
+      const transmittance = tsl.exp(opticalDepth.negate());
+      return tsl.vec4(transmittance, tsl.float(1));
     })();
   }
   /**
@@ -1043,12 +1045,12 @@ class TransmittanceLUT {
    */
   render() {
     const renderer = this.renderer;
-    _rendererState$2 = RendererUtils.resetRendererState(renderer, _rendererState$2);
+    _rendererState$2 = webgpu.RendererUtils.resetRendererState(renderer, _rendererState$2);
     renderer.setRenderTarget(this.renderTarget);
     _quadMesh$2.material = this.material;
     _quadMesh$2.name = "TransmittanceLUT";
     _quadMesh$2.render(renderer);
-    RendererUtils.restoreRendererState(renderer, _rendererState$2);
+    webgpu.RendererUtils.restoreRendererState(renderer, _rendererState$2);
   }
   dispose() {
     this.renderTarget.dispose();
@@ -1059,7 +1061,7 @@ class TransmittanceLUT {
 var __defProp$a = Object.defineProperty;
 var __defNormalProp$a = (obj, key, value) => key in obj ? __defProp$a(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField$a = (obj, key, value) => __defNormalProp$a(obj, typeof key !== "symbol" ? key + "" : key, value);
-const _quadMesh$1 = /* @__PURE__ */ new QuadMesh();
+const _quadMesh$1 = /* @__PURE__ */ new webgpu.QuadMesh();
 let _rendererState$1;
 const SQRT_SAMPLE_COUNT = 8;
 const RAYMARCH_SAMPLE_COUNT = 20;
@@ -1087,17 +1089,17 @@ class MultiScatterLUT {
     this.transmittanceLUT = transmittanceLUT;
     this.debugMode = debugMode;
     this.backend = backend;
-    this.renderTarget = new RenderTarget(resolution.width, resolution.height, {
-      type: HalfFloatType,
-      minFilter: LinearFilter,
-      magFilter: LinearFilter,
-      wrapS: ClampToEdgeWrapping,
-      wrapT: ClampToEdgeWrapping,
+    this.renderTarget = new webgpu.RenderTarget(resolution.width, resolution.height, {
+      type: webgpu.HalfFloatType,
+      minFilter: webgpu.LinearFilter,
+      magFilter: webgpu.LinearFilter,
+      wrapS: webgpu.ClampToEdgeWrapping,
+      wrapT: webgpu.ClampToEdgeWrapping,
       generateMipmaps: false,
       depthBuffer: false
     });
     this.renderTarget.texture.name = "MultiScatterLUT";
-    this.material = new NodeMaterial();
+    this.material = new webgpu.NodeMaterial();
     this.material.name = "MultiScatterLUT";
     this.material.colorNode = this._buildColorNode();
   }
@@ -1113,118 +1115,118 @@ class MultiScatterLUT {
     const isWebGPU = this.renderer.backend?.isWebGPUBackend === true;
     const useWGSL = !debugMode && (this.backend === "wgsl" || this.backend === "auto" && isWebGPU);
     if (useWGSL) {
-      return vec4(multiScatterLutColorNode(uv(), params, transmittanceTex), float(1));
+      return tsl.vec4(multiScatterLutColorNode(tsl.uv(), params, transmittanceTex), tsl.float(1));
     }
-    return Fn(() => {
-      const rawUv = uv();
-      const corrU = rawUv.x.sub(float(0.5 / lutWidth)).mul(float(lutWidth / (lutWidth - 1)));
-      const corrV = rawUv.y.sub(float(0.5 / lutHeight)).mul(float(lutHeight / (lutHeight - 1)));
-      if (debugMode === "uv") return vec4(rawUv.x, rawUv.y, 0, 1);
+    return tsl.Fn(() => {
+      const rawUv = tsl.uv();
+      const corrU = rawUv.x.sub(tsl.float(0.5 / lutWidth)).mul(tsl.float(lutWidth / (lutWidth - 1)));
+      const corrV = rawUv.y.sub(tsl.float(0.5 / lutHeight)).mul(tsl.float(lutHeight / (lutHeight - 1)));
+      if (debugMode === "uv") return tsl.vec4(rawUv.x, rawUv.y, 0, 1);
       if (debugMode === "params") {
         const cSZ = corrU.mul(2).sub(1).mul(0.5).add(0.5);
-        return vec4(cSZ, corrV, 0, 1);
+        return tsl.vec4(cSZ, corrV, 0, 1);
       }
       const cosSunZenith = corrU.mul(2).sub(1);
-      const sunDir = vec3(float(0), sqrt(saturate(float(1).sub(cosSunZenith.mul(cosSunZenith)))), cosSunZenith);
-      const PRO = float(0.01);
+      const sunDir = tsl.vec3(tsl.float(0), tsl.sqrt(tsl.saturate(tsl.float(1).sub(cosSunZenith.mul(cosSunZenith)))), cosSunZenith);
+      const PRO = tsl.float(0.01);
       const atmosphereThickness = params.topRadius.sub(params.bottomRadius).sub(PRO);
-      const viewHeight = params.bottomRadius.add(saturate(corrV.add(PRO)).mul(atmosphereThickness));
-      const worldPos = vec3(float(0), float(0), viewHeight);
+      const viewHeight = params.bottomRadius.add(tsl.saturate(corrV.add(PRO)).mul(atmosphereThickness));
+      const worldPos = tsl.vec3(tsl.float(0), tsl.float(0), viewHeight);
       if (debugMode === "trans-sample") {
-        const sampleUv = vec2(corrU, corrV);
-        return vec4(texture(transmittanceTex, sampleUv).rgb, 1);
+        const sampleUv = tsl.vec2(corrU, corrV);
+        return tsl.vec4(tsl.texture(transmittanceTex, sampleUv).rgb, 1);
       }
       if (debugMode === "first-dir") {
-        const sqrtN_ = float(SQRT_SAMPLE_COUNT);
-        const dir = getSphericalDir(float(0.5), float(0.5), sqrtN_);
-        return vec4(dir.mul(0.5).add(0.5), 1);
+        const sqrtN_ = tsl.float(SQRT_SAMPLE_COUNT);
+        const dir = getSphericalDir(tsl.float(0.5), tsl.float(0.5), sqrtN_);
+        return tsl.vec4(dir.mul(0.5).add(0.5), 1);
       }
-      const sqrtN = float(SQRT_SAMPLE_COUNT);
-      const sphereSolidAngle = float(4).mul(PI);
+      const sqrtN = tsl.float(SQRT_SAMPLE_COUNT);
+      const sphereSolidAngle = tsl.float(4).mul(tsl.PI);
       const sampleWeight = sphereSolidAngle.div(sqrtN.mul(sqrtN));
-      const totalL = vec3(0, 0, 0).toVar();
-      const totalMSA = vec3(0, 0, 0).toVar();
-      const L = vec3(0, 0, 0).toVar();
-      const throughput = vec3(1, 1, 1).toVar();
-      const multiScatAs1 = vec3(0, 0, 0).toVar();
-      const tPrev = float(0).toVar();
-      const tMax = float(0).toVar();
-      const earthO = vec3(0, 0, 0);
+      const totalL = tsl.vec3(0, 0, 0).toVar();
+      const totalMSA = tsl.vec3(0, 0, 0).toVar();
+      const L = tsl.vec3(0, 0, 0).toVar();
+      const throughput = tsl.vec3(1, 1, 1).toVar();
+      const multiScatAs1 = tsl.vec3(0, 0, 0).toVar();
+      const tPrev = tsl.float(0).toVar();
+      const tMax = tsl.float(0).toVar();
+      const earthO = tsl.vec3(0, 0, 0);
       const SAMPLE_SEGMENT_T = 0.3;
-      const PRO_BIAS = float(0.01);
-      const extEps = float(1e-6);
-      const uniformPhase = float(1).div(float(4).mul(PI));
+      const PRO_BIAS = tsl.float(0.01);
+      const extEps = tsl.float(1e-6);
+      const uniformPhase = tsl.float(1).div(tsl.float(4).mul(tsl.PI));
       if (debugMode === "loop-count") {
-        const counter = float(0).toVar();
-        Loop({ start: 0, end: SQRT_SAMPLE_COUNT * SQRT_SAMPLE_COUNT, type: "int" }, () => {
-          counter.addAssign(float(1 / (SQRT_SAMPLE_COUNT * SQRT_SAMPLE_COUNT)));
+        const counter = tsl.float(0).toVar();
+        tsl.Loop({ start: 0, end: SQRT_SAMPLE_COUNT * SQRT_SAMPLE_COUNT, type: "int" }, () => {
+          counter.addAssign(tsl.float(1 / (SQRT_SAMPLE_COUNT * SQRT_SAMPLE_COUNT)));
         });
-        return vec4(counter, 0, 0, 1);
+        return tsl.vec4(counter, 0, 0, 1);
       }
       if (debugMode === "inner-loop") {
-        const counter = float(0).toVar();
-        Loop({ start: 0, end: RAYMARCH_SAMPLE_COUNT, type: "int" }, () => {
-          counter.addAssign(float(1 / RAYMARCH_SAMPLE_COUNT));
+        const counter = tsl.float(0).toVar();
+        tsl.Loop({ start: 0, end: RAYMARCH_SAMPLE_COUNT, type: "int" }, () => {
+          counter.addAssign(tsl.float(1 / RAYMARCH_SAMPLE_COUNT));
         });
-        return vec4(counter, 0, 0, 1);
+        return tsl.vec4(counter, 0, 0, 1);
       }
       if (debugMode === "lit-20") {
-        const counter = float(0).toVar();
-        Loop({ start: 0, end: 20, type: "int" }, () => {
-          counter.addAssign(float(0.05));
+        const counter = tsl.float(0).toVar();
+        tsl.Loop({ start: 0, end: 20, type: "int" }, () => {
+          counter.addAssign(tsl.float(0.05));
         });
-        return vec4(counter, 0, 0, 1);
+        return tsl.vec4(counter, 0, 0, 1);
       }
       if (debugMode === "loop-simple") {
-        const counter = float(0).toVar();
-        Loop(20, () => {
-          counter.addAssign(float(0.05));
+        const counter = tsl.float(0).toVar();
+        tsl.Loop(20, () => {
+          counter.addAssign(tsl.float(0.05));
         });
-        return vec4(counter, 0, 0, 1);
+        return tsl.vec4(counter, 0, 0, 1);
       }
       if (debugMode === "nested") {
-        const counter = float(0).toVar();
-        Loop(2, () => {
-          Loop(5, () => {
-            counter.addAssign(float(0.1));
+        const counter = tsl.float(0).toVar();
+        tsl.Loop(2, () => {
+          tsl.Loop(5, () => {
+            counter.addAssign(tsl.float(0.1));
           });
         });
-        return vec4(counter, 0, 0, 1);
+        return tsl.vec4(counter, 0, 0, 1);
       }
-      Loop({ start: 0, end: SQRT_SAMPLE_COUNT * SQRT_SAMPLE_COUNT, type: "int" }, ({ i: idx }) => {
-        const idxF = float(idx);
-        const iF = floor(idxF.div(sqrtN));
+      tsl.Loop({ start: 0, end: SQRT_SAMPLE_COUNT * SQRT_SAMPLE_COUNT, type: "int" }, ({ i: idx }) => {
+        const idxF = tsl.float(idx);
+        const iF = tsl.floor(idxF.div(sqrtN));
         const jF = idxF.sub(iF.mul(sqrtN));
-        const iPlusHalf = iF.add(float(0.5));
-        const jPlusHalf = jF.add(float(0.5));
+        const iPlusHalf = iF.add(tsl.float(0.5));
+        const jPlusHalf = jF.add(tsl.float(0.5));
         const worldDir = getSphericalDir(iPlusHalf, jPlusHalf, sqrtN);
-        L.assign(vec3(0, 0, 0));
-        throughput.assign(vec3(1, 1, 1));
-        multiScatAs1.assign(vec3(0, 0, 0));
-        tPrev.assign(float(0));
+        L.assign(tsl.vec3(0, 0, 0));
+        throughput.assign(tsl.vec3(1, 1, 1));
+        multiScatAs1.assign(tsl.vec3(0, 0, 0));
+        tPrev.assign(tsl.float(0));
         const tBottom = raySphereIntersectNearest(worldPos, worldDir, earthO, params.bottomRadius);
         const tTop = raySphereIntersectNearest(worldPos, worldDir, earthO, params.topRadius);
-        const tMaxIfNoBottom = tTop.lessThan(0).select(float(0), tTop);
+        const tMaxIfNoBottom = tTop.lessThan(0).select(tsl.float(0), tTop);
         const tMaxIfBoth = tTop.greaterThan(0).select(tTop.min(tBottom), tBottom);
         tMax.assign(tBottom.lessThan(0).select(tMaxIfNoBottom, tMaxIfBoth));
-        Loop({ start: 0, end: RAYMARCH_SAMPLE_COUNT, type: "int" }, ({ i: s }) => {
-          const newT = tMax.mul(float(s).add(float(SAMPLE_SEGMENT_T)).div(float(RAYMARCH_SAMPLE_COUNT)));
+        tsl.Loop({ start: 0, end: RAYMARCH_SAMPLE_COUNT, type: "int" }, ({ i: s }) => {
+          const newT = tMax.mul(tsl.float(s).add(tsl.float(SAMPLE_SEGMENT_T)).div(tsl.float(RAYMARCH_SAMPLE_COUNT)));
           const dt = newT.sub(tPrev);
           const P = worldPos.add(worldDir.mul(newT));
-          const pHeight = length(P);
+          const pHeight = tsl.length(P);
           const altitude = pHeight.sub(params.bottomRadius);
-          const upVector = P.div(max(pHeight, float(1e-6)));
+          const upVector = P.div(tsl.max(pHeight, tsl.float(1e-6)));
           const medium = computeScatteringAbsorption(altitude, params);
-          const extSafe = max(medium.extinction, vec3(extEps, extEps, extEps));
+          const extSafe = tsl.max(medium.extinction, tsl.vec3(extEps, extEps, extEps));
           const sampleOpticalDepth = medium.extinction.mul(dt);
-          const sampleTransmittance = exp(sampleOpticalDepth.negate());
-          const sunZenithCos = dot(sunDir, upVector);
+          const sampleTransmittance = tsl.exp(sampleOpticalDepth.negate());
+          const sunZenithCos = tsl.dot(sunDir, upVector);
           const tLutUv = transmittanceLutParamsToUv(pHeight, sunZenithCos, params);
-          const transmittanceToSun = texture(transmittanceTex, tLutUv).rgb;
+          const transmittanceToSun = tsl.texture(transmittanceTex, tLutUv).rgb;
           const phaseTimesScattering = medium.scattering.mul(uniformPhase);
           const shadowOrigin = P.add(upVector.mul(PRO_BIAS));
           const tEarth = raySphereIntersectNearest(shadowOrigin, sunDir, earthO, params.bottomRadius);
-          const earthShadow = select(tEarth.greaterThanEqual(0), float(0), float(1));
+          const earthShadow = tsl.select(tEarth.greaterThanEqual(0), tsl.float(0), tsl.float(1));
           const S = earthShadow.mul(transmittanceToSun).mul(phaseTimesScattering);
           const Sint = S.sub(S.mul(sampleTransmittance)).div(extSafe);
           L.addAssign(throughput.mul(Sint));
@@ -1236,35 +1238,35 @@ class MultiScatterLUT {
         });
         const hitGround = tBottom.greaterThan(0).and(tMax.equal(tBottom));
         const Pg = worldPos.add(worldDir.mul(tBottom));
-        const pHeightG = length(Pg);
-        const upG = Pg.div(max(pHeightG, float(1e-6)));
-        const sunZenithCosG = dot(sunDir, upG);
+        const pHeightG = tsl.length(Pg);
+        const upG = Pg.div(tsl.max(pHeightG, tsl.float(1e-6)));
+        const sunZenithCosG = tsl.dot(sunDir, upG);
         const tLutUvG = transmittanceLutParamsToUv(pHeightG, sunZenithCosG, params);
-        const transmittanceToSunG = texture(transmittanceTex, tLutUvG).rgb;
-        const NdotL = saturate(dot(normalize(upG), normalize(sunDir)));
-        const groundL = transmittanceToSunG.mul(throughput).mul(NdotL).mul(params.groundAlbedo).div(PI);
-        L.assign(select(hitGround, L.add(groundL), L));
+        const transmittanceToSunG = tsl.texture(transmittanceTex, tLutUvG).rgb;
+        const NdotL = tsl.saturate(tsl.dot(tsl.normalize(upG), tsl.normalize(sunDir)));
+        const groundL = transmittanceToSunG.mul(throughput).mul(NdotL).mul(params.groundAlbedo).div(tsl.PI);
+        L.assign(tsl.select(hitGround, L.add(groundL), L));
         totalL.addAssign(L.mul(sampleWeight));
         totalMSA.addAssign(multiScatAs1.mul(sampleWeight));
       });
-      if (debugMode === "totalL-raw") return vec4(totalL, 1);
-      if (debugMode === "totalMSA-raw") return vec4(totalMSA, 1);
-      const isotropicPhase = float(1).div(sphereSolidAngle);
+      if (debugMode === "totalL-raw") return tsl.vec4(totalL, 1);
+      if (debugMode === "totalMSA-raw") return tsl.vec4(totalMSA, 1);
+      const isotropicPhase = tsl.float(1).div(sphereSolidAngle);
       const inScatteredLuminance = totalL.mul(isotropicPhase);
       const multiScatAs1Final = totalMSA.mul(isotropicPhase);
-      const oneMinusR = max(float(1).sub(multiScatAs1Final), vec3(1e-6, 1e-6, 1e-6));
+      const oneMinusR = tsl.max(tsl.float(1).sub(multiScatAs1Final), tsl.vec3(1e-6, 1e-6, 1e-6));
       const Lfinal = inScatteredLuminance.div(oneMinusR);
-      return vec4(Lfinal, float(1));
+      return tsl.vec4(Lfinal, tsl.float(1));
     })();
   }
   render() {
     const renderer = this.renderer;
-    _rendererState$1 = RendererUtils.resetRendererState(renderer, _rendererState$1);
+    _rendererState$1 = webgpu.RendererUtils.resetRendererState(renderer, _rendererState$1);
     renderer.setRenderTarget(this.renderTarget);
     _quadMesh$1.material = this.material;
     _quadMesh$1.name = "MultiScatterLUT";
     _quadMesh$1.render(renderer);
-    RendererUtils.restoreRendererState(renderer, _rendererState$1);
+    webgpu.RendererUtils.restoreRendererState(renderer, _rendererState$1);
   }
   dispose() {
     this.renderTarget.dispose();
@@ -1275,7 +1277,7 @@ class MultiScatterLUT {
 var __defProp$9 = Object.defineProperty;
 var __defNormalProp$9 = (obj, key, value) => key in obj ? __defProp$9(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField$9 = (obj, key, value) => __defNormalProp$9(obj, typeof key !== "symbol" ? key + "" : key, value);
-const _quadMesh = /* @__PURE__ */ new QuadMesh();
+const _quadMesh = /* @__PURE__ */ new webgpu.QuadMesh();
 let _rendererState;
 const SAMPLE_COUNT = 30;
 class SkyViewLUT {
@@ -1306,20 +1308,20 @@ class SkyViewLUT {
     this.transmittanceLUT = transmittanceLUT;
     this.multiScatterLUT = multiScatterLUT;
     this.backend = backend;
-    const initialSun = sunDirection instanceof Vector3 ? sunDirection.clone() : new Vector3(0, 0, 1);
-    this._sunDirectionUniform = uniform(initialSun);
-    this._viewHeightUniform = uniform(atmosphereUniforms.bottomRadius.value + 0.01);
-    this.renderTarget = new RenderTarget(resolution.width, resolution.height, {
-      type: HalfFloatType,
-      minFilter: LinearFilter,
-      magFilter: LinearFilter,
-      wrapS: ClampToEdgeWrapping,
-      wrapT: ClampToEdgeWrapping,
+    const initialSun = sunDirection instanceof webgpu.Vector3 ? sunDirection.clone() : new webgpu.Vector3(0, 0, 1);
+    this._sunDirectionUniform = tsl.uniform(initialSun);
+    this._viewHeightUniform = tsl.uniform(atmosphereUniforms.bottomRadius.value + 0.01);
+    this.renderTarget = new webgpu.RenderTarget(resolution.width, resolution.height, {
+      type: webgpu.HalfFloatType,
+      minFilter: webgpu.LinearFilter,
+      magFilter: webgpu.LinearFilter,
+      wrapS: webgpu.ClampToEdgeWrapping,
+      wrapT: webgpu.ClampToEdgeWrapping,
       generateMipmaps: false,
       depthBuffer: false
     });
     this.renderTarget.texture.name = "SkyViewLUT";
-    this.material = new NodeMaterial();
+    this.material = new webgpu.NodeMaterial();
     this.material.name = "SkyViewLUT";
     this.material.colorNode = this._buildColorNode();
   }
@@ -1332,7 +1334,7 @@ class SkyViewLUT {
     return this._sunDirectionUniform.value;
   }
   set sunDirection(v) {
-    if (v instanceof Vector3) this._sunDirectionUniform.value.copy(v);
+    if (v instanceof webgpu.Vector3) this._sunDirectionUniform.value.copy(v);
     else if (Array.isArray(v)) this._sunDirectionUniform.value.fromArray(v);
     else if (v && typeof v === "object") this._sunDirectionUniform.value.set(v.x, v.y, v.z);
   }
@@ -1352,24 +1354,24 @@ class SkyViewLUT {
     const isWebGPU = this.renderer.backend?.isWebGPUBackend === true;
     const useWGSL = this.backend === "wgsl" || this.backend === "auto" && isWebGPU;
     if (useWGSL) {
-      return vec4(
-        skyViewLutColorNode(uv(), params, transmittanceTex, multiScatterTex, sunDirU, viewHeightU),
-        float(1)
+      return tsl.vec4(
+        skyViewLutColorNode(tsl.uv(), params, transmittanceTex, multiScatterTex, sunDirU, viewHeightU),
+        tsl.float(1)
       );
     }
-    return Fn(() => {
-      const lutUv = uv();
-      const viewHeight = max(viewHeightU, params.bottomRadius.add(float(0.01)));
+    return tsl.Fn(() => {
+      const lutUv = tsl.uv();
+      const viewHeight = tsl.max(viewHeightU, params.bottomRadius.add(tsl.float(0.01)));
       const { viewZenithCosAngle, lightViewCosAngle } = uvToSkyViewLutParams(params, viewHeight, lutUv);
-      const upVector = vec3(0, 0, 1);
-      const sunZenithCosAngle = dot(upVector, normalize(sunDirU));
-      const sunDirSinZ = sqrt(max(float(1).sub(sunZenithCosAngle.mul(sunZenithCosAngle)), float(0)));
-      const sunDir = vec3(sunDirSinZ, float(0), sunZenithCosAngle);
-      const worldPos = vec3(float(0), float(0), viewHeight).toVar();
-      const vzSin = sqrt(max(float(1).sub(viewZenithCosAngle.mul(viewZenithCosAngle)), float(0)));
-      const worldDir = vec3(
+      const upVector = tsl.vec3(0, 0, 1);
+      const sunZenithCosAngle = tsl.dot(upVector, tsl.normalize(sunDirU));
+      const sunDirSinZ = tsl.sqrt(tsl.max(tsl.float(1).sub(sunZenithCosAngle.mul(sunZenithCosAngle)), tsl.float(0)));
+      const sunDir = tsl.vec3(sunDirSinZ, tsl.float(0), sunZenithCosAngle);
+      const worldPos = tsl.vec3(tsl.float(0), tsl.float(0), viewHeight).toVar();
+      const vzSin = tsl.sqrt(tsl.max(tsl.float(1).sub(viewZenithCosAngle.mul(viewZenithCosAngle)), tsl.float(0)));
+      const worldDir = tsl.vec3(
         vzSin.mul(lightViewCosAngle),
-        vzSin.mul(sqrt(max(float(1).sub(lightViewCosAngle.mul(lightViewCosAngle)), float(0)))),
+        vzSin.mul(tsl.sqrt(tsl.max(tsl.float(1).sub(lightViewCosAngle.mul(lightViewCosAngle)), tsl.float(0)))),
         viewZenithCosAngle
       ).toVar();
       const clipped = moveToTopAtmosphere(worldPos, worldDir, params);
@@ -1385,17 +1387,17 @@ class SkyViewLUT {
         ground: true,
         mieRayPhase: true
       });
-      return vec4(ss.L, float(1));
+      return tsl.vec4(ss.L, tsl.float(1));
     })();
   }
   render() {
     const renderer = this.renderer;
-    _rendererState = RendererUtils.resetRendererState(renderer, _rendererState);
+    _rendererState = webgpu.RendererUtils.resetRendererState(renderer, _rendererState);
     renderer.setRenderTarget(this.renderTarget);
     _quadMesh.material = this.material;
     _quadMesh.name = "SkyViewLUT";
     _quadMesh.render(renderer);
-    RendererUtils.restoreRendererState(renderer, _rendererState);
+    webgpu.RendererUtils.restoreRendererState(renderer, _rendererState);
   }
   dispose() {
     this.renderTarget.dispose();
@@ -1442,19 +1444,19 @@ class AerialPerspectiveLUT {
     this.atmosphereUniforms = atmosphereUniforms;
     this.transmittanceLUT = transmittanceLUT;
     this.multiScatterLUT = multiScatterLUT;
-    this._tex = new Storage3DTexture(resolution.x, resolution.y, resolution.z);
-    this._tex.type = HalfFloatType;
-    this._tex.format = RGBAFormat;
-    this._tex.minFilter = LinearFilter;
-    this._tex.magFilter = LinearFilter;
-    this._tex.wrapS = ClampToEdgeWrapping;
-    this._tex.wrapT = ClampToEdgeWrapping;
-    this._tex.wrapR = ClampToEdgeWrapping;
+    this._tex = new webgpu.Storage3DTexture(resolution.x, resolution.y, resolution.z);
+    this._tex.type = webgpu.HalfFloatType;
+    this._tex.format = webgpu.RGBAFormat;
+    this._tex.minFilter = webgpu.LinearFilter;
+    this._tex.magFilter = webgpu.LinearFilter;
+    this._tex.wrapS = webgpu.ClampToEdgeWrapping;
+    this._tex.wrapT = webgpu.ClampToEdgeWrapping;
+    this._tex.wrapR = webgpu.ClampToEdgeWrapping;
     this._tex.name = "AerialPerspectiveLUT";
-    this._sunDirection = uniform(sunDirection instanceof Vector3 ? sunDirection.clone() : new Vector3(0, 1, 0));
-    this._cameraPosKm = uniform(new Vector3(0, atmosphereUniforms.bottomRadius.value + 1e-3, 0));
-    this._invProj = uniform(new Matrix4());
-    this._cameraMatrixWorld = uniform(new Matrix4());
+    this._sunDirection = tsl.uniform(sunDirection instanceof webgpu.Vector3 ? sunDirection.clone() : new webgpu.Vector3(0, 1, 0));
+    this._cameraPosKm = tsl.uniform(new webgpu.Vector3(0, atmosphereUniforms.bottomRadius.value + 1e-3, 0));
+    this._invProj = tsl.uniform(new webgpu.Matrix4());
+    this._cameraMatrixWorld = tsl.uniform(new webgpu.Matrix4());
     this._compute = this._buildCompute();
   }
   /** The 3D storage texture; bind as `texture( ap.texture, vec3 uvw )`
@@ -1479,7 +1481,7 @@ class AerialPerspectiveLUT {
    * pass to `SkyAtmosphereBaker.setSun(...)` works here.
    */
   setSunDirection(v) {
-    if (v instanceof Vector3) this._sunDirection.value.copy(v);
+    if (v instanceof webgpu.Vector3) this._sunDirection.value.copy(v);
     else if (Array.isArray(v)) this._sunDirection.value.fromArray(v);
   }
   /**
@@ -1527,43 +1529,43 @@ class AerialPerspectiveLUT {
     const resZ = this.resolution.z;
     const kmPerSlice = this.kmPerSlice;
     const total = resX * resY * resZ;
-    const fn = Fn(() => {
-      const idx = instanceIndex;
-      const x = idx.mod(uint(resX));
-      const y = idx.div(uint(resX)).mod(uint(resY));
-      const z = idx.div(uint(resX * resY));
-      const fx = float(x);
-      const fy = float(y);
-      const fz = float(z);
-      const ndcX = fx.add(0.5).div(float(resX)).mul(2).sub(1);
-      const ndcY = float(1).sub(fy.add(0.5).div(float(resY)).mul(2));
-      const clip = vec4(ndcX, ndcY, float(0.5), float(1));
+    const fn = tsl.Fn(() => {
+      const idx = tsl.instanceIndex;
+      const x = idx.mod(tsl.uint(resX));
+      const y = idx.div(tsl.uint(resX)).mod(tsl.uint(resY));
+      const z = idx.div(tsl.uint(resX * resY));
+      const fx = tsl.float(x);
+      const fy = tsl.float(y);
+      const fz = tsl.float(z);
+      const ndcX = fx.add(0.5).div(tsl.float(resX)).mul(2).sub(1);
+      const ndcY = tsl.float(1).sub(fy.add(0.5).div(tsl.float(resY)).mul(2));
+      const clip = tsl.vec4(ndcX, ndcY, tsl.float(0.5), tsl.float(1));
       const viewH = invProjU.mul(clip);
       const viewPos = viewH.xyz.div(viewH.w);
-      const worldDirRaw = cameraWorldU.mul(vec4(viewPos, float(0))).xyz;
-      const worldDir = normalize(worldDirRaw);
-      const w = fz.add(0.5).div(float(resZ));
-      const sliceLin = w.mul(w).mul(float(resZ));
-      const tMax = sliceLin.mul(float(kmPerSlice)).toVar();
+      const worldDirRaw = cameraWorldU.mul(tsl.vec4(viewPos, tsl.float(0))).xyz;
+      const worldDir = tsl.normalize(worldDirRaw);
+      const w = fz.add(0.5).div(tsl.float(resZ));
+      const sliceLin = w.mul(w).mul(tsl.float(resZ));
+      const tMax = sliceLin.mul(tsl.float(kmPerSlice)).toVar();
       const camPosKm = cameraPosKmU.toVar();
       const PLANET_RADIUS_OFFSET = 0.01;
-      const minHeight = params.bottomRadius.add(float(PLANET_RADIUS_OFFSET));
+      const minHeight = params.bottomRadius.add(tsl.float(PLANET_RADIUS_OFFSET));
       const worldDirV = worldDir.toVar();
       const newWorldPos = camPosKm.add(worldDirV.mul(tMax)).toVar();
-      const newViewHeight = length(newWorldPos);
+      const newViewHeight = tsl.length(newWorldPos);
       const belowGround = newViewHeight.lessThanEqual(minHeight);
-      const groundShellHeight = minHeight.add(float(1e-3));
-      const groundedPos = normalize(newWorldPos).mul(groundShellHeight);
-      const correctedDir = normalize(groundedPos.sub(camPosKm));
-      const correctedT = length(groundedPos.sub(camPosKm));
-      worldDirV.assign(select(belowGround, correctedDir, worldDirV));
-      tMax.assign(select(belowGround, correctedT, tMax));
+      const groundShellHeight = minHeight.add(tsl.float(1e-3));
+      const groundedPos = tsl.normalize(newWorldPos).mul(groundShellHeight);
+      const correctedDir = tsl.normalize(groundedPos.sub(camPosKm));
+      const correctedT = tsl.length(groundedPos.sub(camPosKm));
+      worldDirV.assign(tsl.select(belowGround, correctedDir, worldDirV));
+      tMax.assign(tsl.select(belowGround, correctedT, tMax));
       const moved = moveToTopAtmosphere(camPosKm, worldDirV, params);
       const startPos = moved.newPos.toVar();
       const result = integrateScatteredLuminance({
         worldPos: startPos,
         worldDir: worldDirV,
-        sunDir: normalize(sunDirU),
+        sunDir: tsl.normalize(sunDirU),
         params,
         transmittanceLUT: transmittanceTex,
         multiScatterLUT: multiScatterTex,
@@ -1573,41 +1575,41 @@ class AerialPerspectiveLUT {
         tMaxOverride: tMax
       });
       const meanT = result.transmittance.x.add(result.transmittance.y).add(result.transmittance.z).div(3);
-      const alpha = float(1).sub(meanT);
-      const validF = moved.valid.select(float(1), float(0));
-      textureStore(tex, ivec3(int(x), int(y), int(z)), vec4(result.L.mul(validF), alpha.mul(validF)));
+      const alpha = tsl.float(1).sub(meanT);
+      const validF = moved.valid.select(tsl.float(1), tsl.float(0));
+      tsl.textureStore(tex, tsl.ivec3(tsl.int(x), tsl.int(y), tsl.int(z)), tsl.vec4(result.L.mul(validF), alpha.mul(validF)));
     });
     return fn().compute(total, [4, 4, 4]);
   }
 }
 
-const proceduralStars = /* @__PURE__ */ Fn(([uvNode, densityNode, brightnessScaleNode]) => {
-  const GRID_U = float(400);
-  const GRID_V = float(200);
-  const scaledUv = vec2(uvNode.x.mul(GRID_U), uvNode.y.mul(GRID_V));
-  const cell = floor(scaledUv);
-  const local = fract(scaledUv);
-  const h0 = _hash21(cell, vec2(12.9898, 78.233));
-  const h1 = _hash21(cell, vec2(39.346, 11.135));
-  const h2 = _hash21(cell, vec2(73.156, 52.235));
-  const h3 = _hash21(cell, vec2(26.782, 91.453));
-  const h4 = _hash21(cell, vec2(51.937, 21.118));
-  const present = step(h0, densityNode);
-  const margin = float(0.2);
-  const span = float(1).sub(margin.mul(2));
-  const centre = vec2(margin.add(h1.mul(span)), margin.add(h2.mul(span)));
-  const radius = float(0.012).add(h3.mul(0.025));
-  const dist = length(local.sub(centre));
-  const shape = smoothstep(radius, radius.mul(0.2), dist);
-  const magnitude = pow(h3, float(2)).mul(brightnessScaleNode);
-  const warm = vec3(1, 0.85, 0.65);
-  const cool = vec3(0.7, 0.85, 1);
-  const colour = mix(warm, cool, h4);
+const proceduralStars = /* @__PURE__ */ tsl.Fn(([uvNode, densityNode, brightnessScaleNode]) => {
+  const GRID_U = tsl.float(400);
+  const GRID_V = tsl.float(200);
+  const scaledUv = tsl.vec2(uvNode.x.mul(GRID_U), uvNode.y.mul(GRID_V));
+  const cell = tsl.floor(scaledUv);
+  const local = tsl.fract(scaledUv);
+  const h0 = _hash21(cell, tsl.vec2(12.9898, 78.233));
+  const h1 = _hash21(cell, tsl.vec2(39.346, 11.135));
+  const h2 = _hash21(cell, tsl.vec2(73.156, 52.235));
+  const h3 = _hash21(cell, tsl.vec2(26.782, 91.453));
+  const h4 = _hash21(cell, tsl.vec2(51.937, 21.118));
+  const present = tsl.step(h0, densityNode);
+  const margin = tsl.float(0.2);
+  const span = tsl.float(1).sub(margin.mul(2));
+  const centre = tsl.vec2(margin.add(h1.mul(span)), margin.add(h2.mul(span)));
+  const radius = tsl.float(0.012).add(h3.mul(0.025));
+  const dist = tsl.length(local.sub(centre));
+  const shape = tsl.smoothstep(radius, radius.mul(0.2), dist);
+  const magnitude = tsl.pow(h3, tsl.float(2)).mul(brightnessScaleNode);
+  const warm = tsl.vec3(1, 0.85, 0.65);
+  const cool = tsl.vec3(0.7, 0.85, 1);
+  const colour = tsl.mix(warm, cool, h4);
   return colour.mul(shape).mul(magnitude).mul(present);
 });
 function _hash21(p, seed) {
-  const k = dot(p, seed);
-  return fract(sin(k).mul(43758.5453));
+  const k = tsl.dot(p, seed);
+  return tsl.fract(tsl.sin(k).mul(43758.5453));
 }
 
 var __defProp$7 = Object.defineProperty;
@@ -1615,16 +1617,16 @@ var __defNormalProp$7 = (obj, key, value) => key in obj ? __defProp$7(obj, key, 
 var __publicField$7 = (obj, key, value) => __defNormalProp$7(obj, typeof key !== "symbol" ? key + "" : key, value);
 function _makeStarsPlaceholder() {
   const data = new Uint16Array(4);
-  const tex = new DataTexture(data, 1, 1, RGBAFormat, HalfFloatType);
-  tex.minFilter = LinearFilter;
-  tex.magFilter = LinearFilter;
-  tex.wrapS = RepeatWrapping;
-  tex.wrapT = RepeatWrapping;
+  const tex = new webgpu.DataTexture(data, 1, 1, webgpu.RGBAFormat, webgpu.HalfFloatType);
+  tex.minFilter = webgpu.LinearFilter;
+  tex.magFilter = webgpu.LinearFilter;
+  tex.wrapS = webgpu.RepeatWrapping;
+  tex.wrapT = webgpu.RepeatWrapping;
   tex.needsUpdate = true;
   tex.name = "SkyAtmosphereMesh.starsPlaceholder";
   return tex;
 }
-class SkyAtmosphereMesh extends Mesh {
+class SkyAtmosphereMesh extends webgpu.Mesh {
   /**
    * @param {object} args
    * @param {object} args.atmosphereUniforms  bundle from createAtmosphereUniforms
@@ -1646,8 +1648,8 @@ class SkyAtmosphereMesh extends Mesh {
   } = {}) {
     if (!atmosphereUniforms) throw new Error("SkyAtmosphereMesh: atmosphereUniforms is required");
     if (!skyViewLUT) throw new Error("SkyAtmosphereMesh: skyViewLUT is required");
-    const material = new NodeMaterial();
-    super(new BoxGeometry(1, 1, 1), material);
+    const material = new webgpu.NodeMaterial();
+    super(new webgpu.BoxGeometry(1, 1, 1), material);
     __publicField$7(this, "atmosphereUniforms");
     __publicField$7(this, "skyViewLUT");
     __publicField$7(this, "transmittanceLUT");
@@ -1678,35 +1680,35 @@ class SkyAtmosphereMesh extends Mesh {
     this.skyViewLUT = skyViewLUT;
     this.transmittanceLUT = transmittanceLUT;
     this.multiScatterLUT = multiScatterLUT;
-    this.sunDirection = uniform(sunDirection instanceof Vector3 ? sunDirection.clone() : new Vector3(0, 1, 0));
-    this.upVector = uniform(upVector instanceof Vector3 ? upVector.clone() : new Vector3(0, 1, 0));
-    this.showSunDisc = uniform(0);
-    this.mirrorBelowHorizon = uniform(0);
-    this.sunDiscIntensity = uniform(20);
-    this.sunDiscCos = uniform(Math.cos(4675e-6));
-    this.sunDiscCosInner = uniform(Math.cos(4675e-6 * (1 - 0.1)));
-    this.moonDirection = uniform(new Vector3(0, 1, 0));
-    this.showMoonDisc = uniform(0);
-    this.moonIntensity = uniform(1);
-    this.moonDiscCos = uniform(Math.cos(4675e-6));
-    this.moonColor = uniform(new Vector3(0.85, 0.9, 1));
-    this.viewHeight = uniform(atmosphereUniforms.bottomRadius.value + 0.01);
-    this.luminanceScale = uniform(40);
+    this.sunDirection = tsl.uniform(sunDirection instanceof webgpu.Vector3 ? sunDirection.clone() : new webgpu.Vector3(0, 1, 0));
+    this.upVector = tsl.uniform(upVector instanceof webgpu.Vector3 ? upVector.clone() : new webgpu.Vector3(0, 1, 0));
+    this.showSunDisc = tsl.uniform(0);
+    this.mirrorBelowHorizon = tsl.uniform(0);
+    this.sunDiscIntensity = tsl.uniform(20);
+    this.sunDiscCos = tsl.uniform(Math.cos(4675e-6));
+    this.sunDiscCosInner = tsl.uniform(Math.cos(4675e-6 * (1 - 0.1)));
+    this.moonDirection = tsl.uniform(new webgpu.Vector3(0, 1, 0));
+    this.showMoonDisc = tsl.uniform(0);
+    this.moonIntensity = tsl.uniform(1);
+    this.moonDiscCos = tsl.uniform(Math.cos(4675e-6));
+    this.moonColor = tsl.uniform(new webgpu.Vector3(0.85, 0.9, 1));
+    this.viewHeight = tsl.uniform(atmosphereUniforms.bottomRadius.value + 0.01);
+    this.luminanceScale = tsl.uniform(40);
     this._starsTexturePlaceholder = _makeStarsPlaceholder();
-    this.starsTextureNode = texture(this._starsTexturePlaceholder);
-    this.starsIntensity = uniform(0);
-    this.starsMode = uniform(0);
-    this.starsDensity = uniform(0.3);
-    this.starsBrightnessScale = uniform(1);
-    this.starsRotation = uniform(0);
+    this.starsTextureNode = tsl.texture(this._starsTexturePlaceholder);
+    this.starsIntensity = tsl.uniform(0);
+    this.starsMode = tsl.uniform(0);
+    this.starsDensity = tsl.uniform(0.3);
+    this.starsBrightnessScale = tsl.uniform(1);
+    this.starsRotation = tsl.uniform(0);
     this.isSkyAtmosphereMesh = true;
-    const vertexNode = /* @__PURE__ */ Fn(() => {
-      const position = modelViewProjection;
+    const vertexNode = /* @__PURE__ */ tsl.Fn(() => {
+      const position = tsl.modelViewProjection;
       position.z.assign(position.w);
       return position;
     })();
     const colorNode = this._buildColorNode();
-    material.side = BackSide;
+    material.side = webgpu.BackSide;
     material.depthWrite = true;
     material.vertexNode = vertexNode;
     material.colorNode = colorNode;
@@ -1752,38 +1754,38 @@ class SkyAtmosphereMesh extends Mesh {
     const moonDiscCosU = this.moonDiscCos;
     const moonColorU = this.moonColor;
     const mirrorBelowHorizonU = this.mirrorBelowHorizon;
-    return Fn(() => {
-      const viewDirRaw = normalize(positionWorld.sub(cameraPosition));
-      const upVec = normalize(upU);
-      const sunDir = normalize(sunDirU);
-      const vAlongUp = dot(viewDirRaw, upVec);
-      const vAlongUpEffective = mix(vAlongUp, abs(vAlongUp), mirrorBelowHorizonU);
+    return tsl.Fn(() => {
+      const viewDirRaw = tsl.normalize(tsl.positionWorld.sub(tsl.cameraPosition));
+      const upVec = tsl.normalize(upU);
+      const sunDir = tsl.normalize(sunDirU);
+      const vAlongUp = tsl.dot(viewDirRaw, upVec);
+      const vAlongUpEffective = tsl.mix(vAlongUp, tsl.abs(vAlongUp), mirrorBelowHorizonU);
       const viewDirHorizontal = viewDirRaw.sub(upVec.mul(vAlongUp));
-      const viewDir = normalize(viewDirHorizontal.add(upVec.mul(vAlongUpEffective)));
-      const viewHeight = max(viewHeightU, params.bottomRadius.add(float(0.01)));
-      const viewZenithCosAngle = clamp(dot(viewDir, upVec), float(-1), float(1));
-      const sideRaw = cross(upVec, viewDir);
-      const sideLen = max(length(sideRaw), float(1e-6));
+      const viewDir = tsl.normalize(viewDirHorizontal.add(upVec.mul(vAlongUpEffective)));
+      const viewHeight = tsl.max(viewHeightU, params.bottomRadius.add(tsl.float(0.01)));
+      const viewZenithCosAngle = tsl.clamp(tsl.dot(viewDir, upVec), tsl.float(-1), tsl.float(1));
+      const sideRaw = tsl.cross(upVec, viewDir);
+      const sideLen = tsl.max(tsl.length(sideRaw), tsl.float(1e-6));
       const sideVector = sideRaw.div(sideLen);
-      const forwardVector = normalize(cross(sideVector, upVec));
-      const lightOnPlaneX = dot(sunDir, forwardVector);
-      const lightOnPlaneY = dot(sunDir, sideVector);
-      const lightOnPlaneLen = max(length(vec2(lightOnPlaneX, lightOnPlaneY)), float(1e-6));
-      const lightViewCosAngle = clamp(lightOnPlaneX.div(lightOnPlaneLen), float(-1), float(1));
-      const earthO = vec3(0, 0, 0);
+      const forwardVector = tsl.normalize(tsl.cross(sideVector, upVec));
+      const lightOnPlaneX = tsl.dot(sunDir, forwardVector);
+      const lightOnPlaneY = tsl.dot(sunDir, sideVector);
+      const lightOnPlaneLen = tsl.max(tsl.length(tsl.vec2(lightOnPlaneX, lightOnPlaneY)), tsl.float(1e-6));
+      const lightViewCosAngle = tsl.clamp(lightOnPlaneX.div(lightOnPlaneLen), tsl.float(-1), tsl.float(1));
+      const earthO = tsl.vec3(0, 0, 0);
       const ro = upVec.mul(viewHeight);
       const tPlanet = raySphereIntersectNearest(ro, viewDir, earthO, params.bottomRadius);
-      const intersectsGround = tPlanet.greaterThanEqual(float(0));
-      const skyMask = intersectsGround.select(float(0), float(1));
-      const skyColor = vec3(0, 0, 0).toVar();
+      const intersectsGround = tPlanet.greaterThanEqual(tsl.float(0));
+      const skyMask = intersectsGround.select(tsl.float(0), tsl.float(1));
+      const skyColor = tsl.vec3(0, 0, 0).toVar();
       if (enableSpaceFallback) {
-        const BLEND_HALF_WIDTH_KM = float(20);
+        const BLEND_HALF_WIDTH_KM = tsl.float(20);
         const blendStart = params.topRadius.sub(BLEND_HALF_WIDTH_KM);
         const blendEnd = params.topRadius.add(BLEND_HALF_WIDTH_KM);
         const lutUv = skyViewLutParamsToUv(params, intersectsGround, viewZenithCosAngle, lightViewCosAngle, viewHeight);
-        const lutColor = texture(skyViewTex, lutUv).rgb.mul(luminanceScaleU);
-        const rayColor = vec3(0, 0, 0).toVar();
-        If(viewHeight.greaterThan(blendStart), () => {
+        const lutColor = tsl.texture(skyViewTex, lutUv).rgb.mul(luminanceScaleU);
+        const rayColor = tsl.vec3(0, 0, 0).toVar();
+        tsl.If(viewHeight.greaterThan(blendStart), () => {
           const camPos = upVec.mul(viewHeight);
           const moved = moveToTopAtmosphere(camPos, viewDir, params);
           const startPos = moved.newPos.toVar();
@@ -1798,44 +1800,44 @@ class SkyAtmosphereMesh extends Mesh {
             ground: true,
             mieRayPhase: true
           });
-          const validF = moved.valid.select(float(1), float(0));
+          const validF = moved.valid.select(tsl.float(1), tsl.float(0));
           rayColor.assign(result.L.mul(luminanceScaleU).mul(validF));
         });
-        const blendT = smoothstep(blendStart, blendEnd, viewHeight);
-        skyColor.assign(mix(lutColor, rayColor, blendT));
+        const blendT = tsl.smoothstep(blendStart, blendEnd, viewHeight);
+        skyColor.assign(tsl.mix(lutColor, rayColor, blendT));
       } else {
         const lutUv = skyViewLutParamsToUv(params, intersectsGround, viewZenithCosAngle, lightViewCosAngle, viewHeight);
-        skyColor.assign(texture(skyViewTex, lutUv).rgb.mul(luminanceScaleU));
+        skyColor.assign(tsl.texture(skyViewTex, lutUv).rgb.mul(luminanceScaleU));
       }
-      const tToSpace = vec3(1, 1, 1).toVar();
+      const tToSpace = tsl.vec3(1, 1, 1).toVar();
       if (transmittanceTex !== null) {
         const tToSpaceUv = transmittanceLutParamsToUv(viewHeight, viewZenithCosAngle, params);
-        tToSpace.assign(texture(transmittanceTex, tToSpaceUv).rgb);
+        tToSpace.assign(tsl.texture(transmittanceTex, tToSpaceUv).rgb);
       }
-      const starsContribution = vec3(0, 0, 0).toVar();
+      const starsContribution = tsl.vec3(0, 0, 0).toVar();
       if (transmittanceTex !== null) {
-        const cosR = cos(starsRotationU);
-        const sinR = sin(starsRotationU);
-        const starsDir = vec3(
+        const cosR = tsl.cos(starsRotationU);
+        const sinR = tsl.sin(starsRotationU);
+        const starsDir = tsl.vec3(
           viewDir.x.mul(cosR).add(viewDir.z.mul(sinR)),
           viewDir.y,
           viewDir.x.mul(sinR).negate().add(viewDir.z.mul(cosR))
         );
-        const starsUv = equirectUV(starsDir);
+        const starsUv = tsl.equirectUV(starsDir);
         const proceduralRaw = proceduralStars(starsUv, starsDensityU, starsBrightnessU);
         const textureRaw = starsTexNode.sample(starsUv).rgb;
-        const starsRaw = mix(proceduralRaw, textureRaw, starsModeU);
+        const starsRaw = tsl.mix(proceduralRaw, textureRaw, starsModeU);
         starsContribution.assign(starsRaw.mul(tToSpace).mul(starsIntensityU).mul(skyMask));
       }
-      const cosSun = dot(viewDir, sunDir);
-      const sunAngularMask = smoothstep(sunDiscCosU, sunDiscCosInnerU, cosSun);
+      const cosSun = tsl.dot(viewDir, sunDir);
+      const sunAngularMask = tsl.smoothstep(sunDiscCosU, sunDiscCosInnerU, cosSun);
       const sunDiscMask = sunAngularMask.mul(showSunDiscU).mul(skyMask);
       const sunContribution = tToSpace.mul(sunDiscMask).mul(sunDiscIntensityU);
-      const moonDir = normalize(moonDirU);
-      const cosMoon = dot(viewDir, moonDir);
-      const moonDiscMask = smoothstep(moonDiscCosU, moonDiscCosU.add(float(2e-5)), cosMoon).mul(showMoonDiscU);
+      const moonDir = tsl.normalize(moonDirU);
+      const cosMoon = tsl.dot(viewDir, moonDir);
+      const moonDiscMask = tsl.smoothstep(moonDiscCosU, moonDiscCosU.add(tsl.float(2e-5)), cosMoon).mul(showMoonDiscU);
       const moonContribution = moonColorU.mul(moonDiscMask).mul(moonIntensityU);
-      return vec4(skyColor.add(starsContribution).add(sunContribution).add(moonContribution), float(1));
+      return tsl.vec4(skyColor.add(starsContribution).add(sunContribution).add(moonContribution), tsl.float(1));
     })();
   }
 }
@@ -1938,7 +1940,7 @@ class SkyAtmosphereBaker {
       this.aerialPerspectiveLUT = null;
       this.apKmPerSlice = apKmPerSlice;
     }
-    this.skyScene = new Scene();
+    this.skyScene = new webgpu.Scene();
     this.sky = new SkyAtmosphereMesh({
       atmosphereUniforms: this.atmosphereUniforms,
       skyViewLUT: this.skyViewLUT,
@@ -1947,27 +1949,27 @@ class SkyAtmosphereBaker {
     });
     this.sky.scale.setScalar(45e4);
     this.skyScene.add(this.sky);
-    this.cubeRenderTarget = new CubeRenderTarget(cubeSize, {
-      type: HalfFloatType,
-      minFilter: LinearMipmapLinearFilter,
-      magFilter: LinearFilter,
+    this.cubeRenderTarget = new webgpu.CubeRenderTarget(cubeSize, {
+      type: webgpu.HalfFloatType,
+      minFilter: webgpu.LinearMipmapLinearFilter,
+      magFilter: webgpu.LinearFilter,
       generateMipmaps: true
     });
-    this.cubeCamera = new CubeCamera(1, 1e6, this.cubeRenderTarget);
+    this.cubeCamera = new webgpu.CubeCamera(1, 1e6, this.cubeRenderTarget);
     this.skyScene.add(this.cubeCamera);
     this._mirrorBelowHorizon = mirrorBelowHorizon;
-    this.pmremGenerator = new PMREMGenerator(renderer);
+    this.pmremGenerator = new webgpu.PMREMGenerator(renderer);
     this.pmremGenerator.compileCubemapShader();
     this._pmremTarget = null;
     this.sunDirty = true;
     this.atmosDirty = true;
     this.cubeDirty = true;
     this.cameraDirty = true;
-    this._sunVec = new Vector3(0, 1, 0);
+    this._sunVec = new webgpu.Vector3(0, 1, 0);
     this._sunListeners = /* @__PURE__ */ new Set();
     this._camera = null;
-    this._cameraPositionKm = new Vector3(0, this.atmosphereUniforms.bottomRadius.value + 1e-3, 0);
-    this._cameraUp = new Vector3(0, 1, 0);
+    this._cameraPositionKm = new webgpu.Vector3(0, this.atmosphereUniforms.bottomRadius.value + 1e-3, 0);
+    this._cameraUp = new webgpu.Vector3(0, 1, 0);
     this._skyViewSunZenith = 1;
     this._cameraAltitudeM = 1;
   }
@@ -2044,10 +2046,10 @@ class SkyAtmosphereBaker {
    * the historical behaviour.
    */
   _syncSkyViewSunFrame() {
-    const sinEff = MathUtils.clamp(this._sunVec.dot(this._cameraUp), -1, 1);
+    const sinEff = webgpu.MathUtils.clamp(this._sunVec.dot(this._cameraUp), -1, 1);
     const cosEff = Math.sqrt(Math.max(0, 1 - sinEff * sinEff));
     this._skyViewSunZenith = sinEff;
-    this.skyViewLUT.sunDirection = new Vector3(cosEff, 0, sinEff);
+    this.skyViewLUT.sunDirection = new webgpu.Vector3(cosEff, 0, sinEff);
   }
   /**
    * Set sun direction from (elevation, azimuth) in degrees. Convention matches
@@ -2063,8 +2065,8 @@ class SkyAtmosphereBaker {
    * `lightViewCosAngle`.
    */
   setSun({ elevation, azimuth }) {
-    const phi = MathUtils.degToRad(90 - elevation);
-    const theta = MathUtils.degToRad(azimuth);
+    const phi = webgpu.MathUtils.degToRad(90 - elevation);
+    const theta = webgpu.MathUtils.degToRad(azimuth);
     this._sunVec.setFromSphericalCoords(1, phi, theta);
     this.sky.sunDirection.value.copy(this._sunVec);
     this._syncSkyViewSunFrame();
@@ -2135,7 +2137,7 @@ class SkyAtmosphereBaker {
    * @returns {THREE.Mesh}
    */
   createSkyMesh({ scale = 45e4, showSunDisc = true } = {}) {
-    const mesh = new Mesh(this.sky.geometry, this.sky.material);
+    const mesh = new webgpu.Mesh(this.sky.geometry, this.sky.material);
     mesh.scale.setScalar(scale);
     mesh.frustumCulled = false;
     mesh.renderOrder = -1;
@@ -2208,7 +2210,7 @@ class SkyAtmosphereBaker {
 var __defProp$5 = Object.defineProperty;
 var __defNormalProp$5 = (obj, key, value) => key in obj ? __defProp$5(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField$5 = (obj, key, value) => __defNormalProp$5(obj, typeof key !== "symbol" ? key + "" : key, value);
-class GroundedSkybox extends Mesh {
+class GroundedSkybox extends webgpu.Mesh {
   /**
    * @param {THREE.CubeTexture} cube — typically `baker.texture`.
    * @param {object} [opts]
@@ -2227,9 +2229,9 @@ class GroundedSkybox extends Mesh {
     if (height <= 0 || radius <= 0 || resolution <= 0) {
       throw new Error("GroundedSkybox: height, radius, and resolution must be positive.");
     }
-    const geometry = new SphereGeometry(radius, 2 * resolution, resolution);
+    const geometry = new webgpu.SphereGeometry(radius, 2 * resolution, resolution);
     const pos = geometry.getAttribute("position");
-    const tmp = new Vector3();
+    const tmp = new webgpu.Vector3();
     const y1 = -height * 1.5;
     for (let i = 0; i < pos.count; i++) {
       tmp.fromBufferAttribute(pos, i);
@@ -2240,15 +2242,15 @@ class GroundedSkybox extends Mesh {
       }
     }
     pos.needsUpdate = true;
-    const material = new NodeMaterial();
-    material.side = BackSide;
+    const material = new webgpu.NodeMaterial();
+    material.side = webgpu.BackSide;
     material.depthWrite = false;
-    const directDir = normalize(positionLocal);
-    const viewDir = normalize(positionWorld.sub(cameraPosition));
-    const reflectedDir = reflect(viewDir, vec3(0, 1, 0));
-    const isDisc = positionLocal.y.lessThan(0);
-    const sampleDir = reflective ? select(isDisc, reflectedDir, directDir) : directDir;
-    material.colorNode = cubeTexture(cube, sampleDir, 0).rgb;
+    const directDir = tsl.normalize(tsl.positionLocal);
+    const viewDir = tsl.normalize(tsl.positionWorld.sub(tsl.cameraPosition));
+    const reflectedDir = tsl.reflect(viewDir, tsl.vec3(0, 1, 0));
+    const isDisc = tsl.positionLocal.y.lessThan(0);
+    const sampleDir = reflective ? tsl.select(isDisc, reflectedDir, directDir) : directDir;
+    material.colorNode = tsl.cubeTexture(cube, sampleDir, 0).rgb;
     super(geometry, material);
     __publicField$5(this, "height");
     __publicField$5(this, "radius");
@@ -2313,10 +2315,10 @@ class SkyGround {
     this._scene = null;
     if (mode === "sphere") {
       const r = radius ?? sky.baker.atmosphereParams.bottomRadius * 1e3;
-      this.geometry = new SphereGeometry(r, widthSegments, heightSegments);
+      this.geometry = new webgpu.SphereGeometry(r, widthSegments, heightSegments);
       this._sphereRadius = r;
     } else {
-      this.geometry = new PlaneGeometry(size, size, segments, segments);
+      this.geometry = new webgpu.PlaneGeometry(size, size, segments, segments);
     }
     const wantsReflection = reflective && mode === "plane" && material === null;
     if (reflective && mode === "sphere") {
@@ -2327,9 +2329,9 @@ class SkyGround {
     } else if (wantsReflection) {
       this.material = this._buildReflectiveMaterial({ color, roughness, blur, reflectorOptions });
     } else {
-      this.material = new MeshStandardMaterial({ color, roughness, metalness });
+      this.material = new webgpu.MeshStandardMaterial({ color, roughness, metalness });
     }
-    this.mesh = new Mesh(this.geometry, this.material);
+    this.mesh = new webgpu.Mesh(this.geometry, this.material);
     this.mesh.receiveShadow = receiveShadow;
     if (mode === "sphere") {
       this.mesh.position.y = -this._sphereRadius;
@@ -2366,12 +2368,12 @@ class SkyGround {
     blur,
     reflectorOptions
   }) {
-    const reflectorNode = reflector(reflectorOptions);
+    const reflectorNode = tsl.reflector(reflectorOptions);
     this.reflector = reflectorNode;
-    const baseColorNode = vec4(new Color(color), 1);
-    const sampledReflection = blur > 0 ? gaussianBlur(reflectorNode, null, blur) : reflectorNode;
-    const mat = new NodeMaterial();
-    mat.colorNode = mix(sampledReflection, baseColorNode, roughness);
+    const baseColorNode = tsl.vec4(new webgpu.Color(color), 1);
+    const sampledReflection = blur > 0 ? GaussianBlurNode_js.gaussianBlur(reflectorNode, null, blur) : reflectorNode;
+    const mat = new webgpu.NodeMaterial();
+    mat.colorNode = tsl.mix(sampledReflection, baseColorNode, roughness);
     return mat;
   }
 }
@@ -2420,7 +2422,7 @@ class SkyMoon {
     this.followSun = followSun;
     this.phase = phase;
     this._mesh = sky.baker.sky;
-    this.light = new DirectionalLight(color, intensity);
+    this.light = new webgpu.DirectionalLight(color, intensity);
     this.light.castShadow = castShadow;
     this.light.shadow.mapSize.width = shadowMapSize;
     this.light.shadow.mapSize.height = shadowMapSize;
@@ -2436,11 +2438,11 @@ class SkyMoon {
     cam.near = sc.near ?? 1;
     cam.far = sc.far ?? 2e5;
     cam.updateProjectionMatrix();
-    this.target = target || new Object3D();
+    this.target = target || new webgpu.Object3D();
     this.light.target = this.target;
     this._targetIntensity = intensity;
     this._scene = null;
-    this._moonVec = new Vector3(0, 1, 0);
+    this._moonVec = new webgpu.Vector3(0, 1, 0);
     this._mesh.showMoonDisc.value = showDisc ? 1 : 0;
     this._mesh.moonIntensity.value = discIntensity;
     this._mesh.moonDiscCos.value = Math.cos(discAngularDiameter * 0.5);
@@ -2493,8 +2495,8 @@ class SkyMoon {
    */
   setDirection({ elevation, azimuth }) {
     this.followSun = false;
-    const elevRad = MathUtils.degToRad(elevation);
-    const azRad = MathUtils.degToRad(azimuth);
+    const elevRad = webgpu.MathUtils.degToRad(elevation);
+    const azRad = webgpu.MathUtils.degToRad(azimuth);
     const cosE = Math.cos(elevRad);
     const sinE = Math.sin(elevRad);
     this._moonVec.set(cosE * Math.sin(azRad), sinE, cosE * Math.cos(azRad));
@@ -2531,14 +2533,14 @@ class SkyMoon {
     this.light.updateMatrixWorld();
     cam.updateMatrixWorld();
     const corners = [
-      new Vector3(box3.min.x, box3.min.y, box3.min.z),
-      new Vector3(box3.min.x, box3.min.y, box3.max.z),
-      new Vector3(box3.min.x, box3.max.y, box3.min.z),
-      new Vector3(box3.min.x, box3.max.y, box3.max.z),
-      new Vector3(box3.max.x, box3.min.y, box3.min.z),
-      new Vector3(box3.max.x, box3.min.y, box3.max.z),
-      new Vector3(box3.max.x, box3.max.y, box3.min.z),
-      new Vector3(box3.max.x, box3.max.y, box3.max.z)
+      new webgpu.Vector3(box3.min.x, box3.min.y, box3.min.z),
+      new webgpu.Vector3(box3.min.x, box3.min.y, box3.max.z),
+      new webgpu.Vector3(box3.min.x, box3.max.y, box3.min.z),
+      new webgpu.Vector3(box3.min.x, box3.max.y, box3.max.z),
+      new webgpu.Vector3(box3.max.x, box3.min.y, box3.min.z),
+      new webgpu.Vector3(box3.max.x, box3.min.y, box3.max.z),
+      new webgpu.Vector3(box3.max.x, box3.max.y, box3.min.z),
+      new webgpu.Vector3(box3.max.x, box3.max.y, box3.max.z)
     ];
     const inv = cam.matrixWorldInverse;
     let minX = Infinity, maxX = -Infinity;
@@ -2563,7 +2565,7 @@ class SkyMoon {
     return this;
   }
   fitShadowToObject(object3D) {
-    const box = new Box3().setFromObject(object3D);
+    const box = new webgpu.Box3().setFromObject(object3D);
     return this.fitShadowToBox(box);
   }
   dispose() {
@@ -2632,7 +2634,7 @@ class SkyMoon {
     this._mesh.moonDirection.value.copy(this._moonVec);
   }
   _applyHorizonFade() {
-    const elevDeg = MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, this._moonVec.y))));
+    const elevDeg = webgpu.MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, this._moonVec.y))));
     const fade = _smoothstep(-2, 0, elevDeg);
     this.light.intensity = this._targetIntensity * fade;
   }
@@ -2758,10 +2760,10 @@ class SkyNight {
           "SkyNight: source: 'hdri' requires { url } or { texture }. The bundled NightSkyHDRI is an example asset only \u2014 see examples/14-night-sky.html for usage."
         );
       }
-      this.texture.minFilter = LinearFilter;
-      this.texture.magFilter = LinearFilter;
-      this.texture.wrapS = RepeatWrapping;
-      this.texture.wrapT = RepeatWrapping;
+      this.texture.minFilter = webgpu.LinearFilter;
+      this.texture.magFilter = webgpu.LinearFilter;
+      this.texture.wrapS = webgpu.RepeatWrapping;
+      this.texture.wrapT = webgpu.RepeatWrapping;
       this.texture.needsUpdate = true;
       this.mesh.starsTextureNode.value = this.texture;
       this.mesh.starsMode.value = 1;
@@ -2807,7 +2809,7 @@ async function _loadEquirectHDR(url) {
   const loaderMod = isExr ? await import('three/addons/loaders/EXRLoader.js') : await import('three/addons/loaders/RGBELoader.js');
   const Loader = isExr ? loaderMod.EXRLoader : loaderMod.RGBELoader;
   const loader = new Loader();
-  loader.setDataType(HalfFloatType);
+  loader.setDataType(webgpu.HalfFloatType);
   return new Promise((resolve, reject) => {
     loader.load(
       url,
@@ -2843,7 +2845,7 @@ class SkySun {
     __publicField$1(this, "_unsubscribe");
     this.sky = sky;
     this.distance = distance;
-    this.light = new DirectionalLight(color, intensity);
+    this.light = new webgpu.DirectionalLight(color, intensity);
     this.light.castShadow = castShadow;
     this.light.shadow.mapSize.width = shadowMapSize;
     this.light.shadow.mapSize.height = shadowMapSize;
@@ -2859,7 +2861,7 @@ class SkySun {
     cam.near = sc.near ?? 1;
     cam.far = sc.far ?? 2e5;
     cam.updateProjectionMatrix();
-    this.target = target || new Object3D();
+    this.target = target || new webgpu.Object3D();
     this.light.target = this.target;
     this._scene = null;
     this._onSunChanged = (sunVec) => this._syncFromSunVec(sunVec);
@@ -2909,14 +2911,14 @@ class SkySun {
     this.light.updateMatrixWorld();
     cam.updateMatrixWorld();
     const corners = [
-      new Vector3(box3.min.x, box3.min.y, box3.min.z),
-      new Vector3(box3.min.x, box3.min.y, box3.max.z),
-      new Vector3(box3.min.x, box3.max.y, box3.min.z),
-      new Vector3(box3.min.x, box3.max.y, box3.max.z),
-      new Vector3(box3.max.x, box3.min.y, box3.min.z),
-      new Vector3(box3.max.x, box3.min.y, box3.max.z),
-      new Vector3(box3.max.x, box3.max.y, box3.min.z),
-      new Vector3(box3.max.x, box3.max.y, box3.max.z)
+      new webgpu.Vector3(box3.min.x, box3.min.y, box3.min.z),
+      new webgpu.Vector3(box3.min.x, box3.min.y, box3.max.z),
+      new webgpu.Vector3(box3.min.x, box3.max.y, box3.min.z),
+      new webgpu.Vector3(box3.min.x, box3.max.y, box3.max.z),
+      new webgpu.Vector3(box3.max.x, box3.min.y, box3.min.z),
+      new webgpu.Vector3(box3.max.x, box3.min.y, box3.max.z),
+      new webgpu.Vector3(box3.max.x, box3.max.y, box3.min.z),
+      new webgpu.Vector3(box3.max.x, box3.max.y, box3.max.z)
     ];
     const inv = cam.matrixWorldInverse;
     let minX = Infinity, maxX = -Infinity;
@@ -2941,7 +2943,7 @@ class SkySun {
     return this;
   }
   fitShadowToObject(object3D) {
-    const box = new Box3().setFromObject(object3D);
+    const box = new webgpu.Box3().setFromObject(object3D);
     return this.fitShadowToBox(box);
   }
   dispose() {
@@ -2964,42 +2966,42 @@ const presets = {
     bottomRadius: 3389.5,
     topRadius: 3449.5,
     // ~60 km shell
-    rayleighScattering: new Vector3(3e-3, 24e-4, 14e-4),
+    rayleighScattering: new webgpu.Vector3(3e-3, 24e-4, 14e-4),
     // CO2-thin, slightly red-biased
     rayleighDensityExpScale: -1 / 11,
     // Mars scale height ~11.1 km
-    mieScattering: new Vector3(0.018, 0.012, 6e-3),
+    mieScattering: new webgpu.Vector3(0.018, 0.012, 6e-3),
     // dust
-    mieExtinction: new Vector3(0.02, 0.013, 7e-3),
-    mieAbsorption: new Vector3(2e-3, 1e-3, 1e-3),
+    mieExtinction: new webgpu.Vector3(0.02, 0.013, 7e-3),
+    mieAbsorption: new webgpu.Vector3(2e-3, 1e-3, 1e-3),
     miePhaseG: 0.76,
     // strong forward-scatter
     mieDensityExpScale: -1 / 10,
     // Mars has no ozone layer of consequence — zero out the Bruneton tent.
-    absorptionExtinction: new Vector3(0, 0, 0),
-    ozoneAbsorption: new Vector3(0, 0, 0),
-    groundAlbedo: new Vector3(0.45, 0.3, 0.18)
+    absorptionExtinction: new webgpu.Vector3(0, 0, 0),
+    ozoneAbsorption: new webgpu.Vector3(0, 0, 0),
+    groundAlbedo: new webgpu.Vector3(0.45, 0.3, 0.18)
     // regolith
   }),
   titan: mergeAtmosphereParams(EARTH, {
     bottomRadius: 2575,
     topRadius: 2775,
     // 200 km renderer shell
-    rayleighScattering: new Vector3(8e-4, 1e-3, 14e-4),
+    rayleighScattering: new webgpu.Vector3(8e-4, 1e-3, 14e-4),
     // negligible at visible
     rayleighDensityExpScale: -1 / 25,
     // tall atmosphere
-    mieScattering: new Vector3(0.02, 0.011, 4e-3),
+    mieScattering: new webgpu.Vector3(0.02, 0.011, 4e-3),
     // tholin orange
-    mieExtinction: new Vector3(0.025, 0.014, 6e-3),
-    mieAbsorption: new Vector3(5e-3, 3e-3, 2e-3),
+    mieExtinction: new webgpu.Vector3(0.025, 0.014, 6e-3),
+    mieAbsorption: new webgpu.Vector3(5e-3, 3e-3, 2e-3),
     miePhaseG: 0.85,
     // very forward-scattering haze
     mieDensityExpScale: -1 / 40,
     // haze layer is high & broad
-    absorptionExtinction: new Vector3(0, 0, 0),
-    ozoneAbsorption: new Vector3(0, 0, 0),
-    groundAlbedo: new Vector3(0.2, 0.13, 0.06)
+    absorptionExtinction: new webgpu.Vector3(0, 0, 0),
+    ozoneAbsorption: new webgpu.Vector3(0, 0, 0),
+    groundAlbedo: new webgpu.Vector3(0.2, 0.13, 0.06)
   })
 };
 function resolvePreset(nameOrObject) {
@@ -3018,8 +3020,8 @@ function createHazeDepthNodes(scenePass, logarithmicDepthBuffer) {
     const depthTex = scenePass.getTextureNode("depth");
     const near = scenePass._cameraNear;
     const far = scenePass._cameraFar;
-    const viewZNode = logarithmicDepthToViewZ(depthTex, near, far);
-    const linearDepthNode = viewZToOrthographicDepth(viewZNode, near, far);
+    const viewZNode = tsl.logarithmicDepthToViewZ(depthTex, near, far);
+    const linearDepthNode = tsl.viewZToOrthographicDepth(viewZNode, near, far);
     return { viewZNode, linearDepthNode };
   }
   return {
@@ -3030,6 +3032,7 @@ function createHazeDepthNodes(scenePass, logarithmicDepthBuffer) {
 
 function createHazeOutputNode({
   scenePass,
+  sceneColorNode = null,
   aerialPerspectiveTexture,
   luminanceScale,
   invProjUniform,
@@ -3077,63 +3080,63 @@ function createHazeOutputNode({
       throw new Error("createHazeOutputNode: enableRaymarchFallback requires " + missing.join(", ") + ".");
     }
   }
-  const sceneColor = scenePass.getTextureNode("output");
+  const sceneColor = sceneColorNode ?? scenePass.getTextureNode("output");
   const { viewZNode, linearDepthNode } = createHazeDepthNodes(scenePass, logarithmicDepthBuffer);
   const coverageKm = kmPerSlice * resZ;
-  return Fn(() => {
-    const u = uv();
-    const baseColor = sceneColor.sample(u);
+  return tsl.Fn(() => {
+    const u = tsl.uv();
+    const baseColor = sceneColorNode ? sceneColor : sceneColor.sample(u);
     const viewZ = viewZNode;
-    const ndc2 = vec2(u.x.mul(2).sub(1), float(1).sub(u.y.mul(2)));
-    const clipFar = vec4(ndc2.x, ndc2.y, float(1), float(1));
+    const ndc2 = tsl.vec2(u.x.mul(2).sub(1), tsl.float(1).sub(u.y.mul(2)));
+    const clipFar = tsl.vec4(ndc2.x, ndc2.y, tsl.float(1), tsl.float(1));
     const viewFar = invProjUniform.mul(clipFar);
     const rayDirView = viewFar.xyz.div(viewFar.w);
-    const cosFromAxis = max(abs(rayDirView.normalize().z), float(1e-6));
-    const distAlongRayM = abs(viewZ).div(cosFromAxis);
+    const cosFromAxis = tsl.max(tsl.abs(rayDirView.normalize().z), tsl.float(1e-6));
+    const distAlongRayM = tsl.abs(viewZ).div(cosFromAxis);
     const distKm = distAlongRayM.mul(1e-3);
-    const sliceN = distKm.div(float(kmPerSlice)).div(float(resZ));
-    const w = sqrt(clamp(sliceN, float(0), float(1)));
-    const ap = texture3D(aerialPerspectiveTexture, vec3(u.x, u.y, w)).level(0);
-    const isSky = cameraFarUniform ? viewZ.lessThan(cameraFarUniform.mul(-0.999)) : linearDepthNode.greaterThan(float(0.999));
-    const beyondCoverage = distKm.greaterThan(float(coverageKm));
-    const hazeMode = hazeModeUniform || float(1);
-    const blendStartKm = raymarchBlendStartKm || float(50);
-    const blendEndKm = max(raymarchBlendEndKm || float(100), blendStartKm.add(1e-3));
-    const coverageBlendKm = max(raymarchCoverageBlendKm || float(128), float(1e-3));
-    const cameraAltitudeKm = atmosphereUniforms ? cameraPositionKm ? length(cameraPositionKm).sub(atmosphereUniforms.bottomRadius) : viewHeightKm ? viewHeightKm.sub(atmosphereUniforms.bottomRadius) : float(0) : float(0);
-    const altitudeWeight = smoothstep(blendStartKm, blendEndKm, cameraAltitudeKm);
-    const coverageWeight = smoothstep(float(coverageKm).sub(coverageBlendKm), float(coverageKm), distKm);
-    const autoWeight = max(altitudeWeight, coverageWeight);
-    const apWeight = beyondCoverage.select(float(1), float(0));
-    const isRaymarchMode = hazeMode.greaterThan(float(1.5));
-    const isApMode = hazeMode.greaterThan(float(0.5)).and(hazeMode.lessThan(float(1.5)));
-    const policyWeight = isRaymarchMode.select(float(1), isApMode.select(apWeight, autoWeight));
-    const forceRaymarch = raymarchOnlyUniform ? raymarchOnlyUniform.greaterThan(float(0.5)) : null;
-    const raymarchWeight = forceRaymarch ? forceRaymarch.select(float(1), policyWeight) : policyWeight;
-    const useRaymarch = raymarchWeight.greaterThan(float(0));
-    if (debugMode === "ap-rgb") return vec4(ap.rgb.mul(luminanceScale).mul(5), 1);
-    if (debugMode === "ap-alpha") return vec4(vec3(ap.a), 1);
-    if (debugMode === "w") return vec4(vec3(w), 1);
-    if (debugMode === "is-sky") return vec4(vec3(isSky.select(1, 0)), 1);
-    if (debugMode === "beyond") return vec4(vec3(beyondCoverage.select(1, 0)), 1);
-    if (debugMode === "lin-depth") return vec4(vec3(linearDepthNode), 1);
-    if (debugMode === "view-z" && cameraFarUniform) return vec4(vec3(abs(viewZ).div(cameraFarUniform)), 1);
+    const sliceN = distKm.div(tsl.float(kmPerSlice)).div(tsl.float(resZ));
+    const w = tsl.sqrt(tsl.clamp(sliceN, tsl.float(0), tsl.float(1)));
+    const ap = tsl.texture3D(aerialPerspectiveTexture, tsl.vec3(u.x, u.y, w)).level(0);
+    const isSky = cameraFarUniform ? viewZ.lessThan(cameraFarUniform.mul(-0.999)) : linearDepthNode.greaterThan(tsl.float(0.999));
+    const beyondCoverage = distKm.greaterThan(tsl.float(coverageKm));
+    const hazeMode = hazeModeUniform || tsl.float(1);
+    const blendStartKm = raymarchBlendStartKm || tsl.float(50);
+    const blendEndKm = tsl.max(raymarchBlendEndKm || tsl.float(100), blendStartKm.add(1e-3));
+    const coverageBlendKm = tsl.max(raymarchCoverageBlendKm || tsl.float(128), tsl.float(1e-3));
+    const cameraAltitudeKm = atmosphereUniforms ? cameraPositionKm ? tsl.length(cameraPositionKm).sub(atmosphereUniforms.bottomRadius) : viewHeightKm ? viewHeightKm.sub(atmosphereUniforms.bottomRadius) : tsl.float(0) : tsl.float(0);
+    const altitudeWeight = tsl.smoothstep(blendStartKm, blendEndKm, cameraAltitudeKm);
+    const coverageWeight = tsl.smoothstep(tsl.float(coverageKm).sub(coverageBlendKm), tsl.float(coverageKm), distKm);
+    const autoWeight = tsl.max(altitudeWeight, coverageWeight);
+    const apWeight = beyondCoverage.select(tsl.float(1), tsl.float(0));
+    const isRaymarchMode = hazeMode.greaterThan(tsl.float(1.5));
+    const isApMode = hazeMode.greaterThan(tsl.float(0.5)).and(hazeMode.lessThan(tsl.float(1.5)));
+    const policyWeight = isRaymarchMode.select(tsl.float(1), isApMode.select(apWeight, autoWeight));
+    const forceRaymarch = raymarchOnlyUniform ? raymarchOnlyUniform.greaterThan(tsl.float(0.5)) : null;
+    const raymarchWeight = forceRaymarch ? forceRaymarch.select(tsl.float(1), policyWeight) : policyWeight;
+    const useRaymarch = raymarchWeight.greaterThan(tsl.float(0));
+    if (debugMode === "ap-rgb") return tsl.vec4(ap.rgb.mul(luminanceScale).mul(5), 1);
+    if (debugMode === "ap-alpha") return tsl.vec4(tsl.vec3(ap.a), 1);
+    if (debugMode === "w") return tsl.vec4(tsl.vec3(w), 1);
+    if (debugMode === "is-sky") return tsl.vec4(tsl.vec3(isSky.select(1, 0)), 1);
+    if (debugMode === "beyond") return tsl.vec4(tsl.vec3(beyondCoverage.select(1, 0)), 1);
+    if (debugMode === "lin-depth") return tsl.vec4(tsl.vec3(linearDepthNode), 1);
+    if (debugMode === "view-z" && cameraFarUniform) return tsl.vec4(tsl.vec3(tsl.abs(viewZ).div(cameraFarUniform)), 1);
     const apRgbBase = ap.rgb.mul(luminanceScale);
     const apABase = hazeStrength !== null ? ap.a.mul(hazeStrength) : ap.a;
     const apRgbBaseScaled = hazeStrength !== null ? apRgbBase.mul(hazeStrength) : apRgbBase;
     const apA = apABase.toVar();
     const apRgbScaled = apRgbBaseScaled.toVar();
-    const rmDebugRgb = vec3(0, 0, 0).toVar();
-    const rmDebugAlpha = float(0).toVar();
+    const rmDebugRgb = tsl.vec3(0, 0, 0).toVar();
+    const rmDebugAlpha = tsl.float(0).toVar();
     if (enableRaymarchFallback) {
-      If(useRaymarch, () => {
-        const worldDirRaw = cameraWorldUniform.mul(vec4(rayDirView, float(0))).xyz;
-        const worldDir = normalize(worldDirRaw).toVar();
-        const camPos = cameraPositionKm || vec3(float(0), viewHeightKm, float(0));
+      tsl.If(useRaymarch, () => {
+        const worldDirRaw = cameraWorldUniform.mul(tsl.vec4(rayDirView, tsl.float(0))).xyz;
+        const worldDir = tsl.normalize(worldDirRaw).toVar();
+        const camPos = cameraPositionKm || tsl.vec3(tsl.float(0), viewHeightKm, tsl.float(0));
         const moved = moveToTopAtmosphere(camPos, worldDir, atmosphereUniforms);
         const startPos = moved.newPos.toVar();
         const distKmVar = distKm.toVar();
-        const hash01 = fract(sin(dot(u, vec2(12.9898, 78.233))).mul(43758.5453));
+        const hash01 = tsl.fract(tsl.sin(tsl.dot(u, tsl.vec2(12.9898, 78.233))).mul(43758.5453));
         const result = integrateScatteredLuminance({
           worldPos: startPos,
           worldDir,
@@ -3154,30 +3157,30 @@ function createHazeOutputNode({
           tMaxOverride: distKmVar,
           sampleJitter: hash01
         });
-        const validF = moved.valid.select(float(1), float(0));
+        const validF = moved.valid.select(tsl.float(1), tsl.float(0));
         const rmRgb = result.L.mul(luminanceScale).mul(validF);
         const rmTransmittance = result.transmittance;
-        const rmAlpha = float(1).sub(
-          rmTransmittance.x.add(rmTransmittance.y).add(rmTransmittance.z).mul(float(1 / 3))
+        const rmAlpha = tsl.float(1).sub(
+          rmTransmittance.x.add(rmTransmittance.y).add(rmTransmittance.z).mul(tsl.float(1 / 3))
         ).mul(validF);
         const rmA = hazeStrength !== null ? rmAlpha.mul(hazeStrength) : rmAlpha;
         const rmRgbScaled = hazeStrength !== null ? rmRgb.mul(hazeStrength) : rmRgb;
-        apA.assign(mix(apA, rmA, raymarchWeight));
-        apRgbScaled.assign(mix(apRgbScaled, rmRgbScaled, raymarchWeight));
+        apA.assign(tsl.mix(apA, rmA, raymarchWeight));
+        apRgbScaled.assign(tsl.mix(apRgbScaled, rmRgbScaled, raymarchWeight));
         rmDebugRgb.assign(rmRgbScaled);
         rmDebugAlpha.assign(rmA);
       });
     }
-    if (debugMode === "rm-rgb") return vec4(rmDebugRgb.mul(5), 1);
-    if (debugMode === "rm-alpha") return vec4(vec3(rmDebugAlpha), 1);
-    let composited = baseColor.rgb.mul(float(1).sub(apA)).add(apRgbScaled);
+    if (debugMode === "rm-rgb") return tsl.vec4(rmDebugRgb.mul(5), 1);
+    if (debugMode === "rm-alpha") return tsl.vec4(tsl.vec3(rmDebugAlpha), 1);
+    let composited = baseColor.rgb.mul(tsl.float(1).sub(apA)).add(apRgbScaled);
     if (skyCube) {
-      const worldDirRaw = cameraWorldUniform.mul(vec4(rayDirView, float(0))).xyz;
-      const worldDir = normalize(worldDirRaw);
-      const skyAtDir = cubeTexture(skyCube, worldDir).rgb;
-      composited = mix(composited, skyAtDir, apA);
+      const worldDirRaw = cameraWorldUniform.mul(tsl.vec4(rayDirView, tsl.float(0))).xyz;
+      const worldDir = tsl.normalize(worldDirRaw);
+      const skyAtDir = tsl.cubeTexture(skyCube, worldDir).rgb;
+      composited = tsl.mix(composited, skyAtDir, apA);
     }
-    return vec4(mix(composited, baseColor.rgb, isSky.select(1, 0)), baseColor.a);
+    return tsl.vec4(tsl.mix(composited, baseColor.rgb, isSky.select(1, 0)), baseColor.a);
   })();
 }
 
@@ -3199,23 +3202,24 @@ function applyHaze(sceneColorNode, {
   if (!ap) {
     throw new Error("applyHaze: Sky was constructed with `enableAerialPerspective: false`.");
   }
-  if (!sky._hazeStrength) sky._hazeStrength = uniform(strength);
+  if (!sky._hazeStrength) sky._hazeStrength = tsl.uniform(strength);
   else sky._hazeStrength.value = strength;
-  if (!sky._hazePolicy) sky._hazePolicy = uniform(policyToHazeMode(policy));
+  if (!sky._hazePolicy) sky._hazePolicy = tsl.uniform(policyToHazeMode(policy));
   else sky._hazePolicy.value = policyToHazeMode(policy);
-  if (!sky._hazeRaymarchOnly) sky._hazeRaymarchOnly = uniform(policy === "raymarch" ? 1 : 0);
+  if (!sky._hazeRaymarchOnly) sky._hazeRaymarchOnly = tsl.uniform(policy === "raymarch" ? 1 : 0);
   else sky._hazeRaymarchOnly.value = policy === "raymarch" ? 1 : 0;
   const seedStartKm = altitudeBlend?.startKm ?? 50;
   const seedEndKm = altitudeBlend?.endKm ?? 100;
-  if (!sky._hazeAltStart) sky._hazeAltStart = uniform(seedStartKm);
+  if (!sky._hazeAltStart) sky._hazeAltStart = tsl.uniform(seedStartKm);
   else if (altitudeBlend) sky._hazeAltStart.value = seedStartKm;
-  if (!sky._hazeAltEnd) sky._hazeAltEnd = uniform(seedEndKm);
+  if (!sky._hazeAltEnd) sky._hazeAltEnd = tsl.uniform(seedEndKm);
   else if (altitudeBlend) sky._hazeAltEnd.value = seedEndKm;
   const seedFar = scenePass.camera?.far ?? 1e6;
   if (useCameraFar === void 0) useCameraFar = seedFar > 1e6;
-  if (useCameraFar && !sky._cameraFar) sky._cameraFar = uniform(seedFar);
+  if (useCameraFar && !sky._cameraFar) sky._cameraFar = tsl.uniform(seedFar);
   return createHazeOutputNode({
     scenePass,
+    sceneColorNode,
     aerialPerspectiveTexture: ap.texture,
     luminanceScale: baker.sky.luminanceScale,
     invProjUniform: ap.invProjUniform,
@@ -3300,12 +3304,12 @@ const QUALITY_PRESETS = {
   }
 };
 const NORTH_AXES = {
-  "+X": { vector: new Vector3(1, 0, 0), offsetDeg: 90 },
-  "-X": { vector: new Vector3(-1, 0, 0), offsetDeg: -90 },
-  "+Z": { vector: new Vector3(0, 0, 1), offsetDeg: 0 },
+  "+X": { vector: new webgpu.Vector3(1, 0, 0), offsetDeg: 90 },
+  "-X": { vector: new webgpu.Vector3(-1, 0, 0), offsetDeg: -90 },
+  "+Z": { vector: new webgpu.Vector3(0, 0, 1), offsetDeg: 0 },
   // Three.js default. North = +Z means azimuth=0 (N) maps onto +Z; baker's
   // `setSun(azimuth)` treats theta=0 as +Z (sphericalCoords convention).
-  "-Z": { vector: new Vector3(0, 0, -1), offsetDeg: 180 }
+  "-Z": { vector: new webgpu.Vector3(0, 0, -1), offsetDeg: 180 }
 };
 class Sky {
   constructor(renderer, {
@@ -3490,7 +3494,7 @@ class Sky {
     return this;
   }
   setGroundAlbedo(value) {
-    const v = value instanceof Vector3 ? value : typeof value === "number" ? new Vector3(value, value, value) : new Vector3(value.x ?? 0.3, value.y ?? 0.3, value.z ?? 0.3);
+    const v = value instanceof webgpu.Vector3 ? value : typeof value === "number" ? new webgpu.Vector3(value, value, value) : new webgpu.Vector3(value.x ?? 0.3, value.y ?? 0.3, value.z ?? 0.3);
     this.baker.setAtmosphereParams({ groundAlbedo: v });
     return this;
   }
@@ -3673,9 +3677,28 @@ function applyShortcutScalars(base, { turbidity, groundAlbedo }) {
     partial.mieAbsorption = base.mieAbsorption.clone().multiplyScalar(turbidity);
   }
   if (groundAlbedo != null) {
-    partial.groundAlbedo = groundAlbedo instanceof Vector3 ? groundAlbedo.clone() : typeof groundAlbedo === "number" ? new Vector3(groundAlbedo, groundAlbedo, groundAlbedo) : new Vector3(groundAlbedo.x ?? 0.3, groundAlbedo.y ?? 0.3, groundAlbedo.z ?? 0.3);
+    partial.groundAlbedo = groundAlbedo instanceof webgpu.Vector3 ? groundAlbedo.clone() : typeof groundAlbedo === "number" ? new webgpu.Vector3(groundAlbedo, groundAlbedo, groundAlbedo) : new webgpu.Vector3(groundAlbedo.x ?? 0.3, groundAlbedo.y ?? 0.3, groundAlbedo.z ?? 0.3);
   }
   return mergeAtmosphereParams(base, partial);
 }
 
-export { AerialPerspectiveLUT as A, EARTH as E, GroundedSkybox as G, LUT_RESOLUTIONS as L, MultiScatterLUT as M, Sky as S, TransmittanceLUT as T, SkyAtmosphereBaker as a, SkyAtmosphereMesh as b, SkyGround as c, SkyMoon as d, SkyNight as e, SkySun as f, SkyViewLUT as g, applyHaze as h, createHazeOutputNode as i, mergeAtmosphereParams as m, presets as p, resolvePreset as r, solarPosition as s };
+exports.AerialPerspectiveLUT = AerialPerspectiveLUT;
+exports.EARTH = EARTH;
+exports.GroundedSkybox = GroundedSkybox;
+exports.LUT_RESOLUTIONS = LUT_RESOLUTIONS;
+exports.MultiScatterLUT = MultiScatterLUT;
+exports.Sky = Sky;
+exports.SkyAtmosphereBaker = SkyAtmosphereBaker;
+exports.SkyAtmosphereMesh = SkyAtmosphereMesh;
+exports.SkyGround = SkyGround;
+exports.SkyMoon = SkyMoon;
+exports.SkyNight = SkyNight;
+exports.SkySun = SkySun;
+exports.SkyViewLUT = SkyViewLUT;
+exports.TransmittanceLUT = TransmittanceLUT;
+exports.applyHaze = applyHaze;
+exports.createHazeOutputNode = createHazeOutputNode;
+exports.mergeAtmosphereParams = mergeAtmosphereParams;
+exports.presets = presets;
+exports.resolvePreset = resolvePreset;
+exports.solarPosition = solarPosition;

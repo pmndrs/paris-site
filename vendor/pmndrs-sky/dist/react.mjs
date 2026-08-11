@@ -1,7 +1,7 @@
 import { jsx } from 'react/jsx-runtime';
 import { useMemo, useEffect } from 'react';
 import { useThree, useFrame } from '@react-three/fiber/webgpu';
-import { S as Sky$1 } from './shared/sky.P3ljZtYv.mjs';
+import { S as Sky$1 } from './shared/sky.CXSOQikB.mjs';
 import { S as SkyContext } from './shared/sky.R90MEu9W.mjs';
 export { u as useSky } from './shared/sky.R90MEu9W.mjs';
 import 'three/webgpu';

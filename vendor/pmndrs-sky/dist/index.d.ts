@@ -1349,6 +1349,13 @@ declare class SkyHelper extends Object3D {
 
 interface CreateHazeOutputNodeArgs {
     scenePass: any;
+    /**
+     * Scene-color node to composite the haze over. Optional; falls back to
+     * `scenePass.getTextureNode('output')`. Pass a composed graph (bloom, AO,
+     * grading…) so the haze goes on top of it instead of the raw scene pass —
+     * without this, every effect composed before the haze is silently discarded.
+     */
+    sceneColorNode?: any;
     aerialPerspectiveTexture: any;
     luminanceScale: any;
     invProjUniform: any;
@@ -1459,7 +1466,7 @@ interface CreateHazeOutputNodeArgs {
  * @returns {THREE.Node<vec4>} The output node — feed this to
  *   `RenderPipeline.outputNode = ...` (or the deprecated `PostProcessing`).
  */
-declare function createHazeOutputNode({ scenePass, aerialPerspectiveTexture, luminanceScale, invProjUniform, resZ, kmPerSlice, // must match AerialPerspectiveLUT default
+declare function createHazeOutputNode({ scenePass, sceneColorNode, aerialPerspectiveTexture, luminanceScale, invProjUniform, resZ, kmPerSlice, // must match AerialPerspectiveLUT default
 hazeStrength, skyCube, cameraWorldUniform, cameraFarUniform, logarithmicDepthBuffer, hazeModeUniform, raymarchBlendStartKm, raymarchBlendEndKm, raymarchCoverageBlendKm, enableRaymarchFallback, atmosphereUniforms, sunDirection, viewHeightKm, cameraPositionKm, transmittanceLUT, multiScatterLUT, raymarchOnlyUniform, debugMode, }: CreateHazeOutputNodeArgs): any;
 
 export { AerialPerspectiveLUT, EARTH, GroundedSkybox, LUT_RESOLUTIONS, MultiScatterLUT, Sky, SkyAtmosphereBaker, SkyAtmosphereMesh, SkyGround, SkyHelper, SkyMoon, SkyNight, SkySun, SkyViewLUT, TransmittanceLUT, applyHaze, createHazeOutputNode, mergeAtmosphereParams, presets, resolvePreset, solarPosition };

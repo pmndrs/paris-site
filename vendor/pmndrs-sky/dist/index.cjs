@@ -1,6 +1,6 @@
 'use strict';
 
-const Sky = require('./shared/sky.CaV6WZy8.cjs');
+const Sky = require('./shared/sky.CTYjTO7F.cjs');
 const webgpu = require('three/webgpu');
 require('three/tsl');
 require('three/addons/tsl/display/GaussianBlurNode.js');

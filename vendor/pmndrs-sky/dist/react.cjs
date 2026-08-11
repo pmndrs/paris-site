@@ -3,7 +3,7 @@
 const jsxRuntime = require('react/jsx-runtime');
 const react = require('react');
 const fiberWebGPU = require('@react-three/fiber/webgpu');
-const Sky$1 = require('./shared/sky.CaV6WZy8.cjs');
+const Sky$1 = require('./shared/sky.CTYjTO7F.cjs');
 const SkyContext = require('./shared/sky.BDQdLwjK.cjs');
 require('three/webgpu');
 require('three/tsl');
