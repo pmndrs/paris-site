@@ -11,7 +11,8 @@ import { Camera, FramingTools } from "./camera";
 import { FX } from "./fx";
 import { Lights } from "./lights";
 import { PerfProbe, type PerfSample } from "./perf-probe";
-import { Tower } from "./tower";
+import { Terrain } from "./terrain";
+import { Tower, type TowerMode } from "./tower";
 
 /** Paris. The whole point of driving the sun from a real solar position. */
 const PARIS_LATITUDE = 48.8566;
@@ -44,15 +45,41 @@ export function HeroDemoScene({
   const [refitKey, setRefitKey] = useState(0);
   const onTowerReady = useCallback(() => setRefitKey((v) => v + 1), []);
 
-  const { highRiseCount, lowRiseCount, treeCount, treeShadows } = useControls(
-    "city",
-    {
-      highRiseCount: { value: 300, min: 0, max: 1000, step: 10 },
-      lowRiseCount: { value: 10000, min: 0, max: 20000, step: 500 },
-      treeCount: { value: 20000, min: 0, max: 40000, step: 1000 },
-      treeShadows: false,
+  const {
+    highRiseCount,
+    lowRiseCount,
+    treeCount,
+    treeShadows,
+    river,
+    park,
+    haussmann,
+  } = useControls("city", {
+    highRiseCount: { value: 300, min: 0, max: 1000, step: 10 },
+    lowRiseCount: { value: 10000, min: 0, max: 20000, step: 500 },
+    treeCount: { value: 20000, min: 0, max: 40000, step: 1000 },
+    treeShadows: false,
+    // Geography experiments (geography.ts owns the shapes): the Seine-ish
+    // spline, the Champ-de-Mars strip, and the stylized near ring. Each
+    // toggle drives both its terrain mesh and the scatter exclusion, so
+    // turning one off really restores the plain cube carpet there.
+    river: true,
+    park: true,
+    haussmann: true,
+  });
+
+  /**
+   * Tower looks. `glow` is the ported original; `metal` is the tower's real
+   * dusk self; `sparkle` is the hourly glitter as a permanent fragment-shader
+   * state (dark iron + random emissive pops → bloom). The beacon is the
+   * summit's rotating double beam, faked with additive cones.
+   */
+  const { towerMode, beacon } = useControls("tower", {
+    towerMode: {
+      value: "glow" as TowerMode,
+      options: ["glow", "metal", "sparkle"] as TowerMode[],
     },
-  );
+    beacon: false,
+  });
 
   /**
    * The full `SkyProps` surface.
@@ -229,12 +256,17 @@ export function HeroDemoScene({
       {/* Everything with a physical size lives under one scale, so the metres
           conversion is a single number rather than sprinkled constants. */}
       <group scale={worldScale}>
+        <Terrain river={river} park={park} />
+
         {buildings && (
           <Buildings
             count={highRiseCount}
             lowRiseCount={lowRiseCount}
             treeCount={treeCount}
             treeShadows={treeShadows}
+            river={river}
+            park={park}
+            haussmann={haussmann}
           />
         )}
 
@@ -242,7 +274,7 @@ export function HeroDemoScene({
             camera's fit target, and an empty box just means the fit is skipped
             until `onReady` fires. */}
         <group ref={towerRef}>
-          {tower && <Tower onReady={onTowerReady} />}
+          {tower && <Tower onReady={onTowerReady} mode={towerMode} beacon={beacon} />}
         </group>
       </group>
 

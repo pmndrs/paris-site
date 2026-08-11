@@ -8,8 +8,10 @@ Source: https://sketchfab.com/3d-models/free-la-tour-eiffel-8553f94d06e24cb4b0fd
 Title: ( FREE ) La tour Eiffel
 */
 
-import { useEffect } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useFrame } from "@react-three/fiber/webgpu";
 import { useGLTF } from "@react-three/drei";
+import * as TSL from "three/tsl";
 import * as THREE from "three/webgpu";
 
 /**
@@ -18,19 +20,107 @@ import * as THREE from "three/webgpu";
  */
 const MODEL_URL = "/hero-demo/free__la_tour_eiffel.glb";
 
-function Mat() {
+const TOWER_MESHES = ["Object_4", "Object_5", "Object_6"] as const;
+
+export type TowerMode = "glow" | "metal" | "sparkle";
+
+/**
+ * The sparkle: the real tower's 20,000 bulbs going off for five minutes on
+ * the hour, compressed into a permanent state.
+ *
+ * All in the fragment shader, driven by `TSL.time`: local space is diced
+ * into cells, each cell gets a stable hash, and each hash phase-offsets a
+ * shared slow cycle so a cell pops for a few tens of ms and stays dark for
+ * the rest of it. The pops write to `emissiveNode`, which the pipeline's
+ * emissive MRT attachment feeds straight into bloom — that's the glitter.
+ * The base material is the dark iron the tower actually is at dusk.
+ */
+function makeSparkleMaterial() {
+  const material = new THREE.MeshStandardNodeMaterial({
+    color: "#15181c",
+    metalness: 0.85,
+    roughness: 0.55,
+  });
+
+  const cell = TSL.floor(TSL.positionLocal.mul(0.9));
+  const seed = TSL.fract(
+    TSL.sin(cell.dot(TSL.vec3(127.1, 311.7, 74.7))).mul(43758.5453),
+  );
+  // Every cell runs the same 2.5s cycle at a private phase; the step keeps
+  // ~1.5% of it lit, so at any instant a sparse random scatter is popping.
+  const cycle = TSL.fract(TSL.time.mul(0.4).add(seed));
+  const flash = TSL.step(0.985, cycle);
+  const brightness = seed.mul(0.6).add(0.4);
+
+  material.emissiveNode = TSL.color("#fff3d0").mul(
+    flash.mul(brightness).mul(8),
+  );
+  return material;
+}
+
+/**
+ * The summit beacon: two opposed fake-volumetric beams. Each is an open
+ * cone flaring away from the hub, additive, no depth write, opacity falling
+ * off along the length — the standard lighthouse cheat. Real volumetrics
+ * would want the scene depth to occlude the shaft; at hero distance against
+ * a dusk sky the cheat is indistinguishable and free.
+ */
+function makeBeamMaterial() {
+  const material = new THREE.MeshBasicNodeMaterial({
+    color: "#ffeec2",
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  // v = 0 at the hub after the geometry translate below.
+  material.opacityNode = TSL.pow(TSL.oneMinus(TSL.uv().y), 2.0).mul(0.3);
+  return material;
+}
+
+/** Beam length/flare in the tower's local (pre-scale-0.2) units. */
+const BEAM_LENGTH = 600;
+const BEAM_FLARE = 20;
+
+function Beacon({ speed = 0.6 }: { speed?: number }) {
+  const spinRef = useRef<THREE.Group>(null);
+
+  const geometry = useMemo(() => {
+    const g = new THREE.CylinderGeometry(
+      BEAM_FLARE,
+      1.5,
+      BEAM_LENGTH,
+      12,
+      1,
+      true,
+    );
+    // Hub end at the origin, beam extending along +y (then rotated flat).
+    g.translate(0, BEAM_LENGTH / 2, 0);
+    return g;
+  }, []);
+  const material = useMemo(() => makeBeamMaterial(), []);
+
+  useFrame((_, delta) => {
+    if (spinRef.current) spinRef.current.rotation.y += delta * speed;
+  });
+
   return (
-    <meshStandardMaterial
-      color="#3a2a15"
-      emissive="#ff9f3f"
-      emissiveIntensity={1.6}
-      metalness={0.8}
-      roughness={0.45}
-    />
+    <group ref={spinRef}>
+      <mesh geometry={geometry} material={material} rotation-z={-Math.PI / 2} />
+      <mesh geometry={geometry} material={material} rotation-z={Math.PI / 2} />
+    </group>
   );
 }
 
-export function Tower({ onReady }: { onReady?: () => void }) {
+export function Tower({
+  onReady,
+  mode = "glow",
+  beacon = false,
+}: {
+  onReady?: () => void;
+  mode?: TowerMode;
+  beacon?: boolean;
+}) {
   const { nodes } = useGLTF(MODEL_URL) as unknown as {
     nodes: Record<string, THREE.Mesh>;
   };
@@ -43,27 +133,70 @@ export function Tower({ onReady }: { onReady?: () => void }) {
     onReady?.();
   }, [onReady, nodes]);
 
+  // One material per mode, built once — the mode switch swaps the `material`
+  // prop rather than mounting/unmounting JSX materials, so there's never a
+  // frame where a mesh is between materials.
+  const materials = useMemo<Record<TowerMode, THREE.Material>>(
+    () => ({
+      glow: new THREE.MeshStandardMaterial({
+        color: "#3a2a15",
+        emissive: "#ff9f3f",
+        emissiveIntensity: 1.6,
+        metalness: 0.8,
+        roughness: 0.45,
+      }),
+      metal: new THREE.MeshStandardMaterial({
+        color: "#878c92",
+        metalness: 0.85,
+        roughness: 0.45,
+      }),
+      sparkle: makeSparkleMaterial(),
+    }),
+    [],
+  );
+
+  // Local-space summit height, measured from the geometry rather than
+  // hardcoded, so the beacon survives a model swap.
+  const summitY = useMemo(() => {
+    let maxY = 0;
+    for (const name of TOWER_MESHES) {
+      const g = nodes[name]?.geometry;
+      if (!g) continue;
+      if (!g.boundingBox) g.computeBoundingBox();
+      maxY = Math.max(maxY, g.boundingBox?.max.y ?? 0);
+    }
+    return maxY;
+  }, [nodes]);
+
   return (
     <group dispose={null} scale={0.2} rotation-y={THREE.MathUtils.degToRad(30)}>
-      {/* Warm golden illumination along the tower, plus a beacon at the top */}
-      <pointLight
-        position={[0, 10, 0]}
-        color="#ffb35c"
-        intensity={400}
-        distance={100}
-        decay={2}
-      />
+      {/* The warm wash only exists to sell the glow mode; the metal and
+          sparkle modes are lit by the sky like everything else. */}
+      {mode === "glow" && (
+        <pointLight
+          position={[0, 10, 0]}
+          color="#ffb35c"
+          intensity={400}
+          distance={100}
+          decay={2}
+        />
+      )}
 
-      {["Object_4", "Object_5", "Object_6"].map((name) => (
+      {TOWER_MESHES.map((name) => (
         <mesh
           key={name}
           castShadow
           receiveShadow
           geometry={nodes[name].geometry}
-        >
-          <Mat />
-        </mesh>
+          material={materials[mode]}
+        />
       ))}
+
+      {beacon && (
+        <group position={[0, summitY, 0]}>
+          <Beacon />
+        </group>
+      )}
     </group>
   );
 }

@@ -3,6 +3,13 @@
 import { useMemo, useRef } from "react";
 import * as THREE from "three/webgpu";
 
+import {
+  HAUSSMANN_RADIUS,
+  inPark,
+  inRiverCorridor,
+  inRiverWater,
+} from "./geography";
+
 /**
  * Faraz's block city, ported from `threejs-conf-pmndrs/src/Buildings.tsx`.
  *
@@ -56,6 +63,17 @@ type BuildingsProps = {
   outerRadius?: number;
   /** Trees cast shadows. Off by default — see the note above. */
   treeShadows?: boolean;
+  /** Carve the river corridor out of the scatter (see geography.ts). */
+  river?: boolean;
+  /** Keep the park rectangle building-free (trees stay). */
+  park?: boolean;
+  /**
+   * Stylized Haussmann blocks in the near ring instead of cubes. When on,
+   * the cube scatter starts at HAUSSMANN_RADIUS and the ring below it is
+   * filled by <HaussmannRing/>; when off, cubes fill all the way in as
+   * before.
+   */
+  haussmann?: boolean;
 };
 
 export function Buildings({
@@ -65,11 +83,12 @@ export function Buildings({
   innerRadius = 12,
   outerRadius = 400,
   treeShadows = false,
+  river = true,
+  park = true,
+  haussmann = true,
 }: BuildingsProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const treeRef = useRef<THREE.InstancedMesh>(null);
-
-  const total = count + lowRiseCount;
 
   const instances = useMemo(() => {
     const random = makeRng(CITY_SEED);
@@ -87,17 +106,27 @@ export function Buildings({
       };
     };
 
+    // Rejection test shared by the scatter loops: geography wins over the
+    // random draw. Attempt caps keep a mis-tuned exclusion from spinning the
+    // loop forever; in practice the corridors reject a few percent.
+    const excluded = (x: number, z: number, radius: number) =>
+      (river && inRiverCorridor(x, z)) ||
+      (park && inPark(x, z, 2)) ||
+      (haussmann && radius < HAUSSMANN_RADIUS);
+
     // Tall / landmark high-rises: sparse and confined to the far distance.
     // They only spawn in the outer band of the ring so the foreground stays
     // low-rise and the skyline rises up behind it.
     const highRiseStart = innerRadius + (outerRadius - innerRadius) * 0.55;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0, attempts = 0; i < count && attempts < count * 8; attempts++) {
       const angle = random() * Math.PI * 2;
       const radius =
         highRiseStart +
         Math.pow(random(), 0.5) * (outerRadius - highRiseStart);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
+      if (excluded(x, z, radius)) continue;
+      i++;
       const distanceFactor =
         (radius - innerRadius) / (outerRadius - innerRadius);
       const sizeScale = THREE.MathUtils.lerp(1, 2.4, distanceFactor);
@@ -115,8 +144,14 @@ export function Buildings({
     }
 
     // Haussmann-style low-rise: dense carpet of small, uniform-height blocks.
-    for (let i = 0; i < lowRiseCount; i++) {
+    for (
+      let i = 0, attempts = 0;
+      i < lowRiseCount && attempts < lowRiseCount * 8;
+      attempts++
+    ) {
       const { radius, x, z } = spanRadius(0.85);
+      if (excluded(x, z, radius)) continue;
+      i++;
       const distanceFactor =
         (radius - innerRadius) / (outerRadius - innerRadius);
       const sizeScale = THREE.MathUtils.lerp(0.5, 2, distanceFactor);
@@ -135,19 +170,26 @@ export function Buildings({
     }
 
     return matrices;
-  }, [count, lowRiseCount, innerRadius, outerRadius]);
+  }, [count, lowRiseCount, innerRadius, outerRadius, river, park, haussmann]);
 
   const trees = useMemo(() => {
     const random = makeRng(TREE_SEED);
     const dummy = new THREE.Object3D();
     const matrices: THREE.Matrix4[] = [];
 
-    for (let i = 0; i < treeCount; i++) {
+    // Trees keep the park and the riverbanks — only the water itself rejects.
+    for (
+      let i = 0, attempts = 0;
+      i < treeCount && attempts < treeCount * 8;
+      attempts++
+    ) {
       const angle = random() * Math.PI * 2;
       const t = Math.pow(random(), 0.85);
       const radius = innerRadius + t * (outerRadius - innerRadius);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
+      if (river && inRiverWater(x, z)) continue;
+      i++;
 
       const distanceFactor =
         (radius - innerRadius) / (outerRadius - innerRadius);
@@ -167,7 +209,7 @@ export function Buildings({
     }
 
     return matrices;
-  }, [treeCount, innerRadius, outerRadius]);
+  }, [treeCount, innerRadius, outerRadius, river]);
 
   const setMatrices = (mesh: THREE.InstancedMesh | null) => {
     if (!mesh) return;
@@ -187,10 +229,13 @@ export function Buildings({
 
   return (
     <>
+      {/* Counts come from the *placed* matrices, not the requested totals —
+          rejection sampling can come up short, and unset instances would
+          render as identity-matrix unit cubes at the origin. */}
       <instancedMesh
-        key={`blocks-${total}`}
+        key={`blocks-${instances.length}`}
         ref={setMatrices}
-        args={[undefined, undefined, total]}
+        args={[undefined, undefined, instances.length]}
         castShadow
         receiveShadow
         frustumCulled={false}
@@ -203,9 +248,9 @@ export function Buildings({
       </instancedMesh>
 
       <instancedMesh
-        key={`trees-${treeCount}`}
+        key={`trees-${trees.length}`}
         ref={setTreeMatrices}
-        args={[undefined, undefined, treeCount]}
+        args={[undefined, undefined, trees.length]}
         castShadow={treeShadows}
         receiveShadow
         frustumCulled={false}
@@ -213,6 +258,109 @@ export function Buildings({
         {/* 80 triangles, against the 960 of the default sphere. */}
         <icosahedronGeometry args={[1, 1]} />
         <meshStandardMaterial color="white" roughness={0.95} metalness={0} />
+      </instancedMesh>
+
+      {haussmann && <HaussmannRing river={river} park={park} />}
+    </>
+  );
+}
+
+/**
+ * The near ring, stylized: Paris-block bodies with mansard-ish roofs where
+ * the cube carpet used to run right up to the tower. Two instanced meshes
+ * sharing one placement pass — cream bodies, slate roof frustums — arranged
+ * on concentric rings facing the tower, the way Haussmann blocks wrap their
+ * arrondissement. Beyond HAUSSMANN_RADIUS the cubes take over again.
+ *
+ * The roof geometry is a 4-segment cylinder rotated 45° so its square cross
+ * section matches the unit box footprint: radius √2/2 puts the corners at
+ * the box corners, and the smaller top radius gives the mansard taper.
+ */
+function HaussmannRing({ river, park }: { river: boolean; park: boolean }) {
+  const placements = useMemo(() => {
+    const random = makeRng(0xc0ffee11);
+    const dummy = new THREE.Object3D();
+    const bodies: THREE.Matrix4[] = [];
+    const roofs: THREE.Matrix4[] = [];
+
+    const INNER = 16;
+    for (let ringR = INNER; ringR < HAUSSMANN_RADIUS; ringR += 9) {
+      // Blocks are ~4.5 wide; a 6.5-unit arc step leaves street gaps.
+      const n = Math.floor((Math.PI * 2 * ringR) / 6.5);
+      for (let i = 0; i < n; i++) {
+        const angle = (i / n) * Math.PI * 2 + random() * 0.06;
+        const radius = ringR + (random() - 0.5) * 2.5;
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        if (river && inRiverCorridor(x, z)) continue;
+        if (park && inPark(x, z, 2)) continue;
+
+        // Facades face the tower: tangential width, radial depth.
+        const width = 4.2 + random() * 1.6;
+        const depth = 3.2 + random() * 1.2;
+        const height = 3.4 + random() * 1.2;
+        const roofHeight = height * 0.4;
+        const rotation = -angle + Math.PI / 2;
+
+        dummy.position.set(x, height / 2, z);
+        dummy.scale.set(width, height, depth);
+        dummy.rotation.set(0, rotation, 0);
+        dummy.updateMatrix();
+        bodies.push(dummy.matrix.clone());
+
+        dummy.position.set(x, height + roofHeight / 2, z);
+        dummy.scale.set(width, roofHeight, depth);
+        dummy.rotation.set(0, rotation, 0);
+        dummy.updateMatrix();
+        roofs.push(dummy.matrix.clone());
+      }
+    }
+
+    return { bodies, roofs };
+  }, [river, park]);
+
+  const roofGeometry = useMemo(() => {
+    const geometry = new THREE.CylinderGeometry(0.34, Math.SQRT1_2, 1, 4, 1);
+    geometry.rotateY(Math.PI / 4);
+    return geometry;
+  }, []);
+
+  const setFrom =
+    (matrices: THREE.Matrix4[]) => (mesh: THREE.InstancedMesh | null) => {
+      if (!mesh) return;
+      matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+    };
+
+  return (
+    <>
+      <instancedMesh
+        key={`hausbody-${placements.bodies.length}`}
+        ref={setFrom(placements.bodies)}
+        args={[undefined, undefined, placements.bodies.length]}
+        castShadow
+        receiveShadow
+        frustumCulled={false}
+      >
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#cfc5b4" roughness={0.9} metalness={0.05} />
+      </instancedMesh>
+      <instancedMesh
+        key={`hausroof-${placements.roofs.length}`}
+        ref={setFrom(placements.roofs)}
+        args={[undefined, undefined, placements.roofs.length]}
+        castShadow
+        receiveShadow
+        frustumCulled={false}
+        geometry={roofGeometry}
+      >
+        <meshStandardMaterial
+          color="#46505c"
+          roughness={0.75}
+          metalness={0.15}
+          flatShading
+        />
       </instancedMesh>
     </>
   );
