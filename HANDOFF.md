@@ -35,14 +35,81 @@ looked. That distinction is the reason this handoff exists.
 | Stage | What | State |
 |---|---|---|
 | 0 | Port Faraz's Paris demo to R3F v10 / WebGPU | Human-confirmed rendering. Bloom **was working here**. |
-| 1 | `@pmndrs/sky` — real solar position, IBL, haze | Renders, but **bloom and haze both missing** |
-| 2 | `@pmndrs/upscaler` (FSR3) as sole temporal resolver | Not started |
-| 3 | `SSGINode` + denoise under FSR3 | Not started |
+| 1 | `@pmndrs/sky` — real solar position, IBL, haze | **Resolved & browser-verified** (see below). Haze then **disabled by default** for perf: the per-frame AP LUT update costs ~half the frame (85→165 fps), and its raymarch megashader is the prime suspect in the compile wedge. |
+| 2 | `@pmndrs/upscaler` (FSR3) as sole temporal resolver | **Browser-verified 2026-08-10, default ON** — boots clean at 165 fps (vsync cap). `velocity` is no longer a toggle: every config ends in a temporal resolver (FSR3 or TRAA), so the attachment is always in the MRT. Wired per the fsr3 examples: pinned `convertToTexture` at render res, `setResolutionScale(1/ratio)`, jitter on, unjittered projection bound to `velocity`, TRAA drops out when on. Ghosting-while-orbiting not yet eyeballed by a human. |
+| 3 | `SSGINode` + denoise under FSR3 | **Browser-verified 2026-08-10** — `post/fsr → ssgi` toggle enables cleanly (needed `requiredLimits: { maxColorAttachmentBytesPerSample: 64 }` on the renderer: the WebGPU spec charges rgba8unorm 8 bytes/sample, so the 5-attachment MRT costs 40 > default 32). City visibly catches bounce light from the tower; 165 fps held. sliceCount/stepCount/radius/giIntensity/aoIntensity are **live Leva sliders** (SSGINode uniforms — no rebuild). `ssgiAoIntensity` defaults to 2 because the node's AO reads faint vs the GTAO it replaces. |
+| 3.5 | **Sky fog** (experiment) | **Browser-verified 2026-08-10, default ON** — `sky/fog` folder. Sky-colored exponential height fog: classic analytic height-fog density, inscatter color sampled from the baked sky cube along the view ray, so distant meshes fade into the actual sky behind them (sun-side glow included). The cheap stand-in for aerial perspective at city scale: no per-frame AP LUT cost, 165 fps at any density. Density/height are live uniforms; the toggle rebuilds. What it can't do vs real AP: per-channel transmittance (objects veil, never color-shift). |
 
-## The bug you're here for
+Remaining human checks: FSR ghosting off the tower silhouette while
+orbiting; SSGI look vs bloom-only (judge whether it earns its cost, per
+Dennis); fog density/height taste pass. Note `r185-ssgi-fsr/` in the repo
+root is the concept test-bench these stages were written against; its README
+self-declares never-run, and it has two known divergences from the
+GPU-verified fsr3 examples (temporal filtering left on; SSR not denoised) —
+the fx.tsx wiring follows the examples, not the test-bench, where they
+disagree.
 
-**Bloom and haze do not appear.** Bloom demonstrably worked at Stage 0 and
-stopped at Stage 1. Haze has never been seen working.
+## The bug you're here for — RESOLVED (2026-08-09, browser-verified)
+
+**Bloom and haze do not appear** — root-caused by an agent with browser access.
+It was **two stacked upstream bugs**, neither of which produced a console error:
+
+1. **`applyHaze` discarded its scene-color argument** (`void sceneColorNode` in
+   `applyHaze.ts`) and composited over the raw scene pass instead — so haze-on
+   silently threw away bloom and AO. Fixed in the sky checkout
+   (`createHazeOutputNode` now accepts `sceneColorNode`), rebuilt, synced to
+   `vendor/`. Write-up: `HERO-DEMO-SPEC.md` upstream bug 4.
+2. **`useRenderPipeline` rebuilds never take effect**: it assigns
+   `pipeline.outputNode` without setting `needsUpdate`, and three's
+   `RenderPipeline._update()` only recompiles when `needsUpdate` is true. Only
+   the first-ever graph compiled; every `rebuild()` was a silent no-op — which
+   is why no Leva toggle appeared to do anything. Worked around in `fx.tsx`
+   (`renderPipeline.needsUpdate = true` after every assignment); upstream fix
+   belongs in fiber. Write-up: spec bug 5.
+
+The original hypotheses below are kept for the record. Note for the next agent:
+the console was **clean** the whole time — no `[useRenderPipeline] Setup
+failed`, no WebGPU validation error. The zero-size `bindingBufferundefined`
+error from the section after this one did not reproduce either.
+
+Current verified state: tower blooms (proper golden halo) with haze, AO, and
+TRAA all enabled; toggles rebuild live (expect a few seconds of black canvas
+per rebuild — that's the recompile). `hazeStrength` visibly lifts the distant
+city. Still open: haze at strength 1 is subtle at dusk (tune look/exposure),
+sun-disc blowout, perf baseline, and the fps overlay reads 0 after recompile
+spikes for a while.
+
+### OPEN BLOCKER (2026-08-10, needs a human at the machine)
+
+After the fixes above were verified working (glowing tower at 85 fps), a
+`bloom: off` Leva toggle froze the tab's main thread 45+ s mid-recompile, and
+**the page has not reached a first frame since** — across fresh tabs, a dev
+server restart with `.next` cleared, and a Chrome GPU-process restart. The
+diagnostic trail, all verified:
+
+- Server healthy (page + chunks + GLB all serve in ms; 0% CPU idle).
+- In-page: all resources loaded, canvas mounts at full res, React tree fine,
+  **zero long tasks, zero frames, no console errors** — the app is parked on
+  an await that never resolves.
+- Chrome's GPU process was pegged ~22% CPU for minutes (a stuck Dawn shader
+  compile — almost certainly the post megashader, whose bloom+GTAO+haze-
+  raymarch+TRAA WGSL is enormous). Killed it (62409 respawned, idle);
+  WebGPU adapter still available afterward; page still never boots.
+- Two mitigations already landed in `fx.tsx` (untested, page won't boot):
+  the `needsUpdate` workaround now only fires on real option changes — a
+  `builtKeyRef` guard makes the mount-time rebuild a no-op, where before it
+  recompiled the megashader 3–4× per load under StrictMode.
+
+**Try first: fully quit and relaunch Chrome** (clears renderer + GPU state
+beyond what a GPU-process kill does). If it still won't boot, bisect boot
+cost by flipping defaults in `scene.tsx` (`postFx: false` or
+`skyEnabled: false`) and check `chrome://gpu` for post-crash fallback state.
+Longer term the megashader needs to shrink: the haze raymarch fallback
+(64-sample inlined integrator) is the prime suspect for multi-minute WGSL
+compiles — `policy: 'ap'`-only wiring via `createHazeOutputNode` (no
+raymarch branch) would cut the shader dramatically.
+
+### Original notes (pre-resolution)
 
 ### Prime suspect — check this first, it's one line
 

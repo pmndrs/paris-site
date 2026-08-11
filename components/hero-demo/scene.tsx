@@ -97,11 +97,45 @@ export function HeroDemoScene({
   const { haze, hazeStrength, hazePolicy, apKmPerSlice } = useControls(
     "sky/haze",
     {
-      haze: true,
+      // Off by default (2026-08-10): the per-frame AP LUT update alone costs
+      // roughly half the frame budget (85 → 165 fps measured with it off),
+      // and the haze shader's inlined 64-sample raymarch fallback is the
+      // prime suspect for the pathological multi-minute WGSL compiles that
+      // wedged the tab. Re-enable once it's budgeted, or rewire through
+      // `createHazeOutputNode` without the raymarch branch (city scale never
+      // exceeds AP coverage).
+      haze: false,
       hazeStrength: { value: 1, min: 0, max: 3, step: 0.05 },
       hazePolicy: { value: "auto", options: ["auto", "ap", "raymarch"] },
       // Construction-time: 8 km × 32 slices = 256 km of AP coverage.
       apKmPerSlice: { value: 8, min: 1, max: 32, step: 1 },
+    },
+  );
+
+  /**
+   * Sky-colored height fog — the cheap aerial-perspective stand-in
+   * (experiment, 2026-08-10). Classic exponential height-fog density, but
+   * the inscatter color is the baked sky cube sampled along the view ray,
+   * so distant meshes fade toward the actual sky behind them (sun-side
+   * glow included) instead of a single hue. No per-frame AP cost — the
+   * cube re-bakes only when sun/turbidity change. Density and height are
+   * live; only the toggle rebuilds the pipeline.
+   */
+  const { skyFog, fogDensity, fogHeight, fogHorizonClamp } = useControls(
+    "sky/fog",
+    {
+      skyFog: true,
+      // Extinction per km. At the default ~2 km city span, 0.3 ≈ a clearly
+      // visible veil on the far edge; 1+ is heavy weather.
+      fogDensity: { value: 0.3, min: 0, max: 2, step: 0.01 },
+      // Altitude falloff of the fog layer, in world units (~metres).
+      fogHeight: { value: 300, min: 50, max: 2000, step: 10 },
+      // The baked sky cube is black below the horizon, so downward rays
+      // clamp their color lookup to the horizon band. Off = raw cube
+      // sample (ground fog fades toward black) — for A/B, and the honest
+      // mode if `mirrorBelowHorizon` fills the lower hemisphere. Live
+      // uniform, toggles instantly.
+      fogHorizonClamp: true,
     },
   );
 
@@ -135,11 +169,40 @@ export function HeroDemoScene({
       autoRotateSpeed: { value: 2, min: 0, max: 30, step: 0.5 },
     });
 
-  const { postFx, velocity, ao, bloom } = useControls("post", {
+  // No velocity switch: every config ends in a temporal resolver (FSR3 or
+  // TRAA), so motion vectors are load-bearing, not optional.
+  const { postFx, ao, bloom } = useControls("post", {
     postFx: true,
-    velocity: true,
     ao: true,
     bloom: true,
+  });
+
+  /**
+   * Stage 2 (FSR3) defaults **on** — the sole temporal resolver, scene pass
+   * at 1/renderScale render res. Stage 3 (`ssgi`) replaces GTAO with GI+AO
+   * (denoised, temporal filtering off); its quality knobs are live SSGINode
+   * uniforms, so they tune without a shader rebuild. `ssgiAoIntensity`
+   * defaults above the node's 1 because its AO term reads faint compared to
+   * the standalone GTAO it replaces.
+   */
+  const {
+    fsr,
+    renderScale,
+    ssgi,
+    ssgiIntensity,
+    ssgiAoIntensity,
+    ssgiSlices,
+    ssgiSteps,
+    ssgiRadius,
+  } = useControls("post/fsr", {
+    fsr: true,
+    renderScale: { value: 1.5, min: 1, max: 2, step: 0.1 },
+    ssgi: false,
+    ssgiIntensity: { value: 10, min: 0, max: 30, step: 1 },
+    ssgiAoIntensity: { value: 2, min: 0, max: 5, step: 0.1 },
+    ssgiSlices: { value: 2, min: 1, max: 4, step: 1 },
+    ssgiSteps: { value: 8, min: 2, max: 16, step: 1 },
+    ssgiRadius: { value: 12, min: 1, max: 32, step: 1 },
   });
 
   const { buildings, tower, environment, shadows } = useControls("debug", {
@@ -191,12 +254,23 @@ export function HeroDemoScene({
 
       <FX
         enabled={postFx}
-        velocity={velocity}
         ao={ao}
         bloom={bloom}
         haze={haze && skyEnabled}
         hazeStrength={hazeStrength}
         hazePolicy={hazePolicy}
+        skyFog={skyFog && skyEnabled}
+        skyFogDensity={fogDensity}
+        skyFogHeight={fogHeight}
+        skyFogHorizonClamp={fogHorizonClamp}
+        fsr={fsr}
+        renderScale={renderScale}
+        ssgi={ssgi}
+        ssgiIntensity={ssgiIntensity}
+        ssgiAoIntensity={ssgiAoIntensity}
+        ssgiSlices={ssgiSlices}
+        ssgiSteps={ssgiSteps}
+        ssgiRadius={ssgiRadius}
       />
     </>
   );
@@ -204,7 +278,20 @@ export function HeroDemoScene({
   return (
     <Canvas
       shadows={shadows}
-      renderer={{ antialias: false, powerPreference: "high-performance" }}
+      renderer={{
+        antialias: false,
+        powerPreference: "high-performance",
+        // WebGPU's maxColorAttachmentBytesPerSample default is 32, and the
+        // spec's per-sample cost table charges rgba8unorm attachments 8 bytes
+        // (same as rgba16float — byte textures save bandwidth, NOT this
+        // budget). The 5-attachment SSGI MRT (output + emissive + normal +
+        // velocity + diffuse) therefore costs 5×8 = 40 and needs the limit
+        // raised. This Mac's adapter reports 128; 64 is widely supported on
+        // desktop. A production build should query the adapter and degrade
+        // (drop `diffuse`, composite GI without albedo) instead of failing
+        // device creation on weaker hardware.
+        requiredLimits: { maxColorAttachmentBytesPerSample: 64 },
+      }}
       dpr={[1, 2]}
       forceEven
       // No `camera` prop: `<PerspectiveCamera makeDefault>` in <Camera> replaces

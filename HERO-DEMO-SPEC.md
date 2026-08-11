@@ -262,6 +262,44 @@ the demo's own `useFrame` (`components/hero-demo/fx.tsx`).
 
 **Fix:** call it from `<Sky>`'s `useFrame` when AP is enabled.
 
+### 4. `applyHaze` silently discards the scene-color node it is handed (fixed in checkout)
+
+**This was the Stage-1 "bloom and haze missing" bug.** `applyHaze(sceneColorNode,
+opts)` documents "Caller assigns it (or composes it with bloom etc.)" — but the
+implementation dropped the first argument on the floor (`void sceneColorNode`,
+with a comment admitting "future revisions will accept the node") and
+`createHazeOutputNode` composited over `scenePass.getTextureNode('output')`
+instead. Net effect: enabling haze silently replaced the entire composed graph
+(bloom, AO, anything) with raw-scene + haze. No throw, no warning — bloom and AO
+just vanish.
+
+**Fixed in the checkout** (uncommitted, like 1–2): `createHazeOutputNode` takes
+an optional `sceneColorNode` and uses it as the composite base;
+`applyHaze` passes it through. A caller-supplied TSL node is used directly (it
+already evaluates at the fragment's screen UV) — the explicit `.sample(u)` stays
+only on the internal fallback texture node. Verified in the browser: bloom halo
+now survives with haze enabled, and `hazeStrength` visibly lifts the distant
+city.
+
+### 5. R3F v10: `useRenderPipeline` rebuilds never take effect (fiber bug, worked around)
+
+Three's `RenderPipeline.outputNode` is a plain property; `_update()` only
+recompiles the present-quad material when `needsUpdate` is true, and the class
+doc says so: "Must be set to `true` when the output node changes"
+(`three.webgpu.js`, `RenderPipeline`). `useRenderPipeline` assigns
+`pipeline.outputNode` in its callbacks **without setting `needsUpdate`**.
+`needsUpdate` starts `true`, so the first-ever graph compiles — and every
+`rebuild()` after that assigns a new graph that is never compiled. The pipeline
+renders the page-load graph forever; every Leva post toggle was a silent no-op.
+This is why the missing-bloom symptom survived every toggle bisect: the bisects
+were not reaching the GPU.
+
+**Worked around in `fx.tsx`** by setting `renderPipeline.needsUpdate = true`
+after each `outputNode` assignment. Upstream fix belongs in fiber's
+`useRenderPipeline` (set it after running `mainCB`). Note a rebuild now really
+recompiles, which blanks the canvas for a few seconds on heavy graphs — that is
+the recompile, not a hang.
+
 ### Also
 
 - **npm name** — `@pmndrs/sky` 404s; npm has only the older `tsl-sky`. Deploying
