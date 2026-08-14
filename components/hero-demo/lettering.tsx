@@ -26,15 +26,13 @@ import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
 
 const FONT_URL = "/hero-demo/Geist_SemiBold.json";
 
-/**
- * This Geist typeface JSON renders glyphs ~2.5× the nominal `size`
- * (font-conversion scaling), so 1.9 lands the ~5-unit cap height these
- * positions are designed around — letter ≈ ⅕ of the ~24-unit tower, the
- * poster proportion.
- */
-const LETTER_SIZE = 1.9;
 const LETTER_DEPTH = 0.12;
 
+/**
+ * Authored layout in city units against the ~24-unit tower. `spread`
+ * multiplies the x offsets at render time, so the whole arrangement can be
+ * pulled toward the tower (or pushed out) without re-authoring each letter.
+ */
 const LETTERS: { char: string; position: [number, number, number] }[] = [
   { char: "P", position: [-4.5, 20, 0] },
   { char: "M", position: [4, 16.5, 0] },
@@ -44,7 +42,19 @@ const LETTERS: { char: string; position: [number, number, number] }[] = [
   { char: "S", position: [5, 2.8, 0] },
 ];
 
-export function Lettering() {
+export function Lettering({
+  /**
+   * TextGeometry `size`. This Geist typeface JSON renders glyphs ~2.5× the
+   * nominal value (font-conversion scaling), so 2 ≈ a 5-unit cap height —
+   * the reference poster's letter ≈ ¼-of-tower proportion lands around 2.4.
+   */
+  size = 2.4,
+  /** Multiplier on the authored x offsets — <1 hugs the tower, >1 spreads. */
+  spread = 0.8,
+}: {
+  size?: number;
+  spread?: number;
+}) {
   const font = useLoader(FontLoader, FONT_URL);
 
   const geometries = useMemo(
@@ -52,7 +62,7 @@ export function Lettering() {
       LETTERS.map(({ char }) => {
         const geometry = new TextGeometry(char, {
           font,
-          size: LETTER_SIZE,
+          size,
           depth: LETTER_DEPTH,
           bevelEnabled: true,
           bevelSize: 0.04,
@@ -65,13 +75,13 @@ export function Lettering() {
         geometry.center();
         return geometry;
       }),
-    [font],
+    [font, size],
   );
 
   return (
     <Billboard>
-      {LETTERS.map(({ char, position }, i) => (
-        <mesh key={char} position={position} geometry={geometries[i]}>
+      {LETTERS.map(({ char, position: [x, y, z] }, i) => (
+        <mesh key={char} position={[x * spread, y, z]} geometry={geometries[i]}>
           <meshBasicMaterial />
         </mesh>
       ))}

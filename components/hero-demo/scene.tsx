@@ -74,15 +74,20 @@ export function HeroDemoScene({
    * state (dark iron + random emissive pops → bloom). The beacon is the
    * summit's rotating double beam, faked with additive cones.
    */
-  const { towerMode, beacon, lettering } = useControls("tower", {
-    towerMode: {
-      value: "glow" as TowerMode,
-      options: ["glow", "metal", "sparkle"] as TowerMode[],
-    },
-    beacon: false,
-    // The PMNDRS letters stepping down the tower, PARIS-poster style.
-    lettering: true,
-  });
+  const { towerMode, beacon, lettering, letterSize, letterSpread } =
+    useControls("tower", {
+      towerMode: {
+        value: "glow" as TowerMode,
+        options: ["glow", "metal", "sparkle"] as TowerMode[],
+      },
+      beacon: false,
+      // The PMNDRS letters stepping down the tower, PARIS-poster style.
+      lettering: true,
+      // Size rebuilds six small TextGeometries (instant); spread is a pure
+      // transform. Neither touches the render pipeline.
+      letterSize: { value: 2.4, min: 1, max: 5, step: 0.1 },
+      letterSpread: { value: 0.8, min: 0.3, max: 1.6, step: 0.05 },
+    });
 
   /**
    * The full `SkyProps` surface.
@@ -280,7 +285,7 @@ export function HeroDemoScene({
           {tower && <Tower onReady={onTowerReady} mode={towerMode} beacon={beacon} />}
         </group>
 
-        {lettering && <Lettering />}
+        {lettering && <Lettering size={letterSize} spread={letterSpread} />}
       </group>
 
       <Lights
