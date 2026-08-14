@@ -49,3 +49,12 @@ next-env.d.ts
 # is part of what's being taught.
 .claude/worktrees/
 .claude/settings.local.json
+
+# Superpowers brainstorm scratch
+# Each session spins up a local server and drops its pid, port, log and
+# instance id under state/. Pure runtime, and it turns up as a dozen untracked
+# files in the IDE. Generated pages under content/ are deliberately NOT ignored
+# — those are output, and worth keeping or binning on purpose rather than by
+# default.
+.superpowers/**/state/
+.superpowers/**/.last-*

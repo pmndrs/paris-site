@@ -47,9 +47,17 @@ const FACES = [
   // -x · Roman X
   { accent: "#7fb6d9", room: [0, Math.PI, 0], facing: [0, -Math.PI / 2, 0] },
   // +y · Devanagari १०
-  { accent: "#c98fb0", room: [0, Math.PI / 2, Math.PI / 2], facing: [-Math.PI / 2, 0, 0] },
+  {
+    accent: "#c98fb0",
+    room: [0, Math.PI / 2, Math.PI / 2],
+    facing: [-Math.PI / 2, 0, 0],
+  },
   // -y · Eastern Arabic ١٠
-  { accent: "#8f8ad9", room: [0, Math.PI / 2, -Math.PI / 2], facing: [Math.PI / 2, 0, 0] },
+  {
+    accent: "#8f8ad9",
+    room: [0, Math.PI / 2, -Math.PI / 2],
+    facing: [Math.PI / 2, 0, 0],
+  },
   // +z · 10, in the site gold. Faces the default camera, and it is the one that
   // carries the v10 nod, so it gets the accent colour.
   { accent: "#e0b365", room: [0, -Math.PI / 2, 0], facing: [0, 0, 0] },
@@ -191,7 +199,12 @@ function Side({
           penumbra={1}
         />
         {/* Cool counter-light so the unlit side of the glyph isn't pure black. */}
-        <pointLight position={[-5, -2, 4]} intensity={2.5} decay={0} color="#6b7080" />
+        <pointLight
+          position={[-5, -2, 4]}
+          intensity={2.5}
+          decay={0}
+          color="#6b7080"
+        />
       </mesh>
 
       <group rotation={facing}>

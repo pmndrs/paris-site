@@ -39,6 +39,27 @@ const DEMOS = [
       "A pile of bodies held together by a spring to the origin rather than by a box, shoved around by a kinematic cursor. After Lusion's connectors — with the pmndrs mark in place of their shape, and the glass done natively.",
     tags: ["Rapier", "transmission", "kinematic cursor"],
   },
+  {
+    href: "/demos/blending-cube",
+    title: "One box, four imports",
+    blurb:
+      "A single mesh gaining one capability at a time — edges, contact shadows, metalness, and finally an environment to reflect. The fourth stage turns it black on purpose: metal has no colour of its own.",
+    tags: ["drei", "generated IBL", "no re-renders"],
+  },
+  {
+    href: "/demos/takehome-grid",
+    title: "A directory, turning over",
+    blurb:
+      "Six tiles that turn one at a time to name the other demos on this site. The same effect as the flip grid, built the opposite way — no instancing, no storage buffer, no compute pass, because six tiles on a fixed timeline have no history to keep.",
+    tags: ["CanvasTexture", "no GPU state", "the simple version"],
+  },
+  {
+    href: "/demos/block-city",
+    title: "A city that builds itself",
+    blurb:
+      "A few hundred instanced blocks rising out of the ground in a wave and settling. The layout is a hash of the instance index rather than an array, and the frame loop latches off once the last block lands.",
+    tags: ["InstancedMesh", "deterministic layout", "emissive maps"],
+  },
 ];
 
 export default function DemosPage() {

@@ -39,7 +39,9 @@ export const MagicBoxStandalone = dynamic(
 /** The same field as its own primary canvas, with controls — /demos/grain-gradient. */
 export const GrainGradientStandalone = dynamic(
   () =>
-    import("./grain-gradient-standalone").then((m) => m.GrainGradientStandalone),
+    import("./grain-gradient-standalone").then(
+      (m) => m.GrainGradientStandalone,
+    ),
   { ssr: false },
 );
 
@@ -53,6 +55,31 @@ export const NoiseFieldCanvas = dynamic(
  * wrapper — see the component.
  */
 export const ConnectorsCanvas = dynamic(
-  () => import("./connectors/connectors-canvas").then((m) => m.ConnectorsCanvas),
+  () =>
+    import("./connectors/connectors-canvas").then((m) => m.ConnectorsCanvas),
+  { ssr: false },
+);
+
+/** The Overview slot: a skyline that builds itself. */
+export const BlockCityCanvas = dynamic(
+  () => import("./block-city/block-city-canvas").then((m) => m.BlockCityCanvas),
+  { ssr: false },
+);
+
+/** The "demos" outcome card. Tiles that turn to name what you leave with. */
+export const TakehomeGridCanvas = dynamic(
+  () =>
+    import("./takehome-grid/takehome-grid-canvas").then(
+      (m) => m.TakehomeGridCanvas,
+    ),
+  { ssr: false },
+);
+
+/** The "ecosystem" outcome card. One box, gaining a capability at a time. */
+export const BlendingCubeCanvas = dynamic(
+  () =>
+    import("./blending-cube/blending-cube-canvas").then(
+      (m) => m.BlendingCubeCanvas,
+    ),
   { ssr: false },
 );

@@ -22,7 +22,12 @@ export function GrainGradientStandalone() {
     softness: { value: GRAIN_DEFAULTS.softness, min: 0, max: 1, step: 0.01 },
     intensity: { value: GRAIN_DEFAULTS.intensity, min: 0, max: 1, step: 0.01 },
     noise: { value: GRAIN_DEFAULTS.noise, min: 0, max: 1, step: 0.01 },
-    grainSize: { value: GRAIN_DEFAULTS.grainSize, min: 0.5, max: 8, step: 0.25 },
+    grainSize: {
+      value: GRAIN_DEFAULTS.grainSize,
+      min: 0.5,
+      max: 8,
+      step: 0.25,
+    },
     opacity: { value: GRAIN_DEFAULTS.opacity, min: 0, max: 1, step: 0.01 },
     speed: { value: GRAIN_DEFAULTS.speed, min: 0, max: 5, step: 0.05 },
     scale: { value: GRAIN_DEFAULTS.scale, min: 0.2, max: 4, step: 0.05 },
