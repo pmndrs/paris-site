@@ -1,51 +1,27 @@
 "use client";
 
-import { Suspense, useCallback, useRef, useState } from "react";
-import { Canvas } from "@react-three/fiber/webgpu";
-import { Sky } from "@pmndrs/sky/react";
 import { useControls } from "leva";
-import * as THREE from "three/webgpu";
 
-import { Buildings } from "./buildings";
-import { Camera, FramingTools } from "./camera";
-import { FX } from "./fx";
-import { Lights } from "./lights";
-import { Lettering } from "./lettering";
-import { PerfProbe, type PerfSample } from "./perf-probe";
-import { Terrain } from "./terrain";
-import { Tower, type TowerMode } from "./tower";
-
-/** Paris. The whole point of driving the sun from a real solar position. */
-const PARIS_LATITUDE = 48.8566;
-/** 2026-06-25, the workshop. Sun arc is seasonal, so the date is not cosmetic. */
-const CONFERENCE_DAY_OF_YEAR = 176;
+import { PARIS_LATITUDE, CONFERENCE_DAY_OF_YEAR, TowerCanvas } from "./tower-canvas";
+import type { PerfSample } from "./perf-probe";
+import type { TowerMode } from "./tower";
 
 /**
- * The hero demo's own canvas.
+ * The Leva face of `TowerCanvas` — every prop the scene takes, as a panel.
  *
- * Deliberately NOT the site's hero canvas: no `id="main"` primary registration,
- * no `alpha: true` wordmark sandwich, no `DepthAttachmentSync`, no secondaries
- * borrowing the renderer. This is a lab — it gets to be a plain opaque canvas so
- * that when something is slow or wrong, the multi-canvas machinery is not a
- * suspect. Those constraints come back when a stage folds into
- * `components/hero/`.
- *
- * The `debug` controls exist so a validation error or a frame-time cliff can be
- * bisected from the panel in a few seconds, instead of by editing and reloading:
- * every object and every MRT attachment has its own switch.
+ * The scene itself lives in `tower-canvas.tsx` with the verified defaults
+ * baked in; this wrapper exists so the demo page can tune all of it live.
+ * The site hero consumes `TowerCanvas` directly with fixed props and never
+ * sees Leva. The `debug` folder exists so a validation error or a
+ * frame-time cliff can be bisected from the panel in a few seconds, instead
+ * of by editing and reloading: every object and every MRT attachment has
+ * its own switch.
  */
 export function HeroDemoScene({
   onSample,
 }: {
   onSample: (s: PerfSample) => void;
 }) {
-  const towerRef = useRef<THREE.Group>(null);
-
-  // Bumped when the tower's GLTF has committed, which is the moment its
-  // bounding box becomes measurable and the camera can frame it.
-  const [refitKey, setRefitKey] = useState(0);
-  const onTowerReady = useCallback(() => setRefitKey((v) => v + 1), []);
-
   const {
     highRiseCount,
     lowRiseCount,
@@ -68,12 +44,6 @@ export function HeroDemoScene({
     haussmann: true,
   });
 
-  /**
-   * Tower looks. `glow` is the ported original; `metal` is the tower's real
-   * dusk self; `sparkle` is the hourly glitter as a permanent fragment-shader
-   * state (dark iron + random emissive pops → bloom). The beacon is the
-   * summit's rotating double beam, faked with additive cones.
-   */
   const { towerMode, beacon, lettering, letterSize, letterSpread } =
     useControls("tower", {
       towerMode: {
@@ -90,14 +60,11 @@ export function HeroDemoScene({
     });
 
   /**
-   * The full `SkyProps` surface.
-   *
-   * Split into two folders because the split is real, not cosmetic: everything
-   * in `sky` is applied through a setter on the live instance, while everything
-   * in `sky/rebuild` is a construction-time option that tears the `Sky` down and
-   * builds a new one (its `useMemo` deps are `preset`, `quality`, `cubeSize`,
-   * `enableAerialPerspective`, `apKmPerSlice`). Expect a hitch when touching the
-   * second group and none when touching the first.
+   * The full `SkyProps` surface. Split into two folders because the split is
+   * real, not cosmetic: everything in `sky` is applied through a setter on
+   * the live instance, while everything in `sky/rebuild` is a
+   * construction-time option that tears the `Sky` down and builds a new one.
+   * Expect a hitch when touching the second group and none on the first.
    */
   const {
     skyEnabled,
@@ -133,12 +100,8 @@ export function HeroDemoScene({
     "sky/haze",
     {
       // Off by default (2026-08-10): the per-frame AP LUT update alone costs
-      // roughly half the frame budget (85 → 165 fps measured with it off),
-      // and the haze shader's inlined 64-sample raymarch fallback is the
-      // prime suspect for the pathological multi-minute WGSL compiles that
-      // wedged the tab. Re-enable once it's budgeted, or rewire through
-      // `createHazeOutputNode` without the raymarch branch (city scale never
-      // exceeds AP coverage).
+      // roughly half the frame budget (85 → 165 fps measured with it off).
+      // Sky fog below is the cheap stand-in. Re-enable once budgeted.
       haze: false,
       hazeStrength: { value: 1, min: 0, max: 3, step: 0.05 },
       hazePolicy: { value: "auto", options: ["auto", "ap", "raymarch"] },
@@ -148,13 +111,10 @@ export function HeroDemoScene({
   );
 
   /**
-   * Sky-colored height fog — the cheap aerial-perspective stand-in
-   * (experiment, 2026-08-10). Classic exponential height-fog density, but
-   * the inscatter color is the baked sky cube sampled along the view ray,
-   * so distant meshes fade toward the actual sky behind them (sun-side
-   * glow included) instead of a single hue. No per-frame AP cost — the
-   * cube re-bakes only when sun/turbidity change. Density and height are
-   * live; only the toggle rebuilds the pipeline.
+   * Sky-colored height fog — the cheap aerial-perspective stand-in. Classic
+   * exponential height-fog density, inscatter color sampled from the baked
+   * sky cube along the view ray. No per-frame AP cost. Density and height
+   * are live; only the toggle rebuilds the pipeline.
    */
   const { skyFog, fogDensity, fogHeight, fogHorizonClamp } = useControls(
     "sky/fog",
@@ -167,27 +127,16 @@ export function HeroDemoScene({
       fogHeight: { value: 300, min: 50, max: 2000, step: 10 },
       // The baked sky cube is black below the horizon, so downward rays
       // clamp their color lookup to the horizon band. Off = raw cube
-      // sample (ground fog fades toward black) — for A/B, and the honest
-      // mode if `mirrorBelowHorizon` fills the lower hemisphere. Live
-      // uniform, toggles instantly.
+      // sample — for A/B, and the honest mode if `mirrorBelowHorizon`
+      // fills the lower hemisphere. Live uniform, toggles instantly.
       fogHorizonClamp: true,
     },
   );
 
   /**
-   * Metres per scene unit.
-   *
-   * `@pmndrs/sky` has no scale knob — it reads `camera.position.y` as **metres**
-   * (SkyAtmosphereBaker.ts:289). At Faraz's authored scale the tower is ~66
-   * units and the city ~400, so taken literally this is a 66 m tower in a 400 m
-   * town, and atmospheric extinction over 400 m is nil: the aerial perspective
-   * — the main thing sky is here for — would be invisible and we'd be tempted to
-   * fake it with `hazeStrength`.
-   *
-   * A root-group scale is the cheap fix: at 5, the tower lands near its real
-   * 330 m and the city spans ~2 km, where haze is actually a physical quantity.
-   * Exposed as a slider because watching haze arrive as you scale is the clearest
-   * possible demonstration of why the number matters.
+   * Metres per scene unit. `@pmndrs/sky` reads `camera.position.y` as metres
+   * and has no scale knob; at 5 the tower lands near its real 330 m and the
+   * city spans ~2 km, where the fog is a physical quantity.
    */
   const { worldScale } = useControls("world", {
     worldScale: { value: 5, min: 1, max: 20, step: 0.5 },
@@ -204,8 +153,6 @@ export function HeroDemoScene({
       autoRotateSpeed: { value: 2, min: 0, max: 30, step: 0.5 },
     });
 
-  // No velocity switch: every config ends in a temporal resolver (FSR3 or
-  // TRAA), so motion vectors are load-bearing, not optional.
   const { postFx, ao, bloom } = useControls("post", {
     postFx: true,
     ao: true,
@@ -213,12 +160,9 @@ export function HeroDemoScene({
   });
 
   /**
-   * Stage 2 (FSR3) defaults **on** — the sole temporal resolver, scene pass
-   * at 1/renderScale render res. Stage 3 (`ssgi`) replaces GTAO with GI+AO
-   * (denoised, temporal filtering off); its quality knobs are live SSGINode
-   * uniforms, so they tune without a shader rebuild. `ssgiAoIntensity`
-   * defaults above the node's 1 because its AO term reads faint compared to
-   * the standalone GTAO it replaces.
+   * Stage 2 (FSR3) defaults on — the sole temporal resolver, scene pass at
+   * 1/renderScale render res. Stage 3 (`ssgi`) replaces GTAO with GI+AO;
+   * its quality knobs are live SSGINode uniforms, no shader rebuild.
    */
   const {
     fsr,
@@ -247,133 +191,63 @@ export function HeroDemoScene({
     shadows: true,
   });
 
-  const contents = (
-    <>
-      <Camera
-        targetRef={towerRef}
-        padding={padding}
-        autoRotate={autoRotate}
-        autoRotateSpeed={autoRotateSpeed}
-        polarDegrees={polarDegrees}
-        unlocked={unlocked}
-        worldScale={worldScale}
-        refitKey={refitKey}
-      />
-      <FramingTools />
-
-      {/* Everything with a physical size lives under one scale, so the metres
-          conversion is a single number rather than sprinkled constants. */}
-      <group scale={worldScale}>
-        <Terrain river={river} park={park} />
-
-        {buildings && (
-          <Buildings
-            count={highRiseCount}
-            lowRiseCount={lowRiseCount}
-            treeCount={treeCount}
-            treeShadows={treeShadows}
-            river={river}
-            park={park}
-            haussmann={haussmann}
-          />
-        )}
-
-        {/* The group stays mounted even when the tower is hidden — it is the
-            camera's fit target, and an empty box just means the fit is skipped
-            until `onReady` fires. */}
-        <group ref={towerRef}>
-          {tower && <Tower onReady={onTowerReady} mode={towerMode} beacon={beacon} />}
-        </group>
-
-        {lettering && <Lettering size={letterSize} spread={letterSpread} />}
-      </group>
-
-      <Lights
-        environment={environment && !skyEnabled}
-        shadowRadius={60 * worldScale}
-        sunlight={!skyEnabled}
-      />
-
-      <FX
-        enabled={postFx}
-        ao={ao}
-        bloom={bloom}
-        haze={haze && skyEnabled}
-        hazeStrength={hazeStrength}
-        hazePolicy={hazePolicy}
-        skyFog={skyFog && skyEnabled}
-        skyFogDensity={fogDensity}
-        skyFogHeight={fogHeight}
-        skyFogHorizonClamp={fogHorizonClamp}
-        fsr={fsr}
-        renderScale={renderScale}
-        ssgi={ssgi}
-        ssgiIntensity={ssgiIntensity}
-        ssgiAoIntensity={ssgiAoIntensity}
-        ssgiSlices={ssgiSlices}
-        ssgiSteps={ssgiSteps}
-        ssgiRadius={ssgiRadius}
-      />
-    </>
-  );
-
   return (
-    <Canvas
+    <TowerCanvas
+      highRiseCount={highRiseCount}
+      lowRiseCount={lowRiseCount}
+      treeCount={treeCount}
+      treeShadows={treeShadows}
+      river={river}
+      park={park}
+      haussmann={haussmann}
+      towerMode={towerMode}
+      beacon={beacon}
+      lettering={lettering}
+      letterSize={letterSize}
+      letterSpread={letterSpread}
+      skyEnabled={skyEnabled}
+      timeOfDay={timeOfDay}
+      latitude={latitude}
+      dayOfYear={dayOfYear}
+      exposure={exposure}
+      north={north}
+      sunDisc={sunDisc}
+      turbidity={turbidity}
+      mirrorBelowHorizon={mirrorBelowHorizon}
+      preset={preset}
+      quality={quality}
+      cubeSize={cubeSize}
+      haze={haze}
+      hazeStrength={hazeStrength}
+      hazePolicy={hazePolicy}
+      apKmPerSlice={apKmPerSlice}
+      skyFog={skyFog}
+      fogDensity={fogDensity}
+      fogHeight={fogHeight}
+      fogHorizonClamp={fogHorizonClamp}
+      worldScale={worldScale}
+      unlocked={unlocked}
+      padding={padding}
+      polarDegrees={polarDegrees}
+      autoRotate={autoRotate}
+      autoRotateSpeed={autoRotateSpeed}
+      postFx={postFx}
+      ao={ao}
+      bloom={bloom}
+      fsr={fsr}
+      renderScale={renderScale}
+      ssgi={ssgi}
+      ssgiIntensity={ssgiIntensity}
+      ssgiAoIntensity={ssgiAoIntensity}
+      ssgiSlices={ssgiSlices}
+      ssgiSteps={ssgiSteps}
+      ssgiRadius={ssgiRadius}
+      buildings={buildings}
+      tower={tower}
+      environment={environment}
       shadows={shadows}
-      renderer={{
-        antialias: false,
-        powerPreference: "high-performance",
-        // WebGPU's maxColorAttachmentBytesPerSample default is 32, and the
-        // spec's per-sample cost table charges rgba8unorm attachments 8 bytes
-        // (same as rgba16float — byte textures save bandwidth, NOT this
-        // budget). The 5-attachment SSGI MRT (output + emissive + normal +
-        // velocity + diffuse) therefore costs 5×8 = 40 and needs the limit
-        // raised. This Mac's adapter reports 128; 64 is widely supported on
-        // desktop. A production build should query the adapter and degrade
-        // (drop `diffuse`, composite GI without albedo) instead of failing
-        // device creation on weaker hardware.
-        requiredLimits: { maxColorAttachmentBytesPerSample: 64 },
-      }}
-      dpr={[1, 2]}
-      forceEven
-      // No `camera` prop: `<PerspectiveCamera makeDefault>` in <Camera> replaces
-      // it wholesale, so anything set here is silently discarded. The clip
-      // planes live there, with worldScale applied.
-    >
-      <Suspense>
-        {skyEnabled ? (
-          <Sky
-            preset={preset}
-            quality={quality}
-            cubeSize={cubeSize}
-            timeOfDay={timeOfDay}
-            latitude={latitude}
-            dayOfYear={dayOfYear}
-            exposure={exposure}
-            north={north}
-            sunDisc={sunDisc}
-            turbidity={turbidity}
-            mirrorBelowHorizon={mirrorBelowHorizon}
-            enableAerialPerspective={haze}
-            apKmPerSlice={apKmPerSlice}
-          >
-            {contents}
-          </Sky>
-        ) : (
-          <>
-            <color attach="background" args={["#0b1428"]} />
-            {/* Sky's aerial perspective replaces this once it is on — running
-                both would double up the distance falloff. */}
-            <fogExp2
-              attach="fog"
-              args={["#0b1428", 0.001 / worldScale]}
-            />
-            {contents}
-          </>
-        )}
-      </Suspense>
-
-      <PerfProbe onSample={onSample} />
-    </Canvas>
+      onSample={onSample}
+      tools
+    />
   );
 }

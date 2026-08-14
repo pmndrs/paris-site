@@ -9,41 +9,21 @@ import { Slider } from "@/components/ui/slider";
 import { HERO, REGISTER_URL } from "@/lib/content";
 import { skyGradient, todAt } from "@/lib/time-of-day";
 
-// WebGL has no business running during SSR, and the scene is the heaviest thing
-// on the page — keep it out of the server bundle entirely.
-const ParisScene = dynamic(
-  () => import("./paris-scene").then((m) => m.ParisScene),
+// WebGPU has no business running during SSR, and the scene is the heaviest
+// thing on the page — keep it out of the server bundle entirely.
+//
+// This is the verified tower pipeline from the lab (`/demos/paris-hero`), not
+// the old low-poly `ParisScene`. The DOM wordmark sandwich is retired with it:
+// the sky paints every canvas pixel once loaded, and the PMNDRS lettering now
+// lives *inside* the scene, billboarded through the ironwork.
+const TowerHero = dynamic(
+  () => import("./tower-hero").then((m) => m.TowerHero),
   { ssr: false },
 );
 
-/** PMNDRS runs vertically, split across two layers that sandwich the canvas. */
-const LETTERS = ["P", "M", "N", "D", "R", "S"];
-
-function Logotype({ layer }: { layer: "back" | "front" }) {
-  // Back layer paints P·N·R, front layer paints M·D·S. The tower renders
-  // between them, so the wordmark threads through the ironwork.
-  const visible = layer === "back" ? [0, 2, 4] : [1, 3, 5];
-
-  return (
-    <div
-      className="absolute inset-0 flex translate-x-[11%] flex-col items-center justify-start font-bold leading-[0.7] tracking-[-0.04em] text-white"
-      style={{ fontSize: "clamp(56px, 7.4vw, 95px)" }}
-      aria-hidden
-    >
-      {LETTERS.map((letter, i) => (
-        <span
-          key={letter + i}
-          className={visible.includes(i) ? undefined : "opacity-0"}
-        >
-          {letter}
-        </span>
-      ))}
-    </div>
-  );
-}
-
 export function Hero() {
-  const [tod, setTod] = useState(12);
+  // Default to the graded look: 85/100 ≈ 20.4h, dusk at Paris in June.
+  const [tod, setTod] = useState(85);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [onScreen, setOnScreen] = useState(true);
   const sectionRef = useRef<HTMLElement>(null);
@@ -99,36 +79,15 @@ export function Hero() {
         </a>
       </div>
 
-      {/* The wordmark box, sized as in the design doc. */}
-      <div
-        className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2"
-        style={{
-          top: "clamp(40px, 7vh, 80px)",
-          width: "min(430px, 74vw)",
-          height: "min(660px, 64vh)",
-        }}
-      >
-        <Logotype layer="back" />
-      </div>
-
-      {/* z-20 — the scene, transparent, sandwiched between the two type layers. */}
+      {/* z-20 — the scene. Transparent until the sky's first frame lands, so
+          the CSS gradient above covers the shader-compile window; the PMNDRS
+          lettering renders in-scene rather than as DOM layers. */}
       <div className="absolute inset-0 z-20">
-        <ParisScene
+        <TowerHero
           value={tod}
           reducedMotion={reducedMotion}
           paused={!onScreen}
         />
-      </div>
-
-      <div
-        className="pointer-events-none absolute left-1/2 z-30 -translate-x-1/2"
-        style={{
-          top: "clamp(40px, 7vh, 80px)",
-          width: "min(430px, 74vw)",
-          height: "min(660px, 64vh)",
-        }}
-      >
-        <Logotype layer="front" />
       </div>
 
       {/* Grounds the copy against the city. */}

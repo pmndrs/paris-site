@@ -12,6 +12,13 @@ export const metadata: Metadata = {
  */
 const DEMOS = [
   {
+    href: "/demos/paris-hero",
+    title: "Paris hero",
+    blurb:
+      "The site's hero on its own: the tower over a generated Paris under a physical @pmndrs/sky atmosphere, FSR3 reconstruction, bloom, and a height fog that samples the sky for its color. Every knob live.",
+    tags: ["FSR3", "@pmndrs/sky", "MRT post pipeline"],
+  },
+  {
     href: "/demos/magic-box",
     title: "Ten, written six ways",
     blurb:
