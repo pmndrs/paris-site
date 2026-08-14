@@ -11,6 +11,7 @@
   "dependencies": {
     "@react-three/drei": "11.0.0-alpha.5",
     "@react-three/fiber": "10.0.0-alpha.3",
+    "@react-three/rapier": "^2.2.0",
     "camera-controls": "^3.1.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -290,8 +290,34 @@ export function GrainField({ params }: { params: GrainParams }) {
   );
 }
 
-/** In-page version: a secondary canvas behind the closing CTA. */
-export function NoiseFieldCanvas() {
+/**
+ * The same field tuned to sit behind a plain section.
+ *
+ * The defaults were dialled in against the closing CTA, where a city poster and
+ * a black gradient sat between the field and the page — the gradient did half
+ * the work of holding it down. Under the instructors there is nothing but the
+ * background, and at full strength the field washes the section out and takes
+ * the bios with it.
+ *
+ * So: a third of the alpha, the top ramp stop pulled well back from white, and
+ * the blobs enlarged so it reads as one slow drift across the section rather
+ * than as several competing lumps behind four columns of text.
+ */
+export const GRAIN_SECTION: GrainParams = {
+  ...GRAIN_DEFAULTS,
+  opacity: 0.2,
+  scale: 0.72,
+  speed: 0.6,
+  color2: "#4a4a54",
+  color3: "#8a8a96",
+};
+
+/** In-page version: a secondary canvas behind a section. */
+export function NoiseFieldCanvas({
+  params = GRAIN_SECTION,
+}: {
+  params?: GrainParams;
+}) {
   return (
     <SectionCanvas
       className="absolute inset-0"
@@ -300,7 +326,7 @@ export function NoiseFieldCanvas() {
       // Only the shape moves now, and slowly — this does not need 60.
       fps={30}
     >
-      <GrainField params={GRAIN_DEFAULTS} />
+      <GrainField params={params} />
     </SectionCanvas>
   );
 }

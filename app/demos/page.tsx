@@ -32,6 +32,13 @@ const DEMOS = [
       "Tiles that flip as the cursor sweeps them and hold the pose before falling back. Angle, velocity and hold timer live in a storage buffer a compute pass integrates — the CPU writes five floats a frame however many tiles there are.",
     tags: ["compute shader", "storage buffer", "TSL struct"],
   },
+  {
+    href: "/demos/connectors",
+    title: "A container with no walls",
+    blurb:
+      "A pile of bodies held together by a spring to the origin rather than by a box, shoved around by a kinematic cursor. After Lusion's connectors — with the pmndrs mark in place of their shape, and the glass done natively.",
+    tags: ["Rapier", "transmission", "kinematic cursor"],
+  },
 ];
 
 export default function DemosPage() {

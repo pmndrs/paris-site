@@ -1,0 +1,67 @@
+<style>
+  .map-options { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; margin-top:24px; }
+  .map-card { overflow:hidden; cursor:pointer; border:1px solid #29292d; border-radius:14px; background:#09090b; transition:160ms ease; }
+  .map-card:hover { border-color:#71717a; transform:translateY(-2px); }
+  .map-card.selected { border-color:#fafafa; box-shadow:0 0 0 1px #fafafa; }
+  .map-preview { position:relative; min-height:260px; overflow:hidden; border-bottom:1px solid #29292d; }
+  .dark-map { background:linear-gradient(27deg,transparent 48%,#27272a 49%,#27272a 50%,transparent 51%) 0 0/72px 72px,linear-gradient(118deg,transparent 48%,#1f1f22 49%,#1f1f22 50%,transparent 51%) 0 0/88px 88px,#111114; }
+  .light-map { background:linear-gradient(22deg,transparent 48%,#d6d3cc 49%,#d6d3cc 50%,transparent 51%) 0 0/62px 62px,linear-gradient(112deg,transparent 48%,#ccc8bd 49%,#ccc8bd 50%,transparent 51%) 0 0/78px 78px,#efede7; }
+  .river { position:absolute; width:130%; height:48px; left:-12%; top:46%; rotate:-11deg; background:#282e38; border-block:1px solid #3b4553; }
+  .light-map .river { background:#b8d8e8; border-color:#8ebcd1; }
+  .pin { position:absolute; z-index:2; display:grid; width:36px; height:36px; place-items:center; border:3px solid #09090b; border-radius:50%; background:#fafafa; color:#09090b; font:700 12px/1 ui-monospace,monospace; box-shadow:0 5px 16px #0008; }
+  .workshop { left:30%; top:67%; }
+  .conference { right:22%; top:21%; }
+  .label { position:absolute; z-index:2; padding:5px 7px; border:1px solid #34343a; border-radius:6px; background:#09090bea; color:#fafafa; font:600 10px/1.2 ui-monospace,monospace; }
+  .workshop-label { left:10%; top:84%; }
+  .conference-label { right:5%; top:8%; }
+  .light-map .pin { border-color:#fff; background:#18181b; color:#fff; }
+  .light-map .label { border-color:#d2cec4; background:#fffffff0; color:#18181b; }
+  .controls { position:absolute; left:12px; top:12px; display:grid; border:1px solid #3f3f46; border-radius:7px; background:#09090b; color:#fff; }
+  .controls span { display:grid; width:28px; height:28px; place-items:center; }
+  .schematic { display:flex; align-items:center; justify-content:center; background:#111114; }
+  .line { position:relative; width:64%; height:2px; background:#52525b; }
+  .stop { position:absolute; top:50%; translate:-50% -50%; }
+  .stop:first-child { left:0; }
+  .stop:last-child { left:100%; }
+  .stop .pin { position:static; }
+  .stop-name { position:absolute; top:48px; left:50%; width:120px; translate:-50% 0; color:#d4d4d8; font:600 10px/1.4 ui-monospace,monospace; text-align:center; }
+  .travel { position:absolute; left:50%; top:-28px; translate:-50% 0; color:#71717a; font:500 10px/1 ui-monospace,monospace; white-space:nowrap; }
+  .body { padding:16px; }
+  .body h3 { margin:0 0 7px; font-size:16px; }
+  .body p { margin:0; color:#a1a1aa; font-size:13px; line-height:1.5; }
+  .recommended { display:inline-block; margin-bottom:10px; padding:4px 7px; border-radius:999px; background:#fafafa; color:#09090b; font:700 9px/1 ui-monospace,monospace; letter-spacing:.08em; text-transform:uppercase; }
+  @media(max-width:900px) { .map-options { grid-template-columns:1fr; } }
+</style>
+
+<h2>How should “Getting there” work?</h2>
+<p class="subtitle">Both pins use confirmed addresses: Gobelins Saint-Marcel for the workshop and Maison de la Chimie for the conference.</p>
+
+<div class="map-options">
+  <div class="map-card" data-choice="interactive-dark" onclick="toggleSelect(this)">
+    <div class="map-preview dark-map">
+      <div class="river"></div><div class="controls"><span>+</span><span>−</span></div>
+      <div class="pin workshop">W</div><div class="label workshop-label">Gobelins · Sep 8–9</div>
+      <div class="pin conference">C</div><div class="label conference-label">Maison de la Chimie · Sep 10–11</div>
+    </div>
+    <div class="body"><span class="recommended">Recommended</span><h3>A · Interactive dark map</h3><p>Real OpenStreetMap tiles, zoom and pan, two clickable pins, and directions links. Styled for the current site.</p></div>
+  </div>
+
+  <div class="map-card" data-choice="interactive-standard" onclick="toggleSelect(this)">
+    <div class="map-preview light-map">
+      <div class="river"></div><div class="controls"><span>+</span><span>−</span></div>
+      <div class="pin workshop">W</div><div class="label workshop-label">Gobelins · Sep 8–9</div>
+      <div class="pin conference">C</div><div class="label conference-label">Maison de la Chimie · Sep 10–11</div>
+    </div>
+    <div class="body"><h3>B · Standard street map</h3><p>The same working controls and pins, with familiar full-color cartography for maximum wayfinding clarity.</p></div>
+  </div>
+
+  <div class="map-card" data-choice="schematic" onclick="toggleSelect(this)">
+    <div class="map-preview schematic">
+      <div class="line"><div class="travel">about 25 min by transit</div>
+        <div class="stop"><div class="pin">W</div><div class="stop-name">Gobelins<br>Saint-Marcel</div></div>
+        <div class="stop"><div class="pin">C</div><div class="stop-name">Maison de<br>la Chimie</div></div>
+      </div>
+    </div>
+    <div class="body"><h3>C · Editorial route diagram</h3><p>No map dependency and perfect visual control, but less useful for actual navigation.</p></div>
+  </div>
+</div>

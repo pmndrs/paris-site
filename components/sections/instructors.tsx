@@ -1,10 +1,18 @@
+import { NoiseFieldCanvas } from "@/components/three/scenes";
 import { PEOPLE } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
 
 export function Instructors() {
   return (
-    <Section id="instructors">
-      <Wrap>
+    <Section id="instructors" className="relative overflow-hidden">
+      {/* Grayscale blob, drifting. It lifts a section that is otherwise four
+          portrait squares on flat black, and it sits behind names and bios
+          rather than behind a headline — so it stays low-contrast and slow. */}
+      <div className="pointer-events-none absolute inset-0">
+        <NoiseFieldCanvas />
+      </div>
+
+      <Wrap className="relative">
         <div className="eyebrow">05 · Instructors</div>
         <SectionTitle>Who is teaching</SectionTitle>
 

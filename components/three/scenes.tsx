@@ -47,3 +47,12 @@ export const NoiseFieldCanvas = dynamic(
   () => import("./noise-field").then((m) => m.NoiseFieldCanvas),
   { ssr: false },
 );
+
+/**
+ * The physics container behind the closing CTA and the footer. Brings its own
+ * wrapper — see the component.
+ */
+export const ConnectorsCanvas = dynamic(
+  () => import("./connectors/connectors-canvas").then((m) => m.ConnectorsCanvas),
+  { ssr: false },
+);
