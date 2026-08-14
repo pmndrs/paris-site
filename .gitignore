@@ -56,8 +56,10 @@ next-env.d.ts
 # files in the IDE. Generated pages under content/ are deliberately NOT ignored
 # — those are output, and worth keeping or binning on purpose rather than by
 # default.
-.superpowers/**/state/
-.superpowers/**/.last-*
+# Ignored wholesale rather than per-subdirectory: the earlier narrower rules
+# left content/ tracked, and a `git add -A` then swept the whole tree in —
+# including a local server token. Nothing under here is project source.
+.superpowers/
 
 # Planning docs — kept local
 # CONTENT.md carries seat counts, the student allocation and cross-promotion
