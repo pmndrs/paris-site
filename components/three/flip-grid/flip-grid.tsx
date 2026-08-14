@@ -255,7 +255,9 @@ export function FlipGrid({
       // on arrival, so a sweep breaks up into a ripple instead of a wavefront.
       const mass = float(1).add(hash(instanceIndex).mul(u.uMassJitter));
 
-      angVel.addAssign(target.sub(angle).mul(u.uStiffness).div(mass).mul(u.uDt));
+      angVel.addAssign(
+        target.sub(angle).mul(u.uStiffness).div(mass).mul(u.uDt),
+      );
       // Exponential decay rather than a bare multiply, so damping means the same
       // thing whatever framerate this canvas ends up running at.
       angVel.mulAssign(exp(u.uDamping.mul(u.uDt).negate()));
@@ -339,10 +341,7 @@ export function FlipGrid({
      * rather than a hundred small mirrors. Tilting each plate slightly is what
      * real stamped metal does anyway, and it's what breaks the grid up.
      */
-    const tilt = vec2(
-      hash(instanceIndex.add(31)),
-      hash(instanceIndex.add(77)),
-    )
+    const tilt = vec2(hash(instanceIndex.add(31)), hash(instanceIndex.add(77)))
       .sub(0.5)
       .mul(u.uTiltJitter);
 
@@ -429,7 +428,10 @@ export function FlipGrid({
       }
 
       if (pointer.current.x === AWAY) warped.current = true;
-      pointer.current.set((nx * viewport.width) / 2, (ny * viewport.height) / 2);
+      pointer.current.set(
+        (nx * viewport.width) / 2,
+        (ny * viewport.height) / 2,
+      );
     };
 
     /**

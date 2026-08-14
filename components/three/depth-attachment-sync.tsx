@@ -50,7 +50,8 @@ export function DepthAttachmentSync() {
     stale.current = false;
     // `state.renderer` is typed as the WebGL/WebGPU union even on the /webgpu
     // entry, and `backend` is internal to the WebGPU one.
-    const backend = (state.renderer as unknown as { backend?: Backend }).backend;
+    const backend = (state.renderer as unknown as { backend?: Backend })
+      .backend;
     backend?.updateSize?.();
   });
 

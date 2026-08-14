@@ -1,3 +1,4 @@
+import { ExploreLink } from "@/components/explore-link";
 import { RevealGroup } from "@/components/motion/reveal";
 import { FlipGridCanvas } from "@/components/three/scenes";
 import { Card } from "@/components/ui/card";
@@ -36,6 +37,12 @@ export function Why() {
           >
             {WHY.lede}
           </p>
+          <div className="mt-4" data-reveal>
+            <ExploreLink
+              href="/demos/flip-grid"
+              label="Explore the flip grid"
+            />
+          </div>
         </RevealGroup>
 
         <RevealGroup className="mt-9 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">

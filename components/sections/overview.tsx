@@ -1,3 +1,4 @@
+import { ExploreLink } from "@/components/explore-link";
 import { RevealGroup } from "@/components/motion/reveal";
 import { SceneSlot } from "@/components/three/scene-slot";
 import { BlockCityCanvas } from "@/components/three/scenes";
@@ -67,8 +68,9 @@ export function Overview() {
             </SceneSlot>
             {/* Deliberately true of both layers: the live scene when there is
                 WebGPU, the concept frame when there isn't. */}
-            <div className="border-t border-border px-4.5 py-4 font-mono text-[11px] text-faint">
-              The block city · at mid distance
+            <div className="flex items-center justify-between gap-4 border-t border-border px-4.5 py-4 font-mono text-[11px] text-faint">
+              <span>The block city · at mid distance</span>
+              <ExploreLink href="/demos/block-city" label="Explore" />
             </div>
           </div>
         </RevealGroup>

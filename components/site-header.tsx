@@ -3,11 +3,18 @@
 import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { REGISTER_URL, SECTIONS } from "@/lib/content";
+import { useVisibleSections } from "@/components/site-settings";
 import { useScrollSpy } from "@/lib/use-scroll-spy";
 import { cn } from "@/lib/utils";
 
 export function SiteHeader() {
   const { shown, progress, active, marks } = useScrollSpy();
+  const isVisible = useVisibleSections();
+
+  // A nav link to a section that isn't rendered scrolls nowhere, and its tick
+  // would sit at 0% and pile up on the left edge of the rail.
+  const sections = SECTIONS.filter((s) => isVisible(s.id));
+  const rail = marks.filter((m) => isVisible(m.id));
 
   return (
     <header
@@ -39,7 +46,7 @@ export function SiteHeader() {
               // matches the mask so the end links are never clipped at rest.
               className="[&::-webkit-scrollbar]:hidden flex min-w-0 items-center gap-3 overflow-x-auto px-3.5 text-[13px] [-ms-overflow-style:none] [mask-image:linear-gradient(90deg,transparent,#000_14px,#000_calc(100%-14px),transparent)] [scrollbar-width:none] sm:gap-4 lg:gap-6"
             >
-              {SECTIONS.map(({ id, label }) => (
+              {sections.map(({ id, label }) => (
                 <a
                   key={id}
                   href={`#${id}`}
@@ -66,7 +73,7 @@ export function SiteHeader() {
             className="absolute inset-y-0 left-0 bg-foreground"
             style={{ width: `${(progress * 100).toFixed(2)}%` }}
           />
-          {marks.map(({ id, pct }) => (
+          {rail.map(({ id, pct }) => (
             <div
               key={id}
               className={cn(
