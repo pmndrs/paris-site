@@ -4,15 +4,19 @@ Marketing site for the **R3F Workshop, Three.js Conf Paris, Sep 8–9 2026**.
 Companion doc: [CONTENT.md](CONTENT.md) — section-by-section copy outlines and the
 Notion↔site content deltas.
 
-> **Status (2026-08-08).** On **R3F v10 alpha 3 / drei 11 alpha 5**, WebGPU entry
-> (`@react-three/fiber/webgpu`). Hero is the primary canvas; three track solids, a
-> cursor-driven gold tile grid, and a noise field render as secondary canvases sharing
-> its renderer. Plus: motion layer, "Why now" section, fact corrections, gated attendee
-> guide (§8).
+> **Status (2026-08-09).** On **R3F v10 alpha 3 / drei 11 alpha 5**, WebGPU entry
+> (`@react-three/fiber/webgpu`), package manager **pnpm**. Hero is the primary canvas;
+> a portal cube in Overview, three track solids, a cursor-driven gold tile grid, and a
+> noise field render as secondary canvases sharing its renderer. Plus: motion layer,
+> "Why now" section, fact corrections, gated attendee guide (§8), and a standalone demo
+> at `/demos/magic-box`.
 >
-> **Not visually verified.** Everything below typechecks, lints, and builds, and the
-> page serves clean — but no one has looked at the WebGPU output in a browser yet. See
-> §4 "What still needs eyes".
+> **Partly verified.** The magic box and the closer's grain gradient have been seen
+> rendering and tuned against screenshots; the hero and the tile grid have not. Doing
+> that found four upstream bugs in the alphas, all filed and worked around — see §2.
+> Everything typechecks, lints, and builds.
+>
+> **Not published, deliberately** — no remote, no deploy, copy still landing. See §9.
 
 ---
 
@@ -20,7 +24,7 @@ Notion↔site content deltas.
 
 The **pmndrs Notion workspace** —
 [🧊 R3F Workshop — Paris](https://app.notion.com/p/5870baf602168314b53701894049e9b3) —
-holds the workshop planning material, and the site is downstream of it for *mechanics*
+holds the workshop planning material, and the site is downstream of it for _mechanics_
 (prereqs, repo conventions, run-of-show shape, risks).
 
 **It is stale on the event specifics.** The workshop moved to intermediate level, Day 1
@@ -28,15 +32,15 @@ is being re-written, and Day 2 went from four paths to three tracks. See
 [CONTENT.md §1](CONTENT.md) for the delta and which pages need a write-back. Don't pull
 level, curriculum, or track content from Notion without checking there first.
 
-| Notion page | Feeds |
-| --- | --- |
-| [00 · Master Plan](https://app.notion.com/p/09f0baf60216838da23e013ebc5ad7e6) | Day 1 run of show, Day 2 path list, seat count, audience level |
-| [01 · Prerequisites](https://app.notion.com/p/c370baf6021683958da1013edd909459) | "Come ready" section, FAQ hardware/setup answers |
-| [03 · Day 1 Lesson Plans](https://app.notion.com/p/ac70baf6021682968053019620ca5703) | Day 1 block titles + bullets |
-| [04 · Day 2 Path Outlines](https://app.notion.com/p/ca80baf6021683b2bf86815ae3f3f5a2) | The four path cards (hook, libs, ships, difficulty) |
-| [05 · Organizer One-Pager](https://app.notion.com/p/fcc0baf60216834e843581ba440220f2) | Hero lede, overview framing |
-| [11 · What You'll Build](https://app.notion.com/p/07d0baf602168301b9e781d26fe19804) | The new "What you'll build" section |
-| [02 · Production Tracker](https://app.notion.com/p/7450baf6021682fbafdd01b8dc4e51c3) | Which media assets exist yet (gates the 3D work) |
+| Notion page                                                                           | Feeds                                                          |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| [00 · Master Plan](https://app.notion.com/p/09f0baf60216838da23e013ebc5ad7e6)         | Day 1 run of show, Day 2 path list, seat count, audience level |
+| [01 · Prerequisites](https://app.notion.com/p/c370baf6021683958da1013edd909459)       | "Come ready" section, FAQ hardware/setup answers               |
+| [03 · Day 1 Lesson Plans](https://app.notion.com/p/ac70baf6021682968053019620ca5703)  | Day 1 block titles + bullets                                   |
+| [04 · Day 2 Path Outlines](https://app.notion.com/p/ca80baf6021683b2bf86815ae3f3f5a2) | The four path cards (hook, libs, ships, difficulty)            |
+| [05 · Organizer One-Pager](https://app.notion.com/p/fcc0baf60216834e843581ba440220f2) | Hero lede, overview framing                                    |
+| [11 · What You'll Build](https://app.notion.com/p/07d0baf602168301b9e781d26fe19804)   | The new "What you'll build" section                            |
+| [02 · Production Tracker](https://app.notion.com/p/7450baf6021682fbafdd01b8dc4e51c3)  | Which media assets exist yet (gates the 3D work)               |
 
 ### Sync model — MCP pull, committed to git
 
@@ -55,8 +59,8 @@ carries a provenance comment:
 export const PATHS = [ … ] as const;
 ```
 
-Re-sync is then one prompt: *"re-pull `lib/content.ts` from the Notion pages named in
-its `@notion` tags and show me the diff."*
+Re-sync is then one prompt: _"re-pull `lib/content.ts` from the Notion pages named in
+its `@notion` tags and show me the diff."_
 
 **When to revisit:** if conference organizers (outside the repo) need to edit copy
 themselves. At that point move to a build-time fetch — a `scripts/pull-notion.ts`
@@ -69,19 +73,19 @@ after.
 
 ## 2. Stack and version bets
 
-| | Current | Target | Note |
-| --- | --- | --- | --- |
-| Next | 16.3.0 | same | App Router. **Read `node_modules/next/dist/docs/` before writing any Next code** — this Next has breaking changes vs. training data (see `AGENTS.md`). |
-| React | 19.2.8 | same | |
-| `@react-three/fiber` | **9.7.0** | **10.x alpha 3** | The site claims to teach v10; it should run v10. Dennis is landing alpha 3. |
-| `@react-three/drei` | 10.7.8 | latest compatible with R3F v10 | `View` is **not** used — a canvas per section replaces it (§4). |
-| `three` | 0.185.1 | whatever alpha 3 pins | |
-| Tailwind | v4 | same | Tokens in `app/globals.css`, dark-only. |
+|                      | Current   | Target                         | Note                                                                                                                                                   |
+| -------------------- | --------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Next                 | 16.3.0    | same                           | App Router. **Read `node_modules/next/dist/docs/` before writing any Next code** — this Next has breaking changes vs. training data (see `AGENTS.md`). |
+| React                | 19.2.8    | same                           |                                                                                                                                                        |
+| `@react-three/fiber` | **9.7.0** | **10.x alpha 3**               | The site claims to teach v10; it should run v10. Dennis is landing alpha 3.                                                                            |
+| `@react-three/drei`  | 10.7.8    | latest compatible with R3F v10 | `View` is **not** used — a canvas per section replaces it (§4).                                                                                        |
+| `three`              | 0.185.1   | whatever alpha 3 pins          |                                                                                                                                                        |
+| Tailwind             | v4        | same                           | Tokens in `app/globals.css`, dark-only.                                                                                                                |
 
 ### The v10 / TSL bet — now a promotion dependency
 
 This stopped being a nice-to-have. The promotion plan (CONTENT.md §2.2) puts a
-**"made with R3F v10"** badge on the site and sells *"come get a preview of v10"* at
+**"made with R3F v10"** badge on the site and sells _"come get a preview of v10"_ at
 the workshop. The badge has to be true, so **the v10 upgrade is on the critical path**,
 not a step-4 nicety.
 
@@ -137,19 +141,22 @@ and an optional `--i` index for stagger.
     translate 700ms cubic-bezier(0.16, 1, 0.3, 1);
   transition-delay: calc(var(--i, 0) * 60ms);
 }
-[data-reveal="in"] { opacity: 1; translate: none; }
+[data-reveal="in"] {
+  opacity: 1;
+  translate: none;
+}
 ```
 
 ### Tokens
 
-| Token | Value |
-| --- | --- |
-| Duration | 700ms |
-| Easing | `cubic-bezier(.16, 1, .3, 1)` (expo-out) |
-| Travel | 14px up |
-| Stagger | 60ms per item, **capped at 6 items** (360ms max) |
-| Trigger | threshold `0.18`, rootMargin `0px 0px -10% 0px` |
-| Repeat | **once** — DOM content never re-hides on scroll up |
+| Token    | Value                                              |
+| -------- | -------------------------------------------------- |
+| Duration | 700ms                                              |
+| Easing   | `cubic-bezier(.16, 1, .3, 1)` (expo-out)           |
+| Travel   | 14px up                                            |
+| Stagger  | 60ms per item, **capped at 6 items** (360ms max)   |
+| Trigger  | threshold `0.18`, rootMargin `0px 0px -10% 0px`    |
+| Repeat   | **once** — DOM content never re-hides on scroll up |
 
 ### Rules
 
@@ -159,7 +166,7 @@ and an optional `--i` index for stagger.
 - **No-JS renders visible.** The initial `opacity: 0` must be applied by the same JS
   that sets up the observer, or gated behind a `.js` class on `<html>` — never a bare
   CSS default, or a JS failure hides the whole page.
-- DOM content animates **in only**. 3D content animates in *and* pauses out (§4).
+- DOM content animates **in only**. 3D content animates in _and_ pauses out (§4).
 - Never animate headings per-letter, never animate the FAQ accordion contents, never
   block reading on a delay > 360ms.
 
@@ -203,11 +210,11 @@ What this buys beyond simplicity:
 
 Assume WebGPU. Don't build a parallel WebGL rendering path.
 
-| Capability | What renders |
-| --- | --- |
-| `navigator.gpu` present | Full 3D, every section |
-| WebGL only | **Static posters.** No degraded 3D path. |
-| Neither / `prefers-reduced-motion` | Static posters |
+| Capability                         | What renders                             |
+| ---------------------------------- | ---------------------------------------- |
+| `navigator.gpu` present            | Full 3D, every section                   |
+| WebGL only                         | **Static posters.** No degraded 3D path. |
+| Neither / `prefers-reduced-motion` | Static posters                           |
 
 This is the single biggest simplification available: no GLSL variants of every shader,
 no dual-backend testing matrix, no lowest-common-denominator TSL. One target.
@@ -230,7 +237,7 @@ Things worth actually using, given we're WebGPU-only and promoting v10:
   and genuinely not possible on the WebGL path — which makes it the honest argument for
   the "come see v10" pitch rather than a reskin of what three could already do.
 - **TSL everywhere**, as the one shader language on the site. If the Codrops piece
-  happens, "the whole site is TSL on WebGPU, here's the source" *is* the article.
+  happens, "the whole site is TSL on WebGPU, here's the source" _is_ the article.
 - **Storage buffers / large instancing** if the block city wants to get denser.
 
 ### How it actually works in alpha 3
@@ -329,6 +336,7 @@ canvases on scroll, where a fractional `getBoundingClientRect` flaps between e.g
 148.4 and 148.6.
 
 **Workaround here**, both halves:
+
 - `components/three/depth-attachment-sync.tsx` — mounted in every canvas including
   the hero. On a size change it calls `backend.updateSize()` from inside that
   canvas's own `useFrame`, where R3F has already made it the active target (its
@@ -343,45 +351,149 @@ canvases on scroll, where a fractional `getBoundingClientRect` flaps between e.g
 alongside the colour attachment. This will hit anyone using v10's multi-canvas mode
 with more than one canvas size on the page.
 
+### Upstream bug: drei's `/webgpu` build imports a name that doesn't exist
+
+`@react-three/drei@11.0.0-alpha.5`'s `/webgpu` entry opens with:
+
+```js
+import { ..., WebGLCubeRenderTarget, ... } from 'three/webgpu'
+```
+
+`three/webgpu` does not export that. The only two occurrences of the name in
+three's WebGPU build are inside comments — one of them on `CubeRenderTarget`,
+describing it as "a special version of `WebGLCubeRenderTarget` which is
+compatible with `WebGPURenderer`". So drei is asking for the WebGL class by
+name when it wants the WebGPU one. Any app importing `@react-three/drei/webgpu`
+fails to build:
+
+```
+Export WebGLCubeRenderTarget doesn't exist in target module
+```
+
+**Workaround here:** `patches/@react-three__drei@11.0.0-alpha.5.patch`, applied by
+pnpm via `patchedDependencies` in `pnpm-workspace.yaml`. It is the upstream fix
+verbatim — 3.6KB, three sites:
+
+- line 5, the named import → `CubeRenderTarget as WebGLCubeRenderTarget`
+- lines 2613 and 2617, `THREE.WebGLCubeRenderTarget` → `THREE.CubeRenderTarget`
+
+The namespace uses matter: Turbopack reports those against line 4 (`import * as
+THREE`), so fixing only the named import leaves the build failing with the same
+message on a different line.
+
+Regenerate with `pnpm patch @react-three/drei@11.0.0-alpha.5`, edit, then
+`pnpm patch-commit <dir>`. Delete the patch and the `patchedDependencies` entry
+once the alpha ships the fix — pnpm fails loudly if the patch stops applying, so
+it cannot rot silently.
+
+Filed: [pmndrs/drei#2764](https://github.com/pmndrs/drei/issues/2764), which also
+asks whether `CameraControls` is meant to be missing from that entry. Auditing
+both named imports (57) and `THREE.*` member access (72) against three's 629
+exports, `WebGLCubeRenderTarget` is the only genuine mismatch — one stale
+identifier, not a broken entry build.
+
+### Upstream bug: MeshPortalMaterial throws on construction under `/webgpu`
+
+Filed: [pmndrs/drei#2765](https://github.com/pmndrs/drei/issues/2765). Carried in
+the same patch file.
+
+```
+TypeError: Cannot read properties of undefined (reading 'value')
+    at get map (drei/webgpu/index.mjs)
+    at PortalMaterialImpl.setDefaultValues (three.webgpu.js)
+    at new MeshBasicNodeMaterial (three.webgpu.js)
+```
+
+`PortalMaterialImpl` backs its `map`/`blur`/`sdf`/… accessors with TSL uniforms
+assigned in the constructor _after_ `super()`. But `MeshBasicNodeMaterial`'s
+constructor calls `Material.setDefaultValues`, which does
+`if ( this[ property ] === undefined )` over every property of the reference
+material — firing `get map()` while `_map` is still undefined. Subclass field
+initialisers do not run until `super()` returns, so this is unconditional, not a
+three-version quirk. React then unwinds the failed subtree and R3F's `detach`
+throws a second, cascading error.
+
+Patched by guarding all six accessor pairs. `map` is the only name that collides
+today; the rest are latent.
+
+### Two sharp edges around the entry split
+
+Neither is a bug, but both cost time to rediscover:
+
+- **`CameraControls` is not exported from `@react-three/drei/webgpu`**, only from
+  the default entry. Importing across entries would pull a second copy of drei's
+  internals and its WebGL-only materials into a WebGPU page, so
+  `components/three/camera-rig.tsx` wraps the `camera-controls` package directly.
+  Its `install()` is handed classes from `three/webgpu` on purpose.
+- **`three` and `three/webgpu` are separate builds** (three's `exports` map), so a
+  `Vector3` from one is not `instanceof` the other's. This is why the glyph data
+  is committed as plain numbers rather than SVG paths: parsing those needs
+  `three/addons/loaders/SVGLoader.js`, which imports from `three`. drei's
+  `useGLTF` does cross that line — its `GLTFLoader` comes from
+  `three/examples/jsm` — and it works because three duck-types on `isXxx` flags
+  rather than `instanceof`. If the AO box ever misbehaves, dropping `useGLTF` for
+  a plain box room is a five-line change.
+
 ### What still needs eyes
 
-None of this has been seen rendering. Worth checking, roughly in order of how likely I
-am to have got them wrong:
+The magic box and the closer's grain gradient have been seen rendering and tuned
+against screenshots (see "Looking at it" below). The rest has not:
 
 1. **Tile grid** — the flip angle, radius, and gold threshold are guesses. The grid
    sizing math (cells sized to overfill the section from `viewport`) is the most likely
    thing to be visibly off.
-2. **Noise field** — blob scale and opacity were picked blind; it may be too strong or
-   invisible.
-3. **Hero on WebGPU** — it rendered on WebGL before. Materials and the `fogExp2` should
+2. **Hero on WebGPU** — it rendered on WebGL before. Materials and the `fogExp2` should
    carry over, but the time-of-day lighting is worth a scrub through.
-4. Whether 5 canvases at once actually holds framerate on a mid-range laptop.
+3. Whether 6 canvases at once actually holds framerate on a mid-range laptop.
+
+### Looking at it
+
+Screenshotting beats guessing, and it is cheap:
+
+```js
+// playwright-core against the dev server; Chrome headless does support WebGPU
+chromium.launch({
+  channel: "chrome",
+  args: [
+    "--enable-unsafe-webgpu",
+    "--enable-features=Vulkan,WebGPU",
+    "--ignore-gpu-blocklist",
+    "--use-angle=metal",
+  ],
+});
+```
+
+Load `/`, `scrollIntoView` the section to trip its IntersectionObserver, wait for the
+scene, then screenshot the canvas element. `page.on('pageerror')` catches the errors
+that a crashed canvas subtree would otherwise hide behind an unchanged poster — which
+is exactly how both drei bugs above were found. Temporarily defaulting `autoRotate` off
+makes orientation bugs obvious; with it on, every frame looks plausibly wrong.
 
 ### Per-section treatment
 
-| Section | Treatment | Priority |
-| --- | --- | --- |
-| Hero | Existing Paris scene (tower, block city, time-of-day slider) | shipped |
-| Overview | Replace `/concept/city-wide.png` with a **live canvas** of the block city at mid-distance, slow orbit. Shares the hero's time-of-day via a small zustand store, so scrolling down keeps the light you left the hero in. | **P1** |
-| Why now | **Compute-driven background field.** No object to photograph, and the one place where "this could not run on WebGL" is the point. | **P2** |
-| What you'll build | **One small canvas per artifact.** The curriculum *is* the visual. Blocked on the Day 1 rewrite. | **P1** |
-| Two days · tracks | Three track cards. **Static posters first** — the track repos don't exist yet. | P3 |
-| Come ready (prereqs) | Background shader, low contrast, sits under the text. | **P2** |
-| Venue | Currently a "map placeholder" box. Extruded 3D block-map, or a real static map. Cheapest honest answer wins. | P3 |
-| FAQ | None. | — |
-| Closer | Background shader, brighter sibling of the Come-ready one, palette tied to the hero's time-of-day. Bookends the page. | **P2** |
+| Section                      | Treatment                                                                                                                                                                                                                                                                                    | Priority |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Hero                         | Existing Paris scene (tower, block city, time-of-day slider)                                                                                                                                                                                                                                 | shipped  |
+| Overview                     | Still the `/concept/city-wide.png` poster. Wants a **live canvas** of the block city at mid-distance, slow orbit, sharing the hero's time-of-day via a small zustand store — or simply a better frame. The magic box sat here briefly and moved to Outcomes, where it illustrates something. | **P1**   |
+| Why now                      | **Compute-driven background field.** No object to photograph, and the one place where "this could not run on WebGL" is the point.                                                                                                                                                            | **P2**   |
+| Outcomes / What you'll build | **One small canvas per card.** The curriculum _is_ the visual. Card 01 holds the magic box; 02 and 03 are labelled placeholders. What they should actually show is still blocked on the Day 1 rewrite.                                                                                       | **P1**   |
+| Two days · tracks            | Three track cards. **Static posters first** — the track repos don't exist yet.                                                                                                                                                                                                               | P3       |
+| Come ready (prereqs)         | Background shader, low contrast, sits under the text.                                                                                                                                                                                                                                        | **P2**   |
+| Venue                        | Currently a "map placeholder" box. Extruded 3D block-map, or a real static map. Cheapest honest answer wins.                                                                                                                                                                                 | P3       |
+| FAQ                          | None.                                                                                                                                                                                                                                                                                        | —        |
+| Closer                       | Background shader, brighter sibling of the Come-ready one, palette tied to the hero's time-of-day. Bookends the page.                                                                                                                                                                        | **P2**   |
 
 ### Shader modules
 
 `lib/shaders/` — one module per background, each exporting a TSL node material
 factory. Shared uniform contract:
 
-| Uniform | Source |
-| --- | --- |
-| `uTime` | `useFrame` clock, **stopped when the section is off-screen** |
-| `uProgress` | 0–1 progress of *that section* through the viewport |
-| `uTod` | Hero time-of-day, from the shared store |
-| `uReduced` | `prefers-reduced-motion` → freeze at a good-looking `t` |
+| Uniform     | Source                                                       |
+| ----------- | ------------------------------------------------------------ |
+| `uTime`     | `useFrame` clock, **stopped when the section is off-screen** |
+| `uProgress` | 0–1 progress of _that section_ through the viewport          |
+| `uTod`      | Hero time-of-day, from the shared store                      |
+| `uReduced`  | `prefers-reduced-motion` → freeze at a good-looking `t`      |
 
 ### Performance budget
 
@@ -406,7 +518,7 @@ Contexts are no longer the constraint. VRAM, bandwidth, and the initial bundle a
 - All canvases `aria-hidden` and `pointer-events: none` unless deliberately
   interactive (the hero slider is the exception); nothing in them carries meaning the
   text doesn't.
-- Poster `alt` describes the *subject*, not "a 3D canvas".
+- Poster `alt` describes the _subject_, not "a 3D canvas".
 - Reduced motion is respected at the render-loop level, not just visually — and it
   drops to the poster tier, so it costs nothing to honour.
 
@@ -416,18 +528,18 @@ Contexts are no longer the constraint. VRAM, bandwidth, and the initial bundle a
 
 Current sections and the proposed change:
 
-| # | Section | Change |
-| --- | --- | --- |
-| — | Hero | Lede reworked for the v10 preview hook; `made with R3F v10` badge |
-| 01 | Overview | 3 tracks; add the catch-up promise; static image → live View |
-| 02 | **Why now** | **New, shipped.** What WebGPU + v10 make possible; the agentic note is one card, not the thesis. See CONTENT.md §2.1. Shader backdrop — nothing to photograph. |
-| 03 | ~~Outcomes~~ → **What you'll build** | **Replace.** Day 2 row first; Day 1 row waits on the curriculum rewrite. |
-| 04 | Two days | Day 1 pending rewrite; Day 2 = **3 named tracks** |
-| 05 | Instructors | Blocked on confirmation (§7) |
-| 06 | Come ready | Mechanics pulled from Prerequisites, intermediate framing kept; shader backdrop |
-| 07 | Venue | Map decision |
-| 08 | FAQ | Add the agentic objection + the setup-broke question |
-| — | Closer | Walk-away line + v10 hook; shader backdrop |
+| #   | Section                              | Change                                                                                                                                                         |
+| --- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| —   | Hero                                 | Lede reworked for the v10 preview hook; `made with R3F v10` badge                                                                                              |
+| 01  | Overview                             | 3 tracks; add the catch-up promise; static image → live View                                                                                                   |
+| 02  | **Why now**                          | **New, shipped.** What WebGPU + v10 make possible; the agentic note is one card, not the thesis. See CONTENT.md §2.1. Shader backdrop — nothing to photograph. |
+| 03  | ~~Outcomes~~ → **What you'll build** | **Replace.** Day 2 row first; Day 1 row waits on the curriculum rewrite.                                                                                       |
+| 04  | Two days                             | Day 1 pending rewrite; Day 2 = **3 named tracks**                                                                                                              |
+| 05  | Instructors                          | Blocked on confirmation (§7)                                                                                                                                   |
+| 06  | Come ready                           | Mechanics pulled from Prerequisites, intermediate framing kept; shader backdrop                                                                                |
+| 07  | Venue                                | Map decision                                                                                                                                                   |
+| 08  | FAQ                                  | Add the agentic objection + the setup-broke question                                                                                                           |
+| —   | Closer                               | Walk-away line + v10 hook; shader backdrop                                                                                                                     |
 
 Section count goes 8 → 9. `SECTIONS` in `lib/content.ts` drives both the scroll-spy
 rail and the nav, so adding the entry is enough — but check the rail doesn't get
@@ -527,7 +639,7 @@ during the event, opened after.
 Accounts, sessions, email delivery, and a database are a disproportionate surface for a
 two-day event.
 
-The code *is* the URL: `/attendees/paris2026`. One link in the confirmation email, no
+The code _is_ the URL: `/attendees/paris2026`. One link in the confirmation email, no
 form to fill, and it stays a static build with no server-side session. `supersecret`
 also works, because Dennis asked. Adding, rotating, or removing codes is one array in
 `lib/attendees.ts` — no other file knows about them.
@@ -537,7 +649,7 @@ that someone reads setup instructions they didn't pay for. If that ever stops be
 true — anything with attendee names, emails, or paid content — this needs real auth,
 and the honest move is to say so rather than add a second password.
 
-### This is where Notion *should* be the runtime source
+### This is where Notion _should_ be the runtime source
 
 The earlier decision — pull Notion at build time, commit to `lib/content.ts` — is right
 for marketing copy: stable, wants review, changes rarely. It is exactly wrong for these
@@ -546,10 +658,10 @@ two routes, which change constantly and sometimes urgently. Nobody wants to rede
 
 So the split is principled:
 
-| | Source | Cadence |
-| --- | --- | --- |
-| Marketing page | `lib/content.ts`, pulled from Notion by hand | Reviewed, committed |
-| `/attendees`, `/resources` | **Notion API at request time, ISR** | Live, ~60s |
+|                            | Source                                       | Cadence             |
+| -------------------------- | -------------------------------------------- | ------------------- |
+| Marketing page             | `lib/content.ts`, pulled from Notion by hand | Reviewed, committed |
+| `/attendees`, `/resources` | **Notion API at request time, ISR**          | Live, ~60s          |
 
 Needs a `NOTION_TOKEN` in Vercel env and a block renderer. Roughly a hundred lines.
 
@@ -563,3 +675,53 @@ the push. Do not let a nice-to-have block the one hard deadline.
 These get read on a phone in a hallway with bad wifi, or on a laptop that is currently
 broken — that's the whole point of the troubleshooting page. **No canvases, no shaders,
 no motion.** Site palette, fast, copy-pasteable commands.
+
+---
+
+## 9. Publishing
+
+**Status: held.** Nothing is deployed, no remote is configured, and the work sits on a
+local `demo/magic-box` branch. This section is the path out, not a record of it.
+
+### The order things have to happen in
+
+1. **Copy lands first.** The site currently describes a workshop whose Day 1 is being
+   rewritten and whose three tracks are unnamed. A link shared now sends people to
+   placeholder text. See [CONTENT.md §5](CONTENT.md) — Day 1, the track names, and the
+   "What you'll build" section that still shows the old generic Outcomes block are the
+   three that actually block a share.
+2. **Repo to the pmndrs org.** Not created yet. Decisions needed: name, public or
+   private at creation, and licence. Note the tree is currently a single squashed
+   checkpoint plus this branch — worth deciding whether that history goes up as-is.
+3. **Hosting, protected.** Deployment protection on from the first deploy, so the URL
+   needs a Vercel login. There is no reason for a public URL to exist before the
+   coordinated push.
+4. **Public only on David's schedule.** No sales before **Aug 15**, and the push is
+   meant to land alongside Doobs and Codrops. A forwarded preview link undercuts that
+   for no gain.
+
+### The demo can go out ahead of the site
+
+`/demos/magic-box` is self-contained: it names the workshop once, in a footer link, and
+carries none of the pitch. If a teaser is wanted before the site is ready — the Codrops
+article David floated is the obvious home — that page can ship on its own without
+touching the embargo. It is `noindex` today; that would need lifting deliberately.
+
+### Pre-flight, technical
+
+- **Drop the patches when the alphas catch up.** `patches/` pins fixes for
+  [drei#2764](https://github.com/pmndrs/drei/issues/2764) and
+  [drei#2765](https://github.com/pmndrs/drei/issues/2765); the Inspector stub and its
+  alias in `next.config.ts` cover
+  [fiber#3846](https://github.com/pmndrs/react-three-fiber/issues/3846), and
+  `DepthAttachmentSync` covers
+  [fiber#3847](https://github.com/pmndrs/react-three-fiber/issues/3847). Shipping on
+  patched alphas is fine; shipping on them silently is not. Re-check each on every bump.
+- **Real URLs before `/attendees` is handed out**: the `d1-workshop` repo is still
+  `<org>/d1-workshop`, and `HELP_CHANNEL.href` is null.
+- **OG image.** There isn't one. It matters the moment a link is forwarded anywhere,
+  which is the entire point of a cross-promo.
+- **A poster for the Overview slot.** The non-WebGPU fallback is still the city concept
+  frame, which no longer has anything to do with what renders there. A still of the cube
+  captured with the screenshot recipe in §4 would be honest.
+- **Perf pass.** Six canvases now. Nobody has measured it on a mid-range laptop.

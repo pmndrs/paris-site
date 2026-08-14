@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<materialx version="1.38" colorspace="lin_rec709" doc="Downloaded from https://physicallybased.info on 2026-08-09">
+  <standard_surface name="SR_Gold" type="surfaceshader">
+    <input name="base_color" type="color3" value="1.059, 0.773, 0.307" />
+    <input name="specular_color" type="color3" value="1.001, 0.985, 0.523" />
+    <input name="specular_roughness" type="float" value="0" />
+    <input name="metalness" type="float" value="1" />
+  </standard_surface>
+  <surfacematerial name="Gold" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="SR_Gold" />
+  </surfacematerial>
+</materialx>

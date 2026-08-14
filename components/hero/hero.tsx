@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { LogoFull } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { HERO, REGISTER_URL } from "@/lib/content";
@@ -85,7 +86,7 @@ export function Hero() {
       {/* z-30 — top bar */}
       <div className="relative z-30 flex items-center justify-between gap-5 px-4 py-5 font-mono text-[11px] font-medium tracking-[0.11em] text-white uppercase sm:px-8">
         <div className="flex min-w-0 items-center gap-4">
-          <span className="font-semibold">pmndrs</span>
+          <LogoFull color="currentColor" className="h-4 w-auto shrink-0" />
           <span className="hidden truncate opacity-50 sm:inline">
             Advanced R3F Workshop
           </span>

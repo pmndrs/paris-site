@@ -19,8 +19,27 @@ export const TrackCanvas = dynamic(
   { ssr: false },
 );
 
-export const TileGridCanvas = dynamic(
-  () => import("./tile-grid").then((m) => m.TileGridCanvas),
+/** The "Why now" backdrop. Brings its own wrapper — see the component. */
+export const FlipGridCanvas = dynamic(
+  () => import("./flip-grid/flip-grid-canvas").then((m) => m.FlipGridCanvas),
+  { ssr: false },
+);
+
+export const MagicBoxCanvas = dynamic(
+  () => import("./magic-box").then((m) => m.MagicBoxCanvas),
+  { ssr: false },
+);
+
+/** The same scene as its own primary canvas — see /demos/magic-box. */
+export const MagicBoxStandalone = dynamic(
+  () => import("./magic-box-standalone").then((m) => m.MagicBoxStandalone),
+  { ssr: false },
+);
+
+/** The same field as its own primary canvas, with controls — /demos/grain-gradient. */
+export const GrainGradientStandalone = dynamic(
+  () =>
+    import("./grain-gradient-standalone").then((m) => m.GrainGradientStandalone),
   { ssr: false },
 );
 

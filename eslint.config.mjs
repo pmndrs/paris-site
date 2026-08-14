@@ -16,6 +16,9 @@ const eslintConfig = defineConfig([
     "reference/**",
     // Build output copied in by `pnpm sync:sky` — not ours to lint.
     "vendor/**",
+    // Agent worktrees, each a full checkout with its own node_modules. Linting
+    // them buried the real output under ~18k findings.
+    ".claude/**",
   ]),
   {
     // React Three Fiber drives three.js by mutating objects the renderer owns:

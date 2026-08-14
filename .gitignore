@@ -43,5 +43,12 @@ next-env.d.ts
 # Hero demo scratch
 /.next-hero
 
-# pnpm was used in this worktree; the repo's committed lockfile is yarn.lock
-pnpm-lock.yaml
+# Claude Code
+# Agent worktrees are full checkouts, each with its own node_modules — a stray
+# `git add -A` while one exists would try to commit ~700MB. Personal settings
+# are per-machine. Everything else under .claude/ (settings.json, agents/,
+# skills/, commands/) is shared project config and stays committable, which
+# matters here: this repo is teaching material, and how the agents are set up
+# is part of what's being taught.
+.claude/worktrees/
+.claude/settings.local.json

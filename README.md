@@ -2,14 +2,20 @@
 
 Advanced React Three Fiber — the PMNDRS workshop at Gobelins, Paris, September 8–9 2026.
 
-Next.js 16 (App Router) · Tailwind v4 · shadcn/ui · React Three Fiber v9
-(v10 pending — see below).
+Next.js 16 (App Router) · Tailwind v4 · shadcn/ui · React Three Fiber v10 alpha
+(WebGPU entry).
 
 ```sh
-npm run dev     # http://localhost:3000
-npm run build
-npm run lint
+corepack enable          # pnpm is pinned via packageManager
+pnpm install
+pnpm dev                 # http://localhost:3000
+pnpm build
+pnpm lint
 ```
+
+pnpm, not npm — it matches what the workshop asks attendees to install, and it
+carries the drei patch in `patches/` (see SPEC.md §2). Installing with npm would
+silently skip that patch and the build would fail.
 
 ## Planning docs
 
@@ -123,7 +129,7 @@ Next 16 ships the React Compiler's `react-hooks` rules. `react-hooks/immutabilit
 and `react-hooks/refs` are disabled for `components/hero/**` only — R3F drives
 three.js *by* mutating renderer-owned objects every frame, which those rules
 correctly flag for React state and incorrectly flag here. The rest of the app is
-held to the full rule set; `npm run lint` is clean.
+held to the full rule set; `pnpm lint` is clean.
 
 ## Concept images are placeholders
 
