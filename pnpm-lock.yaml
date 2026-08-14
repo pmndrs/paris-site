@@ -13,6 +13,12 @@ importers:
 
   .:
     dependencies:
+      '@pmndrs/sky':
+        specifier: link:./vendor/pmndrs-sky
+        version: link:vendor/pmndrs-sky
+      '@pmndrs/upscaler':
+        specifier: ^0.2.0
+        version: 0.2.0(three@0.185.1)
       '@react-three/drei':
         specifier: 11.0.0-alpha.5
         version: 11.0.0-alpha.5(patch_hash=68f392780bbfcfe6cdb06489a4800b64ad9ece8a329d9f12600af534010b47b7)(@react-three/fiber@10.0.0-alpha.3(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1))(@types/react@19.2.18)(@types/three@0.185.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1)
@@ -623,6 +629,11 @@ packages:
         optional: true
       react-dom:
         optional: true
+
+  '@pmndrs/upscaler@0.2.0':
+    resolution: {integrity: sha512-nHHg6m769bml69dYwG9+Vef+TrU3rRdOm8nq/jsFFQA0eJd3QDwneEcI6XXZB9nH7s6E6IO5UKU/oSeUFfKflw==}
+    peerDependencies:
+      three: '>=0.184.0'
 
   '@radix-ui/number@1.1.3':
     resolution: {integrity: sha512-Road2bidD0uu/1BGDOWNdPI06g0lIRy6IF9GZcIrDK2KGItfor8IQwQa+yM2ERgHM1MmHxaxpTzk0/Jp42lNfA==}
@@ -4545,6 +4556,10 @@ snapshots:
     optionalDependencies:
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
+
+  '@pmndrs/upscaler@0.2.0(three@0.185.1)':
+    dependencies:
+      three: 0.185.1
 
   '@radix-ui/number@1.1.3': {}
 
