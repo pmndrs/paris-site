@@ -58,3 +58,10 @@ next-env.d.ts
 # default.
 .superpowers/**/state/
 .superpowers/**/.last-*
+
+# Planning docs — kept local
+# CONTENT.md carries seat counts, the student allocation and cross-promotion
+# plans that are the organiser's to announce, not this repo's to publish.
+# COPY.md is the working copy deck. Both stay on disk; neither is tracked.
+CONTENT.md
+COPY.md
