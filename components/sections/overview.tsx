@@ -17,22 +17,17 @@ export function Overview() {
             <SectionTitle data-reveal>
               Learn the pieces, then build with them
             </SectionTitle>
+            {/* One paragraph, not three. The full version of the two-day
+                split lives in the Two days section; saying it here as well
+                only made the reader read it twice. See COPY.md §3. */}
             <p
               className="mt-4 text-base leading-[1.65] text-muted-foreground"
               data-reveal
             >
-              Day one is teaching. React Three Fiber v10 and what changed, then
-              the wider React and pmndrs ecosystem around it: drei, the physics
-              and post layers, state, loading, and how the pieces fit together
-              when you are starting a real project.
-            </p>
-            <p
-              className="mt-3.5 text-base leading-[1.65] text-muted-foreground"
-              data-reveal
-            >
-              Day two is a hackathon. Three tracks, one day, a tech lead sitting
-              with each track. You pick a track in the morning and have
-              something running by the end of the afternoon.
+              Day one is teaching: React Three Fiber v10, then the pmndrs
+              ecosystem around it — drei, physics, post, state, and how the
+              pieces fit together. Day two is a hackathon: three tracks, a lead
+              on each, something running by the end of the afternoon.
             </p>
 
             <div

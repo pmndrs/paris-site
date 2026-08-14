@@ -44,17 +44,17 @@ export const WHY = {
     {
       n: "01",
       t: "React is the fastest way to build 3D",
-      d: "You already have the component model, hooks, and state. R3F maps them straight onto the scene graph, so what you are actually learning is the 3D — not another framework.",
+      d: "You already have components, hooks and state. R3F maps them straight onto the scene graph, so what you are learning is the 3D, not another framework.",
     },
     {
       n: "02",
       t: "The ecosystem is the multiplier",
-      d: "drei, rapier, postprocessing, gltfjsx. Years of solved problems, and knowing which one to reach for is most of the job. Two days with the people who build them is a shortcut you cannot read your way to.",
+      d: "drei, rapier, postprocessing, gltfjsx. Knowing which one to reach for is most of the job, and two days with the people who build them is a shortcut you cannot read your way to.",
     },
     {
       n: "03",
       t: "You will write the code",
-      d: "Bring your agent — we use them too. But you will type it, break it, and fix it yourself, because you cannot direct a tool through a domain you cannot read. That is the whole point of doing it by hand for two days.",
+      d: "Bring your agent, we use them too. But you will type it, break it and fix it, because you cannot direct a tool through a domain you cannot read.",
     },
   ],
 };
@@ -63,17 +63,17 @@ export const OUTCOMES = [
   {
     n: "01",
     t: "A working v10 setup",
-    d: "React Three Fiber v10 running on your machine, configured the way we would start a real project.",
+    d: "R3F v10 running on your machine, configured the way we would start a real project.",
   },
   {
     n: "02",
     t: "The ecosystem in your head",
-    d: "Which pmndrs library solves which problem, so you stop rebuilding things that already exist.",
+    d: "Which pmndrs library solves which problem.",
   },
   {
     n: "03",
     t: "The demos, not just the notes",
-    d: "Every demo we build on day one, running and yours to reuse — including the ones on this page.",
+    d: "Every demo from day one, running and yours — including the ones on this page.",
   },
 ];
 
