@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useFrame, useRenderPipeline } from "@react-three/fiber/webgpu";
+import {
+  useFrame,
+  useRenderPipeline,
+  useUniforms,
+} from "@react-three/fiber/webgpu";
 import { upscale } from "@pmndrs/upscaler";
 import { useSky } from "@pmndrs/sky/react";
 import { bloom } from "three/examples/jsm/tsl/display/BloomNode.js";
@@ -218,6 +222,16 @@ export function FX({
     fogUniformsRef.current = makeFogUniforms(skyFogDensity, skyFogHeight);
   }
   const fogU = fogUniformsRef.current;
+
+  // Register the fog uniforms in fiber's global uniform store. They're the
+  // same node objects the graph below closes over — `useUniforms` adopts
+  // existing uniform nodes as-is — so this changes no behavior; it makes them
+  // visible to HMR rebuilds, to `useLocalNodes` creators elsewhere, and to
+  // the `uniforms` slice the `useRenderPipeline` callbacks receive. Scoped,
+  // because the store resolves against the *primary* canvas and the hero
+  // shares that store with the section canvases (flip-grid scopes for the
+  // same reason).
+  useUniforms(() => fogU, "heroFog");
 
   /**
    * Options the last *completed* pipeline build used, as a comparable key.

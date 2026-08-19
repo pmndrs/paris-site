@@ -9,7 +9,7 @@ Title: ( FREE ) La tour Eiffel
 */
 
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber/webgpu";
+import { useFrame, useLocalNodes } from "@react-three/fiber/webgpu";
 import { useGLTF } from "@react-three/drei";
 import * as TSL from "three/tsl";
 import * as THREE from "three/webgpu";
@@ -35,13 +35,7 @@ export type TowerMode = "glow" | "metal" | "sparkle";
  * emissive MRT attachment feeds straight into bloom — that's the glitter.
  * The base material is the dark iron the tower actually is at dusk.
  */
-function makeSparkleMaterial() {
-  const material = new THREE.MeshStandardNodeMaterial({
-    color: "#15181c",
-    metalness: 0.85,
-    roughness: 0.55,
-  });
-
+function makeSparkleNodes() {
   const cell = TSL.floor(TSL.positionLocal.mul(0.9));
   const seed = TSL.fract(
     TSL.sin(cell.dot(TSL.vec3(127.1, 311.7, 74.7))).mul(43758.5453),
@@ -52,10 +46,9 @@ function makeSparkleMaterial() {
   const flash = TSL.step(0.985, cycle);
   const brightness = seed.mul(0.6).add(0.4);
 
-  material.emissiveNode = TSL.color("#fff3d0").mul(
-    flash.mul(brightness).mul(8),
-  );
-  return material;
+  return {
+    emissiveNode: TSL.color("#fff3d0").mul(flash.mul(brightness).mul(8)),
+  };
 }
 
 /**
@@ -74,20 +67,12 @@ function makeSparkleMaterial() {
  * these beams live in the sky and rarely cross geometry. Additive, no
  * depth write, double-sided (abs() covers the flipped back-face normals).
  */
-function makeBeamMaterial() {
-  const material = new THREE.MeshBasicNodeMaterial({
-    color: "#ffeec2",
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
+function makeBeamNodes() {
   // Geometry below is translated so the hub is at y = 0, beam along +y.
   const along = TSL.positionLocal.y.div(BEAM_LENGTH).clamp(0.0, 1.0);
   const distanceFade = TSL.oneMinus(along);
   const angleFade = TSL.pow(TSL.abs(TSL.normalView.z), 4.0);
-  material.opacityNode = distanceFade.mul(angleFade).mul(0.6);
-  return material;
+  return { opacityNode: distanceFade.mul(angleFade).mul(0.6) };
 }
 
 /** Beam length/flare in the tower's local (pre-scale-0.2) units. */
@@ -112,7 +97,10 @@ function Beacon({ speed = 0.6 }: { speed?: number }) {
     g.translate(0, BEAM_LENGTH / 2, 0);
     return g;
   }, []);
-  const material = useMemo(() => makeBeamMaterial(), []);
+
+  // Module-level creator, so the memo inside `useLocalNodes` holds until the
+  // shared TSL stores (or HMR) invalidate it. Both beams share the graph.
+  const beam = useLocalNodes(makeBeamNodes);
 
   useFrame((_, delta) => {
     if (spinRef.current) spinRef.current.rotation.y += delta * speed;
@@ -120,8 +108,18 @@ function Beacon({ speed = 0.6 }: { speed?: number }) {
 
   return (
     <group ref={spinRef}>
-      <mesh geometry={geometry} material={material} rotation-z={-Math.PI / 2} />
-      <mesh geometry={geometry} material={material} rotation-z={Math.PI / 2} />
+      {[-Math.PI / 2, Math.PI / 2].map((roll) => (
+        <mesh key={roll} geometry={geometry} rotation-z={roll}>
+          <meshBasicNodeMaterial
+            color="#ffeec2"
+            transparent
+            blending={THREE.AdditiveBlending}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+            opacityNode={beam.opacityNode}
+          />
+        </mesh>
+      ))}
     </group>
   );
 }
@@ -147,27 +145,44 @@ export function Tower({
     onReady?.();
   }, [onReady, nodes]);
 
-  // One material per mode, built once — the mode switch swaps the `material`
-  // prop rather than mounting/unmounting JSX materials, so there's never a
-  // frame where a mesh is between materials.
-  const materials = useMemo<Record<TowerMode, THREE.Material>>(
-    () => ({
-      glow: new THREE.MeshStandardMaterial({
-        color: "#3a2a15",
-        emissive: "#ff9f3f",
-        emissiveIntensity: 1.6,
-        metalness: 0.8,
-        roughness: 0.45,
-      }),
-      metal: new THREE.MeshStandardMaterial({
-        color: "#878c92",
-        metalness: 0.85,
-        roughness: 0.45,
-      }),
-      sparkle: makeSparkleMaterial(),
-    }),
-    [],
-  );
+  // Registered through `useLocalNodes` (module-level creator, so the memo is
+  // stable) rather than a bare `useMemo`: the graph re-creates when the shared
+  // TSL stores invalidate — which is what makes editing the sparkle shader
+  // hot-reload instead of requiring a refresh.
+  const sparkle = useLocalNodes(makeSparkleNodes);
+
+  // One declarative material per mode. Every mode spells out the full union
+  // of props — R3F diffs JSX props on the *same* material instance, so a
+  // value a mode omitted would linger from the previous mode instead of
+  // resetting.
+  const modeProps = {
+    glow: {
+      color: "#3a2a15",
+      emissive: "#ff9f3f",
+      emissiveIntensity: 1.6,
+      metalness: 0.8,
+      roughness: 0.45,
+      emissiveNode: null,
+    },
+    metal: {
+      color: "#878c92",
+      emissive: "#000000",
+      emissiveIntensity: 1,
+      metalness: 0.85,
+      roughness: 0.45,
+      emissiveNode: null,
+    },
+    sparkle: {
+      // Dark iron base; the glitter is entirely the emissive node feeding
+      // the pipeline's emissive MRT attachment (→ bloom).
+      color: "#15181c",
+      emissive: "#000000",
+      emissiveIntensity: 1,
+      metalness: 0.85,
+      roughness: 0.55,
+      emissiveNode: sparkle.emissiveNode,
+    },
+  } as const satisfies Record<TowerMode, object>;
 
   // Local-space summit height, measured from the geometry rather than
   // hardcoded, so the beacon survives a model swap.
@@ -202,8 +217,9 @@ export function Tower({
           castShadow
           receiveShadow
           geometry={nodes[name].geometry}
-          material={materials[mode]}
-        />
+        >
+          <meshStandardNodeMaterial {...modeProps[mode]} />
+        </mesh>
       ))}
 
       {beacon && (

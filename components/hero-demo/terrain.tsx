@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
+import { useLocalNodes } from "@react-three/fiber/webgpu";
 import { useSky } from "@pmndrs/sky/react";
 import * as TSL from "three/tsl";
 import * as THREE from "three/webgpu";
@@ -93,70 +94,59 @@ function useRiverGeometry() {
   }, []);
 }
 
-function useWaterMaterial(sky: unknown) {
-  return useMemo(() => {
-    const material = new THREE.MeshStandardNodeMaterial({
-      color: WATER_COLOR,
-      roughness: 0.06,
-      metalness: 0.0,
-      // Belt-and-braces against winding mistakes: a flat ribbon costs
-      // nothing to draw double-sided and can never vanish again.
-      side: THREE.DoubleSide,
-    });
+/**
+ * The water's shader graph, consumed as node props on a JSX
+ * `<meshStandardNodeMaterial>` below. A plain function rather than a hook so
+ * `useLocalNodes` can own the caching: it re-runs the creator when the shared
+ * TSL stores change (HMR included), which a bare `useMemo` never would.
+ */
+function makeWaterNodes(skyCube?: THREE.CubeTexture) {
+  // Two octaves of scrolling noise as a shimmer field: ripple distortion
+  // for the reflection below, plus a subtle brightness/roughness
+  // modulation so the surface never reads as a static sheet.
+  const p = TSL.positionWorld.xz.mul(0.35);
+  const t = TSL.time.mul(0.35);
+  const n1 = TSL.mx_noise_float(TSL.vec3(p.x, p.y, t));
+  const n2 = TSL.mx_noise_float(
+    TSL.vec3(p.x.mul(2.7).add(4.1), p.y.mul(2.7), t.mul(1.7)),
+  );
+  const shimmer = n1.mul(0.65).add(n2.mul(0.35));
 
-    // Two octaves of scrolling noise as a shimmer field: ripple distortion
-    // for the reflection below, plus a subtle brightness/roughness
-    // modulation so the surface never reads as a static sheet.
-    const p = TSL.positionWorld.xz.mul(0.35);
-    const t = TSL.time.mul(0.35);
-    const n1 = TSL.mx_noise_float(TSL.vec3(p.x, p.y, t));
-    const n2 = TSL.mx_noise_float(
-      TSL.vec3(p.x.mul(2.7).add(4.1), p.y.mul(2.7), t.mul(1.7)),
+  const colorNode = TSL.color(WATER_COLOR).mul(shimmer.mul(0.5).add(1.0));
+  const roughnessNode = shimmer.mul(0.06).add(0.08).clamp(0.03, 0.2);
+
+  // What actually makes it read as water at dusk: mirror the baked sky
+  // cube in the surface. Reflect the view ray about the flat-up normal,
+  // wobble it with the shimmer noise so the reflection ripples, clamp
+  // just above the horizon (the cube is black below it — same story as
+  // the fog), and Fresnel-weight so grazing looks like glass while
+  // straight down stays dark river. Emissive is the honest channel for
+  // an image-based term the light loop can't produce — and it flows into
+  // the bloom attachment, so the sun's reflection blooms like the real
+  // thing. Without this the river is an invisible black ribbon: there's
+  // no SSR and the dusk sun alone gives the surface nothing to mirror.
+  let emissiveNode = null;
+  if (skyCube) {
+    const view = TSL.normalize(TSL.positionWorld.sub(TSL.cameraPosition));
+    // The reflected elevation is compressed toward the horizon (y × 0.3):
+    // physically a steep look-down reflects the dark zenith, but night
+    // water famously streaks low light sources across itself, and the
+    // horizon band is where the dusk sky keeps all its color. Without the
+    // compression the river reads as black from any elevated camera.
+    const reflected = TSL.normalize(
+      TSL.vec3(
+        view.x.add(n1.mul(0.10)),
+        view.y.negate().mul(0.3).max(0.02),
+        view.z.add(n2.mul(0.10)),
+      ),
     );
-    const shimmer = n1.mul(0.65).add(n2.mul(0.35));
+    const fresnel = TSL.pow(TSL.oneMinus(TSL.abs(view.y)), 4.0)
+      .mul(0.6)
+      .add(0.35);
+    emissiveNode = TSL.cubeTexture(skyCube, reflected).rgb.mul(fresnel);
+  }
 
-    material.colorNode = TSL.color(WATER_COLOR).mul(
-      shimmer.mul(0.5).add(1.0),
-    );
-    material.roughnessNode = shimmer.mul(0.06).add(0.08).clamp(0.03, 0.2);
-
-    // What actually makes it read as water at dusk: mirror the baked sky
-    // cube in the surface. Reflect the view ray about the flat-up normal,
-    // wobble it with the shimmer noise so the reflection ripples, clamp
-    // just above the horizon (the cube is black below it — same story as
-    // the fog), and Fresnel-weight so grazing looks like glass while
-    // straight down stays dark river. Emissive is the honest channel for
-    // an image-based term the light loop can't produce — and it flows into
-    // the bloom attachment, so the sun's reflection blooms like the real
-    // thing. Without this the river is an invisible black ribbon: there's
-    // no SSR and the dusk sun alone gives the surface nothing to mirror.
-    const skyCube = (sky as SkyWithBaker | null)?.baker?.texture;
-    if (skyCube) {
-      const view = TSL.normalize(
-        TSL.positionWorld.sub(TSL.cameraPosition),
-      );
-      // The reflected elevation is compressed toward the horizon (y × 0.3):
-      // physically a steep look-down reflects the dark zenith, but night
-      // water famously streaks low light sources across itself, and the
-      // horizon band is where the dusk sky keeps all its color. Without the
-      // compression the river reads as black from any elevated camera.
-      const reflected = TSL.normalize(
-        TSL.vec3(
-          view.x.add(n1.mul(0.10)),
-          view.y.negate().mul(0.3).max(0.02),
-          view.z.add(n2.mul(0.10)),
-        ),
-      );
-      const fresnel = TSL.pow(TSL.oneMinus(TSL.abs(view.y)), 4.0)
-        .mul(0.6)
-        .add(0.35);
-      material.emissiveNode = TSL.cubeTexture(skyCube, reflected).rgb.mul(
-        fresnel,
-      );
-    }
-
-    return material;
-  }, [sky]);
+  return { colorNode, roughnessNode, emissiveNode };
 }
 
 export function Terrain({
@@ -168,8 +158,15 @@ export function Terrain({
 }) {
   // Null when sky is disabled — the water then falls back to plain dark.
   const sky = useSky();
+  const skyCube = (sky as SkyWithBaker | null)?.baker?.texture;
   const riverGeometry = useRiverGeometry();
-  const waterMaterial = useWaterMaterial(sky);
+
+  // The `useCallback` matters: `useLocalNodes` memoizes on creator identity,
+  // so keying the creator on the cube texture is what rebuilds the graph when
+  // the sky finishes its first bake (it arrives a frame after mount).
+  const waterNodes = useLocalNodes(
+    useCallback(() => makeWaterNodes(skyCube), [skyCube]),
+  );
 
   return (
     <>
@@ -202,11 +199,19 @@ export function Terrain({
       )}
 
       {river && (
-        <mesh
-          position={[0, WATER_Y, 0]}
-          geometry={riverGeometry}
-          material={waterMaterial}
-        />
+        <mesh position={[0, WATER_Y, 0]} geometry={riverGeometry}>
+          <meshStandardNodeMaterial
+            color={WATER_COLOR}
+            roughness={0.06}
+            metalness={0}
+            // Belt-and-braces against winding mistakes: a flat ribbon costs
+            // nothing to draw double-sided and can never vanish again.
+            side={THREE.DoubleSide}
+            colorNode={waterNodes.colorNode}
+            roughnessNode={waterNodes.roughnessNode}
+            emissiveNode={waterNodes.emissiveNode}
+          />
+        </mesh>
       )}
     </>
   );
