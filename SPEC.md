@@ -4,17 +4,18 @@ Marketing site for the **R3F Workshop, Three.js Conf Paris, Sep 8–9 2026**.
 Companion doc: [CONTENT.md](CONTENT.md) — section-by-section copy outlines and the
 Notion↔site content deltas.
 
-> **Status (2026-08-09).** On **R3F v10 alpha 3 / drei 11 alpha 5**, WebGPU entry
+> **Status (2026-08-11).** On **R3F v10 alpha 3 / drei 11 alpha 5**, WebGPU entry
 > (`@react-three/fiber/webgpu`), package manager **pnpm**. Hero is the primary canvas;
-> a portal cube in Overview, three track solids, a cursor-driven gold tile grid, and a
-> noise field render as secondary canvases sharing its renderer. Plus: motion layer,
-> "Why now" section, fact corrections, gated attendee guide (§8), and a standalone demo
-> at `/demos/magic-box`.
+> a portal cube in Overview, three track solids, a cursor-driven gold tile grid, a
+> noise field behind Instructors, and a Rapier container behind the closer and footer
+> render as secondary canvases sharing its renderer. Plus: motion layer, "Why now"
+> section, fact corrections, gated attendee guide (§8), and standalone demos under
+> `/demos`.
 >
-> **Partly verified.** The magic box and the closer's grain gradient have been seen
-> rendering and tuned against screenshots; the hero and the tile grid have not. Doing
-> that found four upstream bugs in the alphas, all filed and worked around — see §2.
-> Everything typechecks, lints, and builds.
+> **Partly verified.** The magic box, the grain gradient, and the connectors container
+> have been seen rendering and tuned against screenshots; the hero and the tile grid
+> have not. Doing that found four upstream bugs in the alphas, all filed and worked
+> around — see §2. Everything typechecks, lints, and builds.
 >
 > **Not published, deliberately** — no remote, no deploy, copy still landing. See §9.
 
@@ -434,10 +435,34 @@ Neither is a bug, but both cost time to rediscover:
   rather than `instanceof`. If the AO box ever misbehaves, dropping `useGLTF` for
   a plain box room is a five-line change.
 
+  This is also why the connectors' shapes are built by hand rather than with
+  `mergeGeometries` from `three/examples/jsm/utils/BufferGeometryUtils.js` — that
+  module imports from `three`, and a `BufferGeometry` from that build is not the
+  class the WebGPU renderer expects.
+
+### `@react-three/rapier` on v10 — patched, not forked
+
+The physics container (`/demos/connectors`, and the band behind the closer) uses
+`@react-three/rapier` 2.2.0, which declares a peer on `@react-three/fiber@^9`. The
+range is stale rather than wrong: the whole of its contact with R3F is
+`import { useFrame, useThree } from "@react-three/fiber"`, and both are unchanged
+in v10.
+
+It works unpatched, because v10 keeps its context on `globalThis` under a shared
+symbol precisely so the two entries interoperate — see `context` in
+`dist/index.mjs`. **The patch is a bundle-size fix, not a correctness one:** left
+alone, that import pulls the default entry into the page, and with it a second
+copy of the reconciler and the WebGL `three` build. `patches/@react-three__rapier@2.2.0.patch`
+repoints the import at `@react-three/fiber/webgpu`; `pnpm-workspace.yaml` carries
+a matching `peerDependencyRules` entry so the install is quiet about the range.
+
+Both come out when rapier ships a v10-aware release.
+
 ### What still needs eyes
 
-The magic box and the closer's grain gradient have been seen rendering and tuned
-against screenshots (see "Looking at it" below). The rest has not:
+The magic box, the grain gradient, and the connectors container have been seen
+rendering and tuned against screenshots (see "Looking at it" below). The rest has
+not:
 
 1. **Tile grid** — the flip angle, radius, and gold threshold are guesses. The grid
    sizing math (cells sized to overfill the section from `viewport`) is the most likely
@@ -478,10 +503,11 @@ makes orientation bugs obvious; with it on, every frame looks plausibly wrong.
 | Why now                      | **Compute-driven background field.** No object to photograph, and the one place where "this could not run on WebGL" is the point.                                                                                                                                                            | **P2**   |
 | Outcomes / What you'll build | **One small canvas per card.** The curriculum _is_ the visual. Card 01 holds the magic box; 02 and 03 are labelled placeholders. What they should actually show is still blocked on the Day 1 rewrite.                                                                                       | **P1**   |
 | Two days · tracks            | Three track cards. **Static posters first** — the track repos don't exist yet.                                                                                                                                                                                                               | P3       |
+| Instructors                  | **Grain gradient**, drifting behind the portraits. Moved here from the closer and turned down hard on the way (`GRAIN_SECTION`) — the closer had a poster and a black gradient holding it down, and this section has nothing but the page.                                                    | shipped  |
 | Come ready (prereqs)         | Background shader, low contrast, sits under the text.                                                                                                                                                                                                                                        | **P2**   |
 | Venue                        | Currently a "map placeholder" box. Extruded 3D block-map, or a real static map. Cheapest honest answer wins.                                                                                                                                                                                 | P3       |
 | FAQ                          | None.                                                                                                                                                                                                                                                                                        | —        |
-| Closer                       | Background shader, brighter sibling of the Come-ready one, palette tied to the hero's time-of-day. Bookends the page.                                                                                                                                                                        | **P2**   |
+| Closer + footer              | **Physics container**, one canvas across both (mounted in `app/page.tsx`, since it belongs to neither). Bodies are anchored to a slot each across the width so it settles into a band rather than a pile — a heap in the middle of a strip this wide is a smudge, and it lands behind the headline. Bookends the page against the hero. | shipped  |
 
 ### Shader modules
 
@@ -717,6 +743,8 @@ touching the embargo. It is `noindex` today; that would need lifting deliberatel
   `DepthAttachmentSync` covers
   [fiber#3847](https://github.com/pmndrs/react-three-fiber/issues/3847). Shipping on
   patched alphas is fine; shipping on them silently is not. Re-check each on every bump.
+  The third patch, on `@react-three/rapier`, is a bundle-size fix rather than a bug fix
+  and comes out when rapier ships a v10-aware release — see §2.
 - **Real URLs before `/attendees` is handed out**: the `d1-workshop` repo is still
   `<org>/d1-workshop`, and `HELP_CHANNEL.href` is null.
 - **OG image.** There isn't one. It matters the moment a link is forwarded anywhere,
@@ -724,4 +752,5 @@ touching the embargo. It is `noindex` today; that would need lifting deliberatel
 - **A poster for the Overview slot.** The non-WebGPU fallback is still the city concept
   frame, which no longer has anything to do with what renders there. A still of the cube
   captured with the screenshot recipe in §4 would be honest.
-- **Perf pass.** Six canvases now. Nobody has measured it on a mid-range laptop.
+- **Perf pass.** Seven canvases now, and one of them steps a physics world. Nobody has
+  measured it on a mid-range laptop.

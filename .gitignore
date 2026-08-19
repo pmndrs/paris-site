@@ -52,3 +52,21 @@ next-env.d.ts
 # is part of what's being taught.
 .claude/worktrees/
 .claude/settings.local.json
+
+# Superpowers brainstorm scratch
+# Each session spins up a local server and drops its pid, port, log and
+# instance id under state/. Pure runtime, and it turns up as a dozen untracked
+# files in the IDE. Generated pages under content/ are deliberately NOT ignored
+# — those are output, and worth keeping or binning on purpose rather than by
+# default.
+# Ignored wholesale rather than per-subdirectory: the earlier narrower rules
+# left content/ tracked, and a `git add -A` then swept the whole tree in —
+# including a local server token. Nothing under here is project source.
+.superpowers/
+
+# Planning docs — kept local
+# CONTENT.md carries seat counts, the student allocation and cross-promotion
+# plans that are the organiser's to announce, not this repo's to publish.
+# COPY.md is the working copy deck. Both stay on disk; neither is tracked.
+CONTENT.md
+COPY.md

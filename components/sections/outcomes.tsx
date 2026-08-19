@@ -1,6 +1,12 @@
 import type { ReactNode } from "react";
 
-import { MagicBoxCanvas } from "@/components/three/scenes";
+import { ExploreLink } from "@/components/explore-link";
+
+import {
+  BlendingCubeCanvas,
+  MagicBoxCanvas,
+  TakehomeGridCanvas,
+} from "@/components/three/scenes";
 import { Card } from "@/components/ui/card";
 import { OUTCOMES } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
@@ -25,16 +31,31 @@ function Slot({ label, children }: { label: string; children?: ReactNode }) {
   );
 }
 
-/** One slot per outcome, in card order. Only the first has a scene so far. */
-const SLOTS: { label: string; scene?: ReactNode }[] = [
+/** One slot per outcome, in card order. Each names the demo it came from. */
+const SLOTS: { label: string; demo?: string; scene?: ReactNode }[] = [
   {
     label: "Ten, written six ways",
+    demo: "/demos/magic-box",
     // Closer than the demo's framing — the slot is short and wide, so the
     // vertical field of view is what limits it.
-    scene: <MagicBoxCanvas camera={{ position: [-3.3, 1.55, 3.75], fov: 40 }} />,
+    scene: (
+      <MagicBoxCanvas camera={{ position: [-3.3, 1.55, 3.75], fov: 40 }} />
+    ),
   },
-  { label: "Scene pending", scene: undefined },
-  { label: "Scene pending", scene: undefined },
+  {
+    label: "One box, four imports",
+    demo: "/demos/blending-cube",
+    // Pulled in and lifted slightly: the default framing leaves room under the
+    // cube for a contact shadow that a 190px slot has no vertical budget for.
+    scene: (
+      <BlendingCubeCanvas camera={{ position: [3.2, 2.1, 4.0], fov: 30 }} />
+    ),
+  },
+  {
+    label: "Everything on this page, yours",
+    demo: "/demos/takehome-grid",
+    scene: <TakehomeGridCanvas />,
+  },
 ];
 
 export function Outcomes() {
@@ -58,6 +79,15 @@ export function Outcomes() {
                 <div className="text-[15px] leading-[1.6] text-muted-foreground">
                   {d}
                 </div>
+                {/* `mt-auto` so the links sit on one line across the row even
+                    when the card copy runs to different lengths. */}
+                {SLOTS[i].demo ? (
+                  <ExploreLink
+                    href={SLOTS[i].demo}
+                    label="Explore"
+                    className="mt-auto pt-1"
+                  />
+                ) : null}
               </div>
             </Card>
           ))}
