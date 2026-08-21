@@ -8,7 +8,7 @@ import {
   TakehomeGridCanvas,
 } from "@/components/three/scenes";
 import { Card } from "@/components/ui/card";
-import { OUTCOMES } from "@/lib/content";
+import { OUTCOMES, SECTION_COPY } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
 
 /**
@@ -62,8 +62,8 @@ export function Outcomes() {
   return (
     <Section id="outcomes">
       <Wrap>
-        <div className="eyebrow">03 · Outcomes</div>
-        <SectionTitle>What you leave with</SectionTitle>
+        <div className="eyebrow">{SECTION_COPY.outcomes.eyebrow}</div>
+        <SectionTitle>{SECTION_COPY.outcomes.title}</SectionTitle>
 
         <div className="mt-9 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {OUTCOMES.map(({ n, t, d }, i) => (

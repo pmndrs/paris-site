@@ -2,7 +2,12 @@ import { RevealGroup } from "@/components/motion/reveal";
 import { TrackCanvas } from "@/components/three/scenes";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { DAY_ONE_BLOCKS, DAY_TWO_RUNSHEET, TRACKS } from "@/lib/content";
+import {
+  DAY_ONE_BLOCKS,
+  DAY_TWO_RUNSHEET,
+  SECTION_COPY,
+  TRACKS,
+} from "@/lib/content";
 import { Note, Section, SectionTitle, Wrap } from "./section";
 
 function DayHeading({
@@ -35,10 +40,10 @@ export function TwoDays() {
       <Wrap>
         <RevealGroup className="flex flex-wrap items-end justify-between gap-5">
           <div data-reveal>
-            <div className="eyebrow">04 · Two days</div>
-            <SectionTitle>A teaching day, then a build day</SectionTitle>
+            <div className="eyebrow">{SECTION_COPY["two-days"].eyebrow}</div>
+            <SectionTitle>{SECTION_COPY["two-days"].title}</SectionTitle>
           </div>
-          <Note data-reveal>09:30 – 17:30 · lunch and two breaks each day</Note>
+          <Note data-reveal>{SECTION_COPY["two-days"].note}</Note>
         </RevealGroup>
 
         <div className="mt-10">

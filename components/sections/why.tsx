@@ -2,7 +2,7 @@ import { ExploreLink } from "@/components/explore-link";
 import { RevealGroup } from "@/components/motion/reveal";
 import { FlipGridCanvas } from "@/components/three/scenes";
 import { Card } from "@/components/ui/card";
-import { WHY } from "@/lib/content";
+import { SECTION_COPY, WHY } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
 
 /**
@@ -26,11 +26,9 @@ export function Why() {
       <Wrap className="relative">
         <RevealGroup className="max-w-[820px]">
           <div className="eyebrow" data-reveal>
-            02 · Why now
+            {SECTION_COPY.why.eyebrow}
           </div>
-          <SectionTitle data-reveal>
-            WebGPU is here. v10 makes it something you can ship.
-          </SectionTitle>
+          <SectionTitle data-reveal>{SECTION_COPY.why.title}</SectionTitle>
           <p
             className="mt-4 text-base leading-[1.65] text-muted-foreground"
             data-reveal

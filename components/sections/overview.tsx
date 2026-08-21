@@ -2,7 +2,7 @@ import { ExploreLink } from "@/components/explore-link";
 import { RevealGroup } from "@/components/motion/reveal";
 import { SceneSlot } from "@/components/three/scene-slot";
 import { BlockCityCanvas } from "@/components/three/scenes";
-import { FACTS } from "@/lib/content";
+import { FACTS, SECTION_COPY } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
 
 export function Overview() {
@@ -12,10 +12,10 @@ export function Overview() {
         <RevealGroup className="grid items-start gap-8 md:grid-cols-2 lg:gap-16">
           <div>
             <div className="eyebrow" data-reveal>
-              01 · Overview
+              {SECTION_COPY.overview.eyebrow}
             </div>
             <SectionTitle data-reveal>
-              Learn the pieces, then build with them
+              {SECTION_COPY.overview.title}
             </SectionTitle>
             {/* One paragraph, not three. The full version of the two-day
                 split lives in the Two days section; saying it here as well
@@ -24,10 +24,7 @@ export function Overview() {
               className="mt-4 text-base leading-[1.65] text-muted-foreground"
               data-reveal
             >
-              Day one is teaching: React Three Fiber v10, then the pmndrs
-              ecosystem around it — drei, physics, post, state, and how the
-              pieces fit together. Day two is a hackathon: three tracks, a lead
-              on each, something running by the end of the afternoon.
+              {SECTION_COPY.overview.body}
             </p>
 
             <div className="hairline-grid mt-7 grid-cols-3" data-reveal>
@@ -61,7 +58,7 @@ export function Overview() {
             {/* Deliberately true of both layers: the live scene when there is
                 WebGPU, the concept frame when there isn't. */}
             <div className="flex items-center justify-between gap-4 border-t border-border px-4.5 py-4 font-mono text-[11px] text-faint">
-              <span>The block city · at mid distance</span>
+              <span>{SECTION_COPY.overview.caption}</span>
               <ExploreLink href="/demos/block-city" label="Explore" />
             </div>
           </div>

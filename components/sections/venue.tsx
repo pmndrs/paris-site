@@ -1,13 +1,13 @@
 import { Card } from "@/components/ui/card";
-import { VENUE_ROWS } from "@/lib/content";
+import { SECTION_COPY, VENUE_ROWS } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
 
 export function Venue() {
   return (
     <Section id="venue">
       <Wrap>
-        <div className="eyebrow">07 · Venue</div>
-        <SectionTitle>Getting there</SectionTitle>
+        <div className="eyebrow">{SECTION_COPY.venue.eyebrow}</div>
+        <SectionTitle>{SECTION_COPY.venue.title}</SectionTitle>
 
         <div className="mt-9 grid items-stretch gap-5 md:grid-cols-2">
           <div className="flex min-h-[300px] items-center justify-center rounded-xl border border-border bg-[#0d0d0f] font-mono text-[11px] text-ghost">

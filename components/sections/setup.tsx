@@ -1,6 +1,6 @@
 import { RevealGroup } from "@/components/motion/reveal";
 import { Card } from "@/components/ui/card";
-import { PREREQ_GROUPS } from "@/lib/content";
+import { PREREQ_GROUPS, SECTION_COPY } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
 
 export function Setup() {
@@ -10,36 +10,30 @@ export function Setup() {
         <RevealGroup className="grid items-start gap-8 md:grid-cols-2 lg:gap-16">
           <div>
             <div className="eyebrow" data-reveal>
-              06 · Prerequisites
+              {SECTION_COPY.setup.eyebrow}
             </div>
-            <SectionTitle data-reveal>Come in ready</SectionTitle>
+            <SectionTitle data-reveal>{SECTION_COPY.setup.title}</SectionTitle>
             <p
               className="mt-4 text-base leading-[1.65] text-muted-foreground"
               data-reveal
             >
-              This is aimed at React developers who are new to 3D, or who have
-              shipped a scene and hit a wall. You do not need graphics
-              experience. You do need a working React setup and comfort with
-              hooks.
+              {SECTION_COPY.setup.audience}
             </p>
             <p
               className="mt-3.5 text-base leading-[1.65] text-muted-foreground"
               data-reveal
             >
-              The one rule that matters: run the install once on your own
-              network before you travel. Forty people pulling{" "}
+              {SECTION_COPY.setup.installBefore}
               <span className="font-mono text-[13px] text-foreground">
-                node_modules
-              </span>{" "}
-              over conference wifi is the only thing that reliably wrecks a
-              hands-on day.
+                {SECTION_COPY.setup.installCode}
+              </span>
+              {SECTION_COPY.setup.installAfter}
             </p>
             <p
               className="mt-3.5 text-[15px] leading-[1.6] text-dim"
               data-reveal
             >
-              We send the repo and a setup check about three weeks ahead. If it
-              runs at home on the machine you are bringing, you are done.
+              {SECTION_COPY.setup.repo}
             </p>
           </div>
 

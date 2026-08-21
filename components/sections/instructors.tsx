@@ -1,7 +1,7 @@
 import { UserRoundIcon } from "lucide-react";
 
 import { NoiseFieldCanvas } from "@/components/three/scenes";
-import { PEOPLE } from "@/lib/content";
+import { PEOPLE, SECTION_COPY } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
 
 export function Instructors() {
@@ -15,8 +15,8 @@ export function Instructors() {
       </div>
 
       <Wrap className="relative">
-        <div className="eyebrow">05 · Instructors</div>
-        <SectionTitle>Who is teaching</SectionTitle>
+        <div className="eyebrow">{SECTION_COPY.instructors.eyebrow}</div>
+        <SectionTitle>{SECTION_COPY.instructors.title}</SectionTitle>
 
         <div className="mt-9 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {PEOPLE.map(({ name, role, bio }) => (
