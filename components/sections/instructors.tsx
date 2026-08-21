@@ -1,3 +1,5 @@
+import { UserRoundIcon } from "lucide-react";
+
 import { NoiseFieldCanvas } from "@/components/three/scenes";
 import { PEOPLE } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
@@ -19,8 +21,17 @@ export function Instructors() {
         <div className="mt-9 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {PEOPLE.map(({ name, role, bio }) => (
             <div key={name} className="flex flex-col gap-3.5">
-              <div className="flex aspect-square items-center justify-center rounded-xl border border-border bg-[#0d0d0f] font-mono text-[11px] text-ghost">
-                portrait
+              {/* Placeholder until the four headshots land. An icon rather
+                  than the word "portrait": it reads as a deliberately empty
+                  avatar instead of a note to ourselves left on the page.
+                  aria-hidden with the name alongside, so screen readers get
+                  the person once rather than an anonymous graphic. */}
+              <div className="flex aspect-square items-center justify-center rounded-xl border border-border bg-[#0d0d0f]">
+                <UserRoundIcon
+                  className="size-10 text-ghost"
+                  strokeWidth={1.25}
+                  aria-hidden
+                />
               </div>
               <div>
                 <div className="text-[17px] font-semibold tracking-[-0.02em]">

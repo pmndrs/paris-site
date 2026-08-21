@@ -29,7 +29,7 @@ export function Closer() {
 
         <div className="relative z-20 mx-auto flex max-w-[1180px] flex-col items-center gap-5.5 px-4 py-16 text-center sm:px-6 md:py-24 lg:px-10 lg:py-32">
           <div className="font-mono text-[11px] font-medium tracking-[0.13em] text-muted-foreground uppercase">
-            Forty seats · September 8 &amp; 9, 2026
+            September 8 &amp; 9, 2026 · Gobelins, Paris
           </div>
           <div className="max-w-[720px] text-[30px] leading-[1.05] font-semibold tracking-[-0.035em] md:text-[42px] lg:text-[52px]">
             Add the workshop to your conference ticket

@@ -21,13 +21,25 @@ export type SectionId = (typeof SECTIONS)[number]["id"];
 export const HERO = {
   kicker: "September 8 & 9, 2026 · Gobelins, Paris",
   title: ["Advanced React", "Three Fiber"],
-  lede: "One day learning React Three Fiber v10 and the pmndrs ecosystem, one day building with it. Thirty seats.",
+  // "Intermediate" is the positioning and only existed in the Overview facts
+  // strip, which the short version hides. The seat count comes out rather than
+  // getting a number: the hero said thirty while the facts strip and the closer
+  // both say forty, so dropping the outlier makes the page agree with itself
+  // instead of guessing which figure is right. See COPY.md §1.
+  lede: "One day learning React Three Fiber v10 and the pmndrs ecosystem, one day building with it. Intermediate level.",
 };
 
+/**
+ * No seat or capacity claim anywhere on the page, deliberately.
+ *
+ * The hero said thirty, this strip said forty and the closer said forty, which
+ * was three numbers for one fact. Publishing any of them also means maintaining
+ * it as places fill — and CONTENT.md §5.1 lands on making no availability claim
+ * at all. Registration is the honest place for that number.
+ */
 export const FACTS = [
   { k: "Dates", v: "Sep 8 & 9" },
   { k: "Format", v: "In person" },
-  { k: "Seats", v: "40" },
   { k: "Level", v: "Intermediate" },
 ];
 
@@ -140,24 +152,34 @@ export const TRACKS = [
   },
 ];
 
-const ASSISTANT_BIO =
-  "On hand through both days for setup and one-to-one help.";
+const FLOOR_BIO = "On hand through both days for setup and one-to-one help.";
 
+/**
+ * The `role` line is a credential, not a rank.
+ *
+ * It used to read "Lead instructor" twice and "Assistant" twice, which sorted
+ * the room rather than saying anything — and undersold the half of it that
+ * matters most: two of these people build the stack being taught. Who runs a
+ * track on day two is real information, so it moves into the bio, where it is a
+ * fact about the schedule rather than a label on a person.
+ */
 export const PEOPLE = [
   {
     name: "Dennis Smolek",
-    role: "Lead instructor",
-    bio: "Works on the pmndrs stack and builds production R3F for a living.",
+    role: "pmndrs core",
+    bio: "Wrote React Three Fiber v10, and builds production R3F for a living. Leads a track on day two.",
   },
   {
     name: "Kris Baumgartner",
-    role: "Lead instructor",
-    bio: "Core pmndrs contributor, focused on rendering and performance.",
+    role: "pmndrs core",
+    // TODO: name the libraries. "Several of the libraries" is true but soft —
+    // two or three names would do far more work here than the sentence does.
+    bio: "Wrote several of the libraries you will use, and works on rendering and performance. Leads a track on day two.",
   },
   // Surnames pending — first names are correct, so ship those rather than a
   // public "TBC". Fill in when Dennis has them.
-  { name: "Ava", role: "Assistant", bio: ASSISTANT_BIO },
-  { name: "Faraz", role: "Assistant", bio: ASSISTANT_BIO },
+  { name: "Ava", role: "Interactive developer", bio: FLOOR_BIO },
+  { name: "Faraz", role: "pmndrs contributor", bio: FLOOR_BIO },
 ];
 
 export const PREREQ_GROUPS = [
