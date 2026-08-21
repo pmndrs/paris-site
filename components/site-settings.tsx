@@ -97,6 +97,16 @@ export function useVisible(): Visible {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
+/**
+ * Imperative "make sure this section is on" — for `SectionLink`, whose click
+ * handler runs outside render. Safe against clobbering stored preferences:
+ * any component calling this also subscribes via `useSectionVisible`, and the
+ * first subscriber hydrates the snapshot from storage.
+ */
+export function showSection(id: ToggleId) {
+  write({ ...snapshot, [id]: true });
+}
+
 export function useSiteSettings() {
   const visible = useVisible();
 

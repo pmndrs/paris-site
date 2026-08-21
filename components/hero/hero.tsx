@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { LogoFull } from "@/components/brand/logo";
+import { SectionLink } from "@/components/section-link";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { HERO, REGISTER_URL } from "@/lib/content";
@@ -114,7 +115,8 @@ export function Hero() {
               <a href={REGISTER_URL}>Register on threejs.paris</a>
             </Button>
             <Button asChild size="lg" variant="outline">
-              <a href="#two-days">See the two days</a>
+              {/* Smart on the short version: reveals the section, then scrolls. */}
+              <SectionLink section="two-days">See the two days</SectionLink>
             </Button>
           </div>
         </div>

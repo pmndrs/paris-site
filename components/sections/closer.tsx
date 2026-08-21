@@ -1,5 +1,6 @@
 import Image from "next/image";
 
+import { SectionLink } from "@/components/section-link";
 import { SectionGate } from "@/components/sections/section-gate";
 import { Button } from "@/components/ui/button";
 import { CLOSER, REGISTER_URL } from "@/lib/content";
@@ -39,7 +40,9 @@ export function Closer() {
               <a href={REGISTER_URL}>{CLOSER.primary}</a>
             </Button>
             <Button asChild size="lg" variant="outline">
-              <a href="#two-days">{CLOSER.secondary}</a>
+              {/* The closer only renders with extra sections on, but two-days
+                  can still be off individually — same smart reveal as the hero. */}
+              <SectionLink section="two-days">{CLOSER.secondary}</SectionLink>
             </Button>
           </div>
         </div>
