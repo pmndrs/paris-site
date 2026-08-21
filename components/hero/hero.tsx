@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { LogoFull } from "@/components/brand/logo";
-import { SectionLink } from "@/components/section-link";
+import { SectionGate } from "@/components/sections/section-gate";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { HERO, REGISTER_URL } from "@/lib/content";
@@ -114,10 +114,13 @@ export function Hero() {
             <Button asChild size="lg">
               <a href={REGISTER_URL}>Register on threejs.paris</a>
             </Button>
-            <Button asChild size="lg" variant="outline">
-              {/* Smart on the short version: reveals the section, then scrolls. */}
-              <SectionLink section="two-days">See the two days</SectionLink>
-            </Button>
+            {/* Only when there is a two-days section to land on. The short
+                version ships it off, and the hero runs on Register alone. */}
+            <SectionGate id="two-days">
+              <Button asChild size="lg" variant="outline">
+                <a href="#two-days">See the two days</a>
+              </Button>
+            </SectionGate>
           </div>
         </div>
 
