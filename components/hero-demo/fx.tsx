@@ -331,7 +331,7 @@ export function FX({
 
   const { rebuild } = useRenderPipeline(
     // Main: build the effect graph and hand back an output node.
-    ({ renderPipeline, passes, camera, renderer }) => {
+    ({ renderPipeline, passes, camera }) => {
       if (!renderPipeline || !passes?.scenePass) return;
       const scenePass = passes.scenePass;
 
@@ -529,15 +529,22 @@ export function FX({
         // Stage 2. FSR3 is the sole temporal resolver — TRAA never stacks on
         // top (two temporal resolvers ghost). The composited graph is pinned
         // to the reduced render resolution with an explicit convertToTexture:
-        // upscale() would wrap it anyway, but unpinned, and the input size is
-        // what configures the upscaler, so the pin is the authority (this is
-        // the fsr3 examples' pattern, and the same floor() PassNode uses for
-        // setResolutionScale so the sizes agree).
-        const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-        const rw = Math.max(1, Math.floor(size.width / renderScale));
-        const rh = Math.max(1, Math.floor(size.height / renderScale));
-
-        const pinned = TSL.convertToTexture(graph, rw, rh);
+        // upscale() would wrap it anyway, but unpinned at *full* res, and the
+        // input size is what configures the upscaler, so the pin is the
+        // authority.
+        //
+        // Pinned by **resolution scale**, not fixed pixels. This callback
+        // runs once (rebuilds only on option changes), so a fixed-size RTT
+        // goes stale the moment the window resizes — the upscaler then
+        // reconstructs an old-aspect input into the new display size and the
+        // whole frame smears. With autoResize + setResolutionScale the RTT
+        // tracks the drawing buffer every frame using the same floor()
+        // PassNode applies for setResolutionScale (so the sizes agree), and
+        // UpscalerNode.updateBefore re-configures itself whenever its input
+        // or the display size changes. Resize heals in one frame, no
+        // recompile.
+        const pinned = TSL.convertToTexture(graph);
+        pinned.setResolutionScale(1 / renderScale);
         const fsrNode = upscale(
           pinned,
           depth,
