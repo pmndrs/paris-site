@@ -1,0 +1,10 @@
+# Uploaded to Vercel otherwise, and never used at runtime.
+
+# The original static mockup the site was built from. Kept in the repo as the
+# reference it is named for; it is not imported by the app and does not need to
+# travel to the build.
+reference/
+
+# Planning and spec docs.
+*.md
+!README.md
