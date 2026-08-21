@@ -199,17 +199,15 @@ export function Tower({
 
   return (
     <group dispose={null} scale={0.2} rotation-y={THREE.MathUtils.degToRad(30)}>
-      {/* The warm wash only exists to sell the glow mode; the metal and
-          sparkle modes are lit by the sky like everything else. */}
-      {mode === "glow" && (
-        <pointLight
-          position={[0, 10, 0]}
-          color="#ffb35c"
-          intensity={400}
-          distance={100}
-          decay={2}
-        />
-      )}
+      {/* Keep the warm wash mounted to avoid recompiling shaders when the mode
+          changes. Zero intensity disables it outside glow mode. */}
+      <pointLight
+        position={[0, 10, 0]}
+        color="#ffb35c"
+        intensity={mode === "glow" ? 400 : 0}
+        distance={100}
+        decay={2}
+      />
 
       {TOWER_MESHES.map((name) => (
         <mesh
