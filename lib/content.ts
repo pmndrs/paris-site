@@ -37,6 +37,77 @@ export const HERO = {
  * it as places fill — and CONTENT.md §5.1 lands on making no availability claim
  * at all. Registration is the honest place for that number.
  */
+/**
+ * Section chrome: the eyebrow and title each section carries, plus the prose
+ * that was otherwise stranded in JSX.
+ *
+ * Keyed by section id, so it lines up with SECTIONS above and with the toggles
+ * in lib/sections.ts. Structured content — the Why cards, the outcomes, the
+ * FAQ, the tracks — keeps its own export below; this is for the copy that had
+ * nowhere else to live.
+ */
+export const SECTION_COPY = {
+  overview: {
+    eyebrow: "01 · Overview",
+    title: "Learn the pieces, then build with them",
+    body: "Day one is teaching: React Three Fiber v10, then the pmndrs ecosystem around it — drei, physics, post, state, and how the pieces fit together. Day two is a hackathon: three tracks, a lead on each, something running by the end of the afternoon.",
+    // True of both layers: the live scene when there is WebGPU, the concept
+    // frame when there isn't.
+    caption: "The block city · at mid distance",
+  },
+  why: {
+    eyebrow: "02 · Why now",
+    title: "WebGPU is here, behind an API you already know",
+  },
+  outcomes: {
+    eyebrow: "03 · Outcomes",
+    title: "What you leave with",
+  },
+  "two-days": {
+    eyebrow: "04 · Two days",
+    title: "A teaching day, then a build day",
+    note: "09:30 – 17:30 · lunch and two breaks each day",
+  },
+  instructors: {
+    eyebrow: "05 · Instructors",
+    title: "Who is teaching",
+  },
+  setup: {
+    eyebrow: "06 · Prerequisites",
+    title: "Come in ready",
+    // TODO: this contradicts Level "Intermediate" the same way the FAQ answer
+    // does — "new to 3D" and "no graphics experience" promise a soft landing
+    // the workshop no longer offers. See COPY.md §1. Not changed here because
+    // it is a policy call, not a copy one.
+    audience:
+      "This is aimed at React developers who are new to 3D, or who have shipped a scene and hit a wall. You do not need graphics experience. You do need a working React setup and comfort with hooks.",
+    // Split around the one word that renders in mono, so the whole sentence
+    // stays editable here rather than half of it living in the component.
+    installBefore:
+      "The one rule that matters: run the install once on your own network before you travel. Forty people pulling ",
+    installCode: "node_modules",
+    installAfter:
+      " over conference wifi is the only thing that reliably wrecks a hands-on day.",
+    repo: "We send the repo and a setup check about three weeks ahead. If it runs at home on the machine you are bringing, you are done.",
+  },
+  venue: {
+    eyebrow: "07 · Venue",
+    title: "Getting there",
+  },
+  faq: {
+    eyebrow: "08 · FAQ",
+    title: "Questions",
+  },
+} as const;
+
+/** The closing call to action. Not in SECTION_COPY: it has no eyebrow. */
+export const CLOSER = {
+  kicker: "September 8 & 9, 2026 · Gobelins, Paris",
+  title: "Add the workshop to your conference ticket",
+  primary: "Register on threejs.paris",
+  secondary: "Review the two days",
+};
+
 export const FACTS = [
   { k: "Dates", v: "Sep 8 & 9" },
   { k: "Format", v: "In person" },

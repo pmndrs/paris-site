@@ -4,15 +4,15 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { FAQS } from "@/lib/content";
+import { FAQS, SECTION_COPY } from "@/lib/content";
 import { Section, SectionTitle, Wrap } from "./section";
 
 export function Faq() {
   return (
     <Section id="faq">
       <Wrap narrow>
-        <div className="eyebrow">08 · FAQ</div>
-        <SectionTitle>Questions</SectionTitle>
+        <div className="eyebrow">{SECTION_COPY.faq.eyebrow}</div>
+        <SectionTitle>{SECTION_COPY.faq.title}</SectionTitle>
 
         <Accordion
           type="single"
