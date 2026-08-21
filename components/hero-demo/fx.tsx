@@ -49,6 +49,7 @@ interface SSGIPass {
 /** The slice of the FSR3 node we touch imperatively from useFrame. */
 interface FSRNodeLike {
   upscaler: { unjitteredProjectionMatrix: THREE.Matrix4 } | null;
+  dispose(): void;
 }
 
 /** The slice of the `Sky` instance the sky-fog node reads. */
@@ -197,6 +198,15 @@ export function FX({
   const fsrNodeRef = useRef<FSRNodeLike | null>(null);
   const velocityBoundRef = useRef(false);
 
+  // Unmount (and StrictMode remount) would strand the last FSR node the same
+  // way a rebuild used to — see the dispose in the pipeline callback.
+  useEffect(() => {
+    return () => {
+      fsrNodeRef.current?.dispose();
+      fsrNodeRef.current = null;
+    };
+  }, []);
+
   /**
    * The built SSGI pass, held so the Leva sliders write straight into its
    * uniforms — sliceCount/stepCount/radius/intensities are all runtime
@@ -343,6 +353,17 @@ export function FX({
     ({ renderPipeline, passes, camera }) => {
       if (!renderPipeline || !passes?.scenePass) return;
       const scenePass = passes.scenePass;
+
+      // Rebuilds replace the FSR node, and the replaced one holds GPU-timer
+      // query sets — on Metal those come from a device-wide pool of counter
+      // sample buffers capped at a few dozen, and each upscaler takes 8. Drop
+      // it undisposed and three or four graph toggles later CreateQuerySet
+      // fails with GPUOutOfMemoryError ("upscale-timer-N"). Dispose before
+      // building the replacement; UpscalerNode.dispose() destroys the query
+      // sets and buffers. (The rest of the replaced graph still leaks —
+      // fiber #3854 — but nothing else in it allocates query sets.)
+      fsrNodeRef.current?.dispose();
+      fsrNodeRef.current = null;
 
       if (!enabled) {
         renderPipeline.outputNode = scenePass.getTextureNode("output");
