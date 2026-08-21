@@ -56,18 +56,19 @@ interface SkyWithBaker {
   baker?: { texture?: THREE.CubeTexture };
 }
 
-function makeFogUniforms(density: number, heightFalloff: number) {
+function makeFogCameraUniforms() {
   return {
     invProj: TSL.uniform(new THREE.Matrix4()),
     camWorld: TSL.uniform(new THREE.Matrix4()),
     camPos: TSL.uniform(new THREE.Vector3()),
-    density: TSL.uniform(density),
-    heightFalloff: TSL.uniform(heightFalloff),
-    // 0/1 switch for the horizon clamp on the cube-color lookup — a
-    // uniform, not a graph branch, so the A/B toggle is free (no rebuild).
-    horizonClamp: TSL.uniform(1),
   };
 }
+
+/** The fog knob uniforms as the graph consumes them (see `useUniforms` below). */
+type FogKnobs = Record<
+  "density" | "heightFalloff" | "horizonClamp",
+  THREE.UniformNode<"float", number>
+>;
 
 /**
  * Faraz's post graph, ported from `threejs-conf-pmndrs/src/FX/FX.tsx`.
@@ -206,32 +207,47 @@ export function FX({
   const ssgiPassRef = useRef<SSGIPass | null>(null);
 
   /**
-   * Sky-fog uniforms, created once and shared across rebuilds.
+   * Sky-fog uniforms, both kinds registered in fiber's global uniform store —
+   * scoped, because the store resolves against the *primary* canvas and the
+   * hero shares that store with the section canvases (flip-grid scopes for
+   * the same reason).
    *
+   * The knobs go in as **raw values**: `useUniforms` creates the uniform
+   * nodes, keeps their identity stable across renders (so the graph below
+   * can close over them once), and reconciles `.value` in place whenever the
+   * props change — the manual "live knobs" effect this replaces is exactly
+   * the plumbing the hook exists to own.
+   */
+  const fogKnobs = useUniforms(
+    {
+      density: skyFogDensity,
+      heightFalloff: skyFogHeight,
+      // 0/1 switch for the horizon clamp on the cube-color lookup — a
+      // uniform, not a graph branch, so the A/B toggle is free (no rebuild).
+      horizonClamp: skyFogHorizonClamp ? 1 : 0,
+    },
+    "heroFog",
+  ) as unknown as FogKnobs;
+
+  /**
    * The camera trio exists because TSL's `cameraWorldMatrix` etc. resolve to
    * the camera *rendering the current pass* — in an output-node context
    * that's the present quad's orthographic camera, not the scene camera
    * (the same reason the sky's own haze node takes explicit camera
-   * uniforms). Refreshed per frame in `useFrame`. Density/height are plain
-   * live knobs.
+   * uniforms). Refreshed per frame in `useFrame` — which is why these are
+   * built imperatively and registered **as existing nodes** (`useUniforms`
+   * adopts them as-is) instead of as raw values: per-frame data isn't the
+   * hook's to reconcile, but registering keeps them visible to HMR and to
+   * anything reading the store.
    */
-  const fogUniformsRef = useRef<ReturnType<typeof makeFogUniforms> | null>(
+  const fogCamRef = useRef<ReturnType<typeof makeFogCameraUniforms> | null>(
     null,
   );
-  if (fogUniformsRef.current === null) {
-    fogUniformsRef.current = makeFogUniforms(skyFogDensity, skyFogHeight);
+  if (fogCamRef.current === null) {
+    fogCamRef.current = makeFogCameraUniforms();
   }
-  const fogU = fogUniformsRef.current;
-
-  // Register the fog uniforms in fiber's global uniform store. They're the
-  // same node objects the graph below closes over — `useUniforms` adopts
-  // existing uniform nodes as-is — so this changes no behavior; it makes them
-  // visible to HMR rebuilds, to `useLocalNodes` creators elsewhere, and to
-  // the `uniforms` slice the `useRenderPipeline` callbacks receive. Scoped,
-  // because the store resolves against the *primary* canvas and the hero
-  // shares that store with the section canvases (flip-grid scopes for the
-  // same reason).
-  useUniforms(() => fogU, "heroFog");
+  const fogCam = fogCamRef.current;
+  useUniforms(() => fogCam, "heroFogCamera");
 
   /**
    * Options the last *completed* pipeline build used, as a comparable key.
@@ -276,13 +292,6 @@ export function FX({
     sky.setHazePolicy(hazePolicy);
   }, [sky, hazeStrength, hazePolicy]);
 
-  // Live knobs — straight into uniforms, no rebuild.
-  useEffect(() => {
-    fogU.density.value = skyFogDensity;
-    fogU.heightFalloff.value = skyFogHeight;
-    fogU.horizonClamp.value = skyFogHorizonClamp ? 1 : 0;
-  }, [fogU, skyFogDensity, skyFogHeight, skyFogHorizonClamp]);
-
   useEffect(() => {
     const pass = ssgiPassRef.current;
     if (!pass) return;
@@ -299,11 +308,11 @@ export function FX({
   // too would just pay the ~half-frame AP cost twice.
   useFrame(({ camera }) => {
     // Sky fog reconstructs rays from the *scene* camera, which output-node
-    // TSL can't reach implicitly (see makeFogUniforms).
+    // TSL can't reach implicitly (see makeFogCameraUniforms).
     if (useSkyFog) {
-      fogU.invProj.value.copy(camera.projectionMatrixInverse);
-      fogU.camWorld.value.copy(camera.matrixWorld);
-      fogU.camPos.value.setFromMatrixPosition(camera.matrixWorld);
+      fogCam.invProj.value.copy(camera.projectionMatrixInverse);
+      fogCam.camWorld.value.copy(camera.matrixWorld);
+      fogCam.camPos.value.setFromMatrixPosition(camera.matrixWorld);
     }
 
     // Bind/unbind the unjittered projection for motion vectors (see the ref's
@@ -464,7 +473,7 @@ export function FX({
             u.x.mul(2.0).sub(1.0),
             TSL.float(1.0).sub(u.y.mul(2.0)),
           );
-          const viewFar = fogU.invProj.mul(TSL.vec4(ndc, 1.0, 1.0));
+          const viewFar = fogCam.invProj.mul(TSL.vec4(ndc, 1.0, 1.0));
           const rayDirView = viewFar.xyz.div(viewFar.w);
           const cosFromAxis = TSL.max(
             TSL.abs(rayDirView.normalize().z),
@@ -472,14 +481,14 @@ export function FX({
           );
           const dist = TSL.abs(viewZ).div(cosFromAxis);
           const rayDirWorld = TSL.normalize(
-            fogU.camWorld.mul(TSL.vec4(rayDirView, 0.0)).xyz,
+            fogCam.camWorld.mul(TSL.vec4(rayDirView, 0.0)).xyz,
           );
 
           // Analytic optical depth through σ(h) = σ₀·e^(−h/H) along the ray:
           //   OD = σ₀ · e^(−camY/H) · dist · (1 − e^(−x)) / x,  x = dist·rayY/H
           // with the x→0 limit handled explicitly (level rays).
-          const H = fogU.heightFalloff;
-          const sigma = fogU.density.div(1000.0); // per-km → per-world-unit
+          const H = fogKnobs.heightFalloff;
+          const sigma = fogKnobs.density.div(1000.0); // per-km → per-world-unit
           const rayY = rayDirWorld.y;
           const x = dist.mul(rayY).div(H);
           const term = TSL.abs(x)
@@ -489,7 +498,7 @@ export function FX({
               TSL.float(1.0).sub(TSL.exp(x.negate())).div(x),
             );
           const od = sigma
-            .mul(TSL.exp(fogU.camPos.y.negate().div(H)))
+            .mul(TSL.exp(fogCam.camPos.y.negate().div(H)))
             .mul(dist)
             .mul(term);
           const isSky = scenePass.getLinearDepthNode().greaterThan(0.999);
@@ -512,7 +521,7 @@ export function FX({
               TSL.mix(
                 rayDirWorld.y,
                 TSL.max(rayDirWorld.y, 0.02),
-                fogU.horizonClamp,
+                fogKnobs.horizonClamp,
               ),
               rayDirWorld.z,
             ),

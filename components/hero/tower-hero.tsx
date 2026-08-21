@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { getScheduler } from "@react-three/fiber/webgpu";
+import { useFrame } from "@react-three/fiber/webgpu";
 
 import { DepthAttachmentSync } from "@/components/three/depth-attachment-sync";
 import { TowerCanvas } from "@/components/hero-demo/tower-canvas";
@@ -19,8 +19,14 @@ const PRIMARY = "main";
  * being driven. Carried over verbatim from the previous hero scene.
  */
 function useIdleWhenHidden(paused: boolean) {
+  // `useFrame` without a callback is the documented scheduler-access form,
+  // and it works *outside* `<Canvas>` too: registration is skipped and the
+  // returned `scheduler` is the same global singleton `getScheduler()`
+  // resolves to — the frame loop is page-wide, not per-canvas, which is the
+  // whole reason job-level pausing works from up here.
+  const { scheduler } = useFrame();
+
   useEffect(() => {
-    const scheduler = getScheduler();
     if (!scheduler.getJobIds().includes(PRIMARY)) return;
 
     if (paused) scheduler.pauseJob(PRIMARY);
@@ -30,7 +36,7 @@ function useIdleWhenHidden(paused: boolean) {
     return () => {
       if (scheduler.getJobIds().includes(PRIMARY)) scheduler.resumeJob(PRIMARY);
     };
-  }, [paused]);
+  }, [paused, scheduler]);
 }
 
 /**
