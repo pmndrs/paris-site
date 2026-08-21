@@ -30,10 +30,7 @@ export function Overview() {
               on each, something running by the end of the afternoon.
             </p>
 
-            <div
-              className="hairline-grid mt-7 grid-cols-2 sm:grid-cols-4"
-              data-reveal
-            >
+            <div className="hairline-grid mt-7 grid-cols-3" data-reveal>
               {FACTS.map(({ k, v }) => (
                 <div key={k} className="bg-background px-4.5 py-4">
                   <div className="font-mono text-[10px] tracking-[0.11em] text-faint uppercase">

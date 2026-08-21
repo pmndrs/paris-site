@@ -1,4 +1,6 @@
 import { LogoFull } from "@/components/brand/logo";
+import { Button } from "@/components/ui/button";
+import { REGISTER_URL } from "@/lib/content";
 import { SiteSettingsDialog } from "@/components/site-settings-dialog";
 
 /**
@@ -20,6 +22,13 @@ export function SiteFooter() {
         <a href="https://pmnd.rs/" className="hover:text-foreground">
           pmnd.rs
         </a>
+        {/* The last call to action on the page. The hero and the sticky header
+            both carry one, but someone who reads to the bottom — which is the
+            whole page on the short version — would otherwise find only
+            outbound links. */}
+        <Button asChild size="sm">
+          <a href={REGISTER_URL}>Register</a>
+        </Button>
         {/* Which sections are on. In the footer rather than the header because
             it is a workbench control, not navigation. */}
         <SiteSettingsDialog />
