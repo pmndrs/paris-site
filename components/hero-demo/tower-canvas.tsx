@@ -118,7 +118,7 @@ export function TowerCanvas({
   towerMode = "glow",
   beacon = false,
   lettering = true,
-  letterSize = 2.4,
+  letterSize = 6,
   letterSpread = 0.8,
   skyEnabled = true,
   timeOfDay = 20.5,

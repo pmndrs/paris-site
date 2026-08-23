@@ -53,9 +53,9 @@ export function HeroDemoScene({
       beacon: false,
       // The PMNDRS letters stepping down the tower, PARIS-poster style.
       lettering: true,
-      // Size rebuilds six small TextGeometries (instant); spread is a pure
+      // Size is the glyph em size in world units; spread is a pure
       // transform. Neither touches the render pipeline.
-      letterSize: { value: 2.4, min: 1, max: 5, step: 0.1 },
+      letterSize: { value: 6, min: 2.5, max: 12.5, step: 0.25 },
       letterSpread: { value: 0.8, min: 0.3, max: 1.6, step: 0.05 },
     });
 
