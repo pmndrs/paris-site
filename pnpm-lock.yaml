@@ -16,6 +16,9 @@ importers:
 
   .:
     dependencies:
+      '@pmndrs/glyph':
+        specifier: 0.0.0-canary-57eb2ce3-20260822
+        version: 0.0.0-canary-57eb2ce3-20260822(@react-three/fiber@10.0.0-alpha.3(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1))(react@19.2.8)(three@0.185.1)
       '@pmndrs/sky':
         specifier: link:./vendor/pmndrs-sky
         version: link:vendor/pmndrs-sky
@@ -240,6 +243,14 @@ packages:
   '@babel/types@7.29.8':
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
+
+  '@cto.af/linebreak@4.0.3':
+    resolution: {integrity: sha512-GiyepYtGQMo4LDynuhyFr0/hBGv0SFNVKnPjHuhFMnkseCBCIMecaCkKL8V3cu9mRas1djpSWznxigw/irV5Lw==}
+    engines: {node: '>=20'}
+
+  '@cto.af/unicode-trie-runtime@3.2.9':
+    resolution: {integrity: sha512-H4FHtvIef/8NlU+NsQolcL9SKu+fYIPMZI++h6rQcM1IN7C/AwiCs9L8WRff+O4hDMamksAEuwBjet2S9uPt4w==}
+    engines: {node: '>=20'}
 
   '@dimforge/rapier3d-compat@0.12.0':
     resolution: {integrity: sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow==}
@@ -627,6 +638,19 @@ packages:
   '@nolyfill/is-core-module@1.0.39':
     resolution: {integrity: sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==}
     engines: {node: '>=12.4.0'}
+
+  '@pmndrs/glyph@0.0.0-canary-57eb2ce3-20260822':
+    resolution: {integrity: sha512-D0xNYeUwRCjOmozstqWeL52HuDVjBi5v//oO5W+4QcIXlrUi7oG8Oxixvtrvrmdq31H/PJLOU2bc7uDQCUhV1A==}
+    hasBin: true
+    peerDependencies:
+      '@react-three/fiber': '>=10.0.0-alpha.3 <11'
+      react: '>=19.2 <19.3'
+      three: '>=0.185.1'
+    peerDependenciesMeta:
+      '@react-three/fiber':
+        optional: true
+      react:
+        optional: true
 
   '@pmndrs/scheduler@0.1.0':
     resolution: {integrity: sha512-LjWt2FVi7RDOpgBdSBDxToQwnMWP1wkZwVeAkr8ARvVBtvlfyMqCCvr1y9YcLm9RTUhSebN5Bx4bJTntdSd22Q==}
@@ -2549,6 +2573,9 @@ packages:
   glsl-noise@0.0.0:
     resolution: {integrity: sha512-b/ZCF6amfAUb7dJM/MxRs7AetQEahYzJ8PtgfrmEdtw6uyGOr+ZSGtgjFm6mfsBkxJ4d2W7kg+Nlqzqvn3Bc0w==}
 
+  gltf-validator@2.0.0-dev.3.10:
+    resolution: {integrity: sha512-odJ4k0tRkGXiDGn78yDBg+fBbAIvBnXxh3RwAta0emSxGtyagFE8B4xELB1oYe3S5RD8Ci3uZAsZaascH2LAEQ==}
+
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
@@ -2926,6 +2953,9 @@ packages:
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
+
+  ktx-parse@1.1.0:
+    resolution: {integrity: sha512-mKp3y+FaYgR7mXWAbyyzpa/r1zDWeaunH+INJO4fou3hb45XuNSwar+7llrRyvpMWafxSIi99RNFJ05MHedaJQ==}
 
   language-subtag-registry@0.3.23:
     resolution: {integrity: sha512-0K65Lea881pHotoGEa5gDlMxt3pctLi2RplBb7Ezh4rRdLEOtgi7n4EwK9lamnUCkKBqaeKRVebTq6BAxSkpXQ==}
@@ -3871,6 +3901,9 @@ packages:
     resolution: {integrity: sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==}
     engines: {node: '>=20.18.1'}
 
+  unicode-segmenter@0.15.0:
+    resolution: {integrity: sha512-Xmvwqx4F8nGuCv2eGPJVJq73NMTfpqx2Xe9/v5hQoyAUnERVhX+sRkyYVdYoBUbnTok2FTBOlstUeQ5sRleXSA==}
+
   unicorn-magic@0.3.0:
     resolution: {integrity: sha512-+QBBXBCvifc56fsbuxZQ6Sic3wqqc3WWaqxs58gvJrcOuN83HGTCwz3oS5phzU9LthRNE9VrJCFCLUgHeeFnfA==}
     engines: {node: '>=18'}
@@ -4247,6 +4280,14 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
+  '@cto.af/linebreak@4.0.3':
+    dependencies:
+      '@cto.af/unicode-trie-runtime': 3.2.9
+
+  '@cto.af/unicode-trie-runtime@3.2.9':
+    dependencies:
+      fflate: 0.8.3
+
   '@dimforge/rapier3d-compat@0.12.0': {}
 
   '@dimforge/rapier3d-compat@0.19.2': {}
@@ -4589,6 +4630,18 @@ snapshots:
       fastq: 1.20.1
 
   '@nolyfill/is-core-module@1.0.39': {}
+
+  '@pmndrs/glyph@0.0.0-canary-57eb2ce3-20260822(@react-three/fiber@10.0.0-alpha.3(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1))(react@19.2.8)(three@0.185.1)':
+    dependencies:
+      '@cto.af/linebreak': 4.0.3
+      ajv: 6.15.0
+      gltf-validator: 2.0.0-dev.3.10
+      ktx-parse: 1.1.0
+      three: 0.185.1
+      unicode-segmenter: 0.15.0
+    optionalDependencies:
+      '@react-three/fiber': 10.0.0-alpha.3(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1)
+      react: 19.2.8
 
   '@pmndrs/scheduler@0.1.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     optionalDependencies:
@@ -6724,6 +6777,8 @@ snapshots:
 
   glsl-noise@0.0.0: {}
 
+  gltf-validator@2.0.0-dev.3.10: {}
+
   gopd@1.2.0: {}
 
   graceful-fs@4.2.11: {}
@@ -7045,6 +7100,8 @@ snapshots:
   kleur@3.0.3: {}
 
   kleur@4.1.5: {}
+
+  ktx-parse@1.1.0: {}
 
   language-subtag-registry@0.3.23: {}
 
@@ -8157,6 +8214,8 @@ snapshots:
   undici-types@6.21.0: {}
 
   undici@7.29.0: {}
+
+  unicode-segmenter@0.15.0: {}
 
   unicorn-magic@0.3.0: {}
 

@@ -5,9 +5,11 @@ import { Canvas } from "@react-three/fiber/webgpu";
 import { Sky } from "@pmndrs/sky/react";
 import * as THREE from "three/webgpu";
 
+import { uniform } from "three/tsl";
+
 import { Buildings } from "./buildings";
 import { Camera, FramingTools } from "./camera";
-import { FX } from "./fx";
+import { FX, type TextLayer } from "./fx";
 import { Lights } from "./lights";
 import { Lettering } from "./lettering";
 import { PerfProbe, type PerfSample } from "./perf-probe";
@@ -118,7 +120,7 @@ export function TowerCanvas({
   towerMode = "glow",
   beacon = false,
   lettering = true,
-  letterSize = 2.4,
+  letterSize = 6,
   letterSpread = 0.8,
   skyEnabled = true,
   timeOfDay = 20.5,
@@ -176,6 +178,19 @@ export function TowerCanvas({
   const [refitKey, setRefitKey] = useState(0);
   const onTowerReady = useCallback(() => setRefitKey((v) => v + 1), []);
 
+  /**
+   * The lettering's full-resolution layer (see `TextLayer` in fx.tsx):
+   * `Lettering` portals the letters into `scene` and writes `planeDepth`;
+   * `FX` renders the scene as its own display-res pass after the resolver
+   * and composites it — sharp glyphs over a 1/renderScale world, with the
+   * ironwork interleave restored by one depth compare.
+   */
+  const [textLayer] = useState<TextLayer>(() => ({
+    scene: new THREE.Scene(),
+    camera: new THREE.PerspectiveCamera(),
+    planeDepth: uniform(10) as unknown as TextLayer["planeDepth"],
+  }));
+
   const contents = (
     <>
       <Camera
@@ -216,8 +231,19 @@ export function TowerCanvas({
           )}
         </group>
 
-        {lettering && <Lettering size={letterSize} spread={letterSpread} />}
       </group>
+
+      {/* Outside the worldScale group on purpose: the component portals its
+          content into the text layer's own scene (where it wraps itself in
+          the same scale), so its mount point here is only a hook site. */}
+      {lettering && (
+        <Lettering
+          size={letterSize}
+          spread={letterSpread}
+          worldScale={worldScale}
+          textLayer={textLayer}
+        />
+      )}
 
       <Lights
         environment={environment && !skyEnabled}
@@ -244,6 +270,8 @@ export function TowerCanvas({
         ssgiSlices={ssgiSlices}
         ssgiSteps={ssgiSteps}
         ssgiRadius={ssgiRadius}
+        textLayer={textLayer}
+        textEnabled={lettering}
       />
     </>
   );

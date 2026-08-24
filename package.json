@@ -10,6 +10,7 @@
     "sync:sky": "node scripts/sync-sky.mjs"
   },
   "dependencies": {
+    "@pmndrs/glyph": "0.0.0-canary-57eb2ce3-20260822",
     "@pmndrs/sky": "link:./vendor/pmndrs-sky",
     "@pmndrs/upscaler": "^0.2.0",
     "@react-three/drei": "11.0.0-alpha.5",
