@@ -149,15 +149,6 @@
   }
 }
 
-@keyframes hero-header-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 .hero-scroll-dial {
   opacity: var(--hero-dial-opacity, 1);
   will-change: opacity;
@@ -182,12 +173,16 @@
 
 @media (scripting: enabled) {
   [data-site-header-state="out"] {
-    opacity: 0;
     pointer-events: none;
   }
+  [data-site-header-state="out"] .site-header-content {
+    opacity: 0;
+  }
   [data-site-header-state="in"] {
-    animation: hero-header-fade 700ms ease-out both;
     pointer-events: auto;
+  }
+  [data-site-header-state="in"] .site-header-content {
+    opacity: 1;
   }
 
   [data-hero-ui] {
@@ -229,10 +224,11 @@
     will-change: auto;
   }
   [data-site-header-state] {
-    opacity: 1;
-    transform: none;
-    animation: none;
     pointer-events: auto;
+  }
+  .site-header-content {
+    opacity: 1;
+    transition: none;
   }
   .hero-dial-layer {
     position: absolute;

@@ -2,19 +2,14 @@
 
 import { useEffect, useState } from "react";
 
-import { SECTIONS, type SectionId } from "./content";
-
 export interface ScrollSpy {
   /** Header is revealed once the hero poster is mostly scrolled past. */
   shown: boolean;
   /** Document scroll progress, 0..1. */
   progress: number;
-  active: SectionId | "";
-  /** Each section's position along the rail, 0..100. */
-  marks: { id: SectionId; pct: number }[];
 }
 
-const INITIAL: ScrollSpy = { shown: false, progress: 0, active: "", marks: [] };
+const INITIAL: ScrollSpy = { shown: false, progress: 0 };
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
 export function useScrollSpy(): ScrollSpy {
@@ -69,20 +64,9 @@ export function useScrollSpy(): ScrollSpy {
         }
       }
 
-      // The last section whose top has crossed 40% of the viewport wins.
-      let active: SectionId | "" = "";
-      const marks = SECTIONS.map(({ id }) => {
-        const el = document.getElementById(id);
-        const top = el ? el.getBoundingClientRect().top + y : 0;
-        if (el && el.getBoundingClientRect().top <= vh * 0.4) active = id;
-        return { id, pct: Math.min(100, (top / total) * 100) };
-      });
-
       setState({
         shown: y > Math.max(400, vh) * 0.55,
         progress: Math.min(1, y / total),
-        active,
-        marks,
       });
     };
 
