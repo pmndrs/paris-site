@@ -35,6 +35,7 @@ export default function FlipGridDemoPage() {
       <InfoDialog
         title="A grid that flips to gold"
         subtitle="React Three Fiber v10 · WebGPU · TSL"
+        className="hidden"
       >
         <InfoSection heading="The state lives on the GPU">
           <p>
