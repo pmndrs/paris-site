@@ -54,7 +54,9 @@ export function SiteHeader() {
               : "shadow-[0_0_24px_rgba(255,255,255,0.2)]",
           )}
         >
-          <a href={REGISTER_URL}>Register</a>
+          <a href={REGISTER_URL} target="_blank" rel="noopener noreferrer">
+            Register
+          </a>
         </Button>
       </div>
 
