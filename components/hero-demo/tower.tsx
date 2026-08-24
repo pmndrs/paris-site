@@ -79,6 +79,32 @@ function makeBeamNodes() {
 const BEAM_LENGTH = 600;
 const BEAM_FLARE = 36;
 
+/**
+ * Antenna extension, local units (×0.2 = city units). The model's spire
+ * stops at a stub finial, but the real tower carries a broadcast mast well
+ * past it — and the poster P that crowns the scene needs the antenna to
+ * cross its top band and poke out well above, the way the reference
+ * photo's antenna cluster visibly overlays its P. A bare needle read as a
+ * scratch, so the mast carries the reference silhouette: a collar where
+ * it crosses the letter and two crossed pairs of dipole arms above — the
+ * crossed pairs keep the profile similar from every orbit angle. Rooted
+ * ANTENNA_ROOT below the summit so it grows out of the finial instead of
+ * floating on it.
+ */
+const ANTENNA_REACH = 13;
+const ANTENNA_ROOT = 2;
+const ANTENNA_PARTS: {
+  /** [radiusTop, radiusBottom, height] or a horizontal arm. */
+  kind: "mast" | "collar" | "arms";
+  y: number;
+  size: [number, number, number];
+}[] = [
+  { kind: "mast", y: 0, size: [0.5, 1.4, ANTENNA_REACH + ANTENNA_ROOT] },
+  { kind: "collar", y: 2.5, size: [2.1, 2.4, 1.1] },
+  { kind: "arms", y: 5.5, size: [0.28, 0.28, 7] },
+  { kind: "arms", y: 8.5, size: [0.22, 0.22, 5] },
+];
+
 function Beacon({ speed = 0.6 }: { speed?: number }) {
   const spinRef = useRef<THREE.Group>(null);
 
@@ -185,7 +211,7 @@ export function Tower({
   } as const satisfies Record<TowerMode, object>;
 
   // Local-space summit height, measured from the geometry rather than
-  // hardcoded, so the beacon survives a model swap.
+  // hardcoded, so the beacon and antenna survive a model swap.
   const summitY = useMemo(() => {
     let maxY = 0;
     for (const name of TOWER_MESHES) {
@@ -196,6 +222,26 @@ export function Tower({
     }
     return maxY;
   }, [nodes]);
+
+  // Mast + collar + dipole arms, anchored so y = 0 sits at the summit;
+  // see ANTENNA_PARTS. One merged-by-hand group, one material per mode.
+  const antennaGeometries = useMemo(
+    () =>
+      ANTENNA_PARTS.map(({ kind, y, size: [rt, rb, h] }) => {
+        const g = new THREE.CylinderGeometry(rt, rb, h, kind === "arms" ? 8 : 12);
+        if (kind === "mast") {
+          g.translate(0, h / 2 - ANTENNA_ROOT, 0);
+        } else if (kind === "collar") {
+          g.translate(0, y, 0);
+        } else {
+          // A crossed pair: the same thin cylinder laid flat both ways.
+          g.rotateZ(Math.PI / 2);
+          g.translate(0, y, 0);
+        }
+        return { kind, geometry: g };
+      }),
+    [],
+  );
 
   return (
     <group dispose={null} scale={0.2} rotation-y={THREE.MathUtils.degToRad(30)}>
@@ -220,8 +266,26 @@ export function Tower({
         </mesh>
       ))}
 
+      {/* Same material as the body so every mode carries the mast — glow's
+          emissive feeds the same bloom, metal stays iron. No shadow flags:
+          nothing up there to receive one, and the sun never reads it. */}
+      <group position={[0, summitY, 0]}>
+        {antennaGeometries.map(({ kind, geometry }, i) => (
+          <group key={i}>
+            <mesh geometry={geometry}>
+              <meshStandardNodeMaterial {...modeProps[mode]} />
+            </mesh>
+            {kind === "arms" && (
+              <mesh geometry={geometry} rotation-y={Math.PI / 2}>
+                <meshStandardNodeMaterial {...modeProps[mode]} />
+              </mesh>
+            )}
+          </group>
+        ))}
+      </group>
+
       {beacon && (
-        <group position={[0, summitY, 0]}>
+        <group position={[0, summitY + ANTENNA_REACH, 0]}>
           <Beacon />
         </group>
       )}

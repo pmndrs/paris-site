@@ -161,10 +161,14 @@ const LETTERS: {
   center: [number, number];
   /**
    * View-space lean about the letter's own horizontal axis, radians.
-   * Negative pitches the top away from the camera and the bottom toward
-   * it, so depth varies along the letter's height — which is how a letter
-   * can be behind the tower at its top and in front at its bottom in the
-   * same pose: the composite's occlusion is per-pixel depth, so the quad
+   * POSITIVE pitches the top away from the camera and the bottom toward
+   * it — mirrored from three's usual sense because glyph lays paragraphs
+   * out y-down and flips them in-shader, which mirrors rotations arriving
+   * through the Text's ancestor matrices (verified against the render:
+   * +0.25 puts the antenna in front of the P's top band). The lean makes
+   * depth vary along the letter's height, which is how one letter can be
+   * behind the tower at its top and in front at its bottom in the same
+   * pose: the composite's occlusion is per-pixel depth, so the quad
    * doesn't have to sit at one distance. Billboard-local, so the lean and
    * its crossing point hold at every orbit and spin angle. Costs a mild
    * vertical foreshortening (cos of the angle), which reads as poster
@@ -176,7 +180,7 @@ const LETTERS: {
     char: "P",
     position: [-0.3, 23.2, 0.2],
     center: [0.355, 0.355],
-    tilt: -0.25,
+    tilt: 0.25,
   },
   { char: "M", position: [3.5, 17.8, 2.5], center: [0.4635, 0.355] },
   { char: "N", position: [-2.8, 14.6, -3], center: [0.3765, 0.355] },
