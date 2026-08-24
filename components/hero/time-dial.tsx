@@ -146,6 +146,7 @@ export function TimeDial({
       drag.lastAngle = angle;
       if (Math.abs(delta) < 0.001) return;
       drag.moved = true;
+      // Keep drag distance unbounded so replay preserves whole turns.
       drag.value += (delta / FULL_TURN) * 100;
       setValue(drag.value);
     },
