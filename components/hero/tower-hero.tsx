@@ -9,9 +9,8 @@ import { TowerCanvas } from "@/components/hero-demo/tower-canvas";
 /** This canvas's id, which is also the id of the render job r3f registers. */
 const PRIMARY = "main";
 
-// A darker, blue-biased surface bounce keeps the physical atmosphere from
-// washing the skyline band toward neutral grey at midday. Kept stable across
-// renders because changing the object identity triggers a sky rebake.
+// Dark blue ground reflectance keeps the horizon saturated.
+// Stable identity prevents unnecessary sky rebakes.
 const HERO_GROUND_ALBEDO = { x: 0.025, y: 0.075, z: 0.18 } as const;
 
 /**
@@ -72,11 +71,7 @@ export function TowerHero({
   // Slider fraction → solar hours for the sky.
   const hours = (value / 100) * 24;
 
-  // First-pass auto-exposure: the scene is graded at 40 for dusk/night, but
-  // full daylight at that exposure blows out to white. Hold a daylight stop
-  // across the whole day band (the sky is symmetric around solar noon) and
-  // fade back to the graded stop through golden hour; the sky applies
-  // exposure through a live uniform, so this costs nothing per change.
+  // Hold a low daytime exposure, then fade to the night grade at dawn and dusk.
   const t = Math.min(1, Math.max(0, (8 - Math.abs(hours - 12)) / 3));
   const daylight = t * t * (3 - 2 * t);
   const exposure = 40 + (6 - 40) * daylight;
@@ -86,8 +81,7 @@ export function TowerHero({
       canvasId={PRIMARY}
       timeOfDay={hours}
       exposure={exposure}
-      // Keep the marketing shot cleaner and bluer than the neutral demo:
-      // fewer aerosols means less of the chalky Mie band at the horizon.
+      // Remove aerosol scattering for a clearer blue horizon.
       turbidity={0}
       groundAlbedo={HERO_GROUND_ALBEDO}
       autoRotateSpeed={reducedMotion ? 0 : 1}
