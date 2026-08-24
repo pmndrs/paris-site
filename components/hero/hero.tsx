@@ -94,7 +94,7 @@ export function Hero() {
       {/* Grounds the copy against the city. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-[340px] bg-gradient-to-b from-transparent to-black to-66%" />
 
-      <div className="relative z-30 mt-auto flex flex-wrap items-end justify-between gap-7 px-4 pb-6 sm:px-8">
+      <div className="relative z-30 mt-auto px-4 pb-6 sm:px-8">
         <div className="max-w-2xl">
           <div className="mb-3.5 font-mono text-[11px] font-medium tracking-[0.13em] text-white/60 uppercase">
             {HERO.kicker}
@@ -123,22 +123,15 @@ export function Hero() {
             </SectionGate>
           </div>
         </div>
-
-        <div className="flex flex-col items-center gap-2.5 pb-1">
-          <div
-            id="tod-label"
-            className="font-mono text-[10px] tracking-[0.11em] text-white/55"
-          >
-            TIME OF DAY — {palette.phase}
-          </div>
-          <TimeDial
-            value={tod}
-            onValueChange={setTod}
-            phase={palette.phase}
-            aria-labelledby="tod-label"
-          />
-        </div>
       </div>
+
+      <TimeDial
+        value={tod}
+        onValueChange={setTod}
+        phase={palette.phase}
+        aria-label="Time of day"
+        className="absolute right-4 bottom-6 z-40 sm:right-8"
+      />
     </section>
   );
 }

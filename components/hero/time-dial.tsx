@@ -10,16 +10,37 @@ import { cn } from "@/lib/utils";
  * A rotary replacement for the hero's time-of-day slider.
  *
  * The value stays the slider's 0..100 so `todAt` and the scene props don't
- * move; only the control changes. The needle sweeps 270° with the dead gap
- * at the bottom, like a stove knob, and every few units of travel lands on a
- * detent that ticks — synthesized on the fly so no audio asset ships with
- * the hero.
+ * move; only the control changes. The needle can turn through the full circle
+ * repeatedly, wrapping the value after every revolution. Every few units of
+ * travel lands on a detent that ticks — synthesized on the fly so no audio
+ * asset ships with the hero.
  */
 
-/** Degrees of needle travel; the remaining 90° gap is centred at the bottom. */
-const SWEEP = 270;
+const FULL_TURN = 360;
 /** Value units between audible detents — 25 ticks across the full range. */
 const DETENT = 4;
+
+/**
+ * The strongest light windows around Paris on June 25, in the same local
+ * solar hours passed to @pmndrs/sky. Dawn/dusk cover -6°..0° sun elevation;
+ * the golden hours cover 0°..6°.
+ */
+const BEAUTY_ZONES = [
+  { label: "Dawn", startHour: 3.24, endHour: 4.05, color: "#c4b5fd" },
+  {
+    label: "Morning golden hour",
+    startHour: 4.05,
+    endHour: 4.78,
+    color: "#fde68a",
+  },
+  {
+    label: "Evening golden hour",
+    startHour: 19.29,
+    endHour: 20.02,
+    color: "#f59e0b",
+  },
+  { label: "Dusk", startHour: 20.02, endHour: 20.84, color: "#a78bfa" },
+] as const;
 
 const PHASE_ICON: Record<Phase, typeof Sun> = {
   NIGHT: Moon,
@@ -30,6 +51,9 @@ const PHASE_ICON: Record<Phase, typeof Sun> = {
 
 const clamp = (v: number, lo: number, hi: number) =>
   Math.min(hi, Math.max(lo, v));
+
+/** Wraps a rotary value into [0, 100), including counter-clockwise turns. */
+const wrapValue = (v: number) => ((v % 100) + 100) % 100;
 
 /**
  * One mechanical detent: a bandpassed noise burst (the click's texture) over
@@ -80,6 +104,12 @@ export function TimeDial({
   const audioRef = useRef<{ ctx: AudioContext; noise: AudioBuffer } | null>(
     null,
   );
+  const dragRef = useRef<{
+    x: number;
+    y: number;
+    lastAngle: number | null;
+    value: number;
+  } | null>(null);
   const lastDetent = useRef(Math.round(value / DETENT));
 
   useEffect(() => {
@@ -107,7 +137,7 @@ export function TimeDial({
 
   const setValue = useCallback(
     (next: number) => {
-      const v = Math.round(clamp(next, 0, 100));
+      const v = clamp(next, 0, 100);
       const detent = Math.round(v / DETENT);
       if (detent !== lastDetent.current) {
         lastDetent.current = detent;
@@ -118,17 +148,45 @@ export function TimeDial({
     [value, onValueChange, tick],
   );
 
-  /** Pointer angle from the dial centre → value along the 270° arc. */
-  const valueFromPointer = useCallback((e: React.PointerEvent) => {
-    const rect = ref.current!.getBoundingClientRect();
-    const dx = e.clientX - (rect.left + rect.width / 2);
-    const dy = e.clientY - (rect.top + rect.height / 2);
-    // 0° at twelve o'clock, clockwise positive, so the bottom gap is ±180.
-    const deg = (Math.atan2(dx, -dy) * 180) / Math.PI;
-    return ((clamp(deg, -SWEEP / 2, SWEEP / 2) + SWEEP / 2) / SWEEP) * 100;
-  }, []);
+  const updateFromPointer = useCallback(
+    (e: React.PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
 
-  const angle = -SWEEP / 2 + (clamp(value, 0, 100) / 100) * SWEEP;
+      const dx = e.clientX - drag.x;
+      const dy = e.clientY - drag.y;
+      // The exact centre has no meaningful angle. Wait until the pointer has
+      // moved far enough to establish one instead of letting atan2 pick a side.
+      if (Math.hypot(dx, dy) < 4) return;
+
+      // Zero at twelve o'clock, clockwise positive. Unwrapping the delta keeps
+      // crossing the top of the circle from looking like a 360° jump.
+      const angle = (Math.atan2(dx, -dy) * 180) / Math.PI;
+      if (drag.lastAngle === null) {
+        drag.lastAngle = angle;
+        return;
+      }
+
+      let delta = angle - drag.lastAngle;
+      if (delta > 180) delta -= FULL_TURN;
+      if (delta < -180) delta += FULL_TURN;
+
+      drag.lastAngle = angle;
+      // Keep the drag accumulator unbounded so neither direction ever hits a
+      // stop. Only the value sent to the scene wraps once per revolution.
+      drag.value += (delta / FULL_TURN) * 100;
+      setValue(wrapValue(drag.value));
+    },
+    [setValue],
+  );
+
+  const normalizedValue = wrapValue(value);
+  const angle = (normalizedValue / 100) * FULL_TURN;
+  const solarHour = (normalizedValue / 100) * 24;
+  const activeBeautyZone =
+    BEAUTY_ZONES.find(
+      (zone) => solarHour >= zone.startHour && solarHour <= zone.endHour,
+    ) ?? null;
   const Icon = PHASE_ICON[phase];
 
   return (
@@ -139,19 +197,39 @@ export function TimeDial({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(value)}
-      aria-valuetext={phase.toLowerCase()}
+      aria-valuetext={
+        activeBeautyZone
+          ? `${phase.toLowerCase()}, ${activeBeautyZone.label.toLowerCase()}`
+          : phase.toLowerCase()
+      }
       aria-orientation="vertical"
       {...aria}
       onPointerDown={(e) => {
         e.preventDefault();
+        const rect = ref.current!.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const dx = e.clientX - x;
+        const dy = e.clientY - y;
+        dragRef.current = {
+          x,
+          y,
+          lastAngle:
+            Math.hypot(dx, dy) < 4
+              ? null
+              : (Math.atan2(dx, -dy) * 180) / Math.PI,
+          value,
+        };
         ref.current?.setPointerCapture(e.pointerId);
         ref.current?.focus();
-        setValue(valueFromPointer(e));
       }}
       onPointerMove={(e) => {
         if (ref.current?.hasPointerCapture(e.pointerId)) {
-          setValue(valueFromPointer(e));
+          updateFromPointer(e);
         }
+      }}
+      onLostPointerCapture={() => {
+        dragRef.current = null;
       }}
       onKeyDown={(e) => {
         const steps: Record<string, number | undefined> = {
@@ -170,29 +248,53 @@ export function TimeDial({
         setValue(jump ?? value + (step ?? 0));
       }}
       className={cn(
-        "relative size-14 cursor-pointer touch-none rounded-full border border-white/25 bg-white/5 select-none",
+        "relative isolate size-14 shrink-0 cursor-pointer touch-none rounded-full border border-white/25 bg-white/5 select-none",
         "transition-colors hover:border-white/50 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none",
         className,
       )}
+      style={{ contain: "layout style" }}
     >
-      {/* Quarter-arc tick marks, matching the four keyframes. */}
+      {/* Day quadrants plus filled solar-lighting sweet spots. */}
       <svg
         viewBox="0 0 56 56"
         className="pointer-events-none absolute inset-0 size-full"
         aria-hidden
       >
-        {[0, 0.25, 0.5, 0.75, 1].map((t) => {
-          const a = ((-SWEEP / 2 + t * SWEEP) * Math.PI) / 180;
+        {BEAUTY_ZONES.map((zone) => {
+          const start = (zone.startHour / 24) * 100;
+          const length = ((zone.endHour - zone.startHour) / 24) * 100;
+          const active = activeBeautyZone?.label === zone.label;
+          return (
+            <circle
+              key={zone.label}
+              cx={28}
+              cy={28}
+              r={23}
+              pathLength={100}
+              fill="none"
+              stroke={zone.color}
+              strokeWidth={active ? 4 : 3}
+              strokeLinecap="round"
+              strokeDasharray={`${length} ${100 - length}`}
+              strokeDashoffset={-start}
+              transform="rotate(-90 28 28)"
+              opacity={active ? 1 : 0.62}
+            />
+          );
+        })}
+
+        {[0, 0.25, 0.5, 0.75].map((t) => {
+          const a = (t * FULL_TURN * Math.PI) / 180;
           const sin = Math.sin(a);
           const cos = Math.cos(a);
           return (
             <line
               key={t}
-              x1={28 + 22 * sin}
-              y1={28 - 22 * cos}
+              x1={28 + 21 * sin}
+              y1={28 - 21 * cos}
               x2={28 + 25 * sin}
               y2={28 - 25 * cos}
-              stroke="rgb(255 255 255 / 0.25)"
+              stroke="rgb(255 255 255 / 0.32)"
               strokeWidth={1}
               strokeLinecap="round"
             />
@@ -203,7 +305,10 @@ export function TimeDial({
       {/* The needle. No transition — it tracks the pointer 1:1. */}
       <div
         className="pointer-events-none absolute inset-0"
-        style={{ transform: `rotate(${angle}deg)` }}
+        style={{
+          transform: `translateZ(0) rotate(${angle}deg)`,
+          willChange: "transform",
+        }}
       >
         <div className="absolute top-[4px] left-1/2 h-[7px] w-[2px] -translate-x-1/2 rounded-full bg-white" />
       </div>
