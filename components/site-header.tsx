@@ -48,7 +48,7 @@ export function SiteHeader() {
           asChild
           size="sm"
           className={cn(
-            "h-8 px-4 transition-shadow duration-500",
+            "h-11 px-5 text-sm transition-shadow duration-500 sm:h-8 sm:px-4 sm:text-[0.8rem]",
             shown
               ? "shadow-none"
               : "shadow-[0_0_24px_rgba(255,255,255,0.2)]",
