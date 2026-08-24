@@ -159,15 +159,11 @@ export function FX({
   /** Lettering pass reused across render graph rebuilds. */
   const textPassRef = useRef<ReturnType<typeof TSL.pass> | null>(null);
 
-  // Release GPU resources owned by this effect.
-  useEffect(() => {
-    return () => {
-      fsrNodeRef.current?.dispose();
-      fsrNodeRef.current = null;
-      textPassRef.current?.dispose();
-      textPassRef.current = null;
-    };
-  }, []);
+  // `useRenderPipeline` deliberately keeps its pipeline alive across component
+  // cleanup (including Fast Refresh), so disposing these refs from a React
+  // cleanup would leave that live pipeline pointing at destroyed GPU resources.
+  // Rebuilds retire them transactionally in the pipeline callback below; a
+  // real Canvas teardown releases the renderer/device that owns the remainder.
 
   /** Active SSGI pass whose tuning values are runtime uniforms. */
   const ssgiPassRef = useRef<SSGIPass | null>(null);
@@ -282,23 +278,31 @@ export function FX({
       if (!renderPipeline || !passes?.scenePass) return;
       const scenePass = passes.scenePass;
 
-      // Dispose FSR3 timer queries before replacing the node.
-      fsrNodeRef.current?.dispose();
-      fsrNodeRef.current = null;
+      // Keep the active graph alive until its replacement is fully assembled.
+      // If anything below throws, fiber retains the previous outputNode, so its
+      // resources must remain valid too.
+      const retiredFsrNode = fsrNodeRef.current;
+      let nextFsrNode: FSRNodeLike | null = null;
 
       // Render glyph color and tower occlusion depth at display resolution.
-      if (!textEnabled && textPassRef.current) {
-        textPassRef.current.dispose();
-        textPassRef.current = null;
-      }
-      if (textEnabled && !textPassRef.current) {
-        textPassRef.current = TSL.pass(textLayer.scene, textLayer.camera);
-      }
-      const textTex = textPassRef.current?.getTextureNode("output");
-      // Reuse authored glyph depth when applying fog to visible text pixels.
-      const textDepth = textPassRef.current
-        ? TSL.abs(textPassRef.current.getViewZNode())
+      const previousTextPass = textPassRef.current;
+      const textPass = textEnabled
+        ? (previousTextPass ?? TSL.pass(textLayer.scene, textLayer.camera))
         : null;
+      const retiredTextPass = textEnabled ? null : previousTextPass;
+      const textTex = textPass?.getTextureNode("output");
+      // Reuse authored glyph depth when applying fog to visible text pixels.
+      const textDepth = textPass
+        ? TSL.abs(textPass.getViewZNode())
+        : null;
+
+      /** Commits graph ownership, then releases resources no longer reachable. */
+      const commitResources = () => {
+        fsrNodeRef.current = nextFsrNode;
+        textPassRef.current = textPass;
+        retiredFsrNode?.dispose();
+        retiredTextPass?.dispose();
+      };
 
       /** Composites premultiplied text after depth occlusion is resolved. */
       const overlayText = textTex
@@ -321,6 +325,7 @@ export function FX({
             : base;
         // Mark the presentation material dirty after replacing its output node.
         renderPipeline.needsUpdate = true;
+        commitResources();
         builtKeyRef.current = wantedKey;
         builtSkyRef.current = sky;
         return;
@@ -497,11 +502,10 @@ export function FX({
           camera,
           { path: "temporal", jitter: true },
         );
-        fsrNodeRef.current = fsrNode as unknown as FSRNodeLike;
+        nextFsrNode = fsrNode as unknown as FSRNodeLike;
         velocityBoundRef.current = false;
         graph = fsrNode;
       } else {
-        fsrNodeRef.current = null;
         // Use TRAA as the temporal resolver when FSR3 is disabled.
         const traaPass = traa(
           graph,
@@ -549,6 +553,7 @@ export function FX({
       renderPipeline.outputNode = graph;
       // Mark the presentation material dirty after replacing its output node.
       renderPipeline.needsUpdate = true;
+      commitResources();
       builtKeyRef.current = wantedKey;
       builtSkyRef.current = sky;
     },
