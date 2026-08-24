@@ -2,8 +2,8 @@ import { ExploreLink } from "@/components/explore-link";
 import { RevealGroup } from "@/components/motion/reveal";
 import { FlipGridCanvas } from "@/components/three/scenes";
 import { Card } from "@/components/ui/card";
-import { SECTION_COPY, WHY } from "@/lib/content";
-import { Section, SectionTitle, Wrap } from "./section";
+import { WHY } from "@/lib/content";
+import { Wrap } from "./section";
 
 /**
  * Forward-looking: what v10 and WebGPU make possible. The agentic point is one
@@ -11,7 +11,10 @@ import { Section, SectionTitle, Wrap } from "./section";
  */
 export function Why() {
   return (
-    <Section id="why" className="relative overflow-hidden">
+    <section
+      id="why"
+      className="relative overflow-hidden px-4 pt-8 pb-16 sm:px-8 md:pt-12 md:pb-24 lg:pt-14 lg:pb-28"
+    >
       {/* The tiles are the argument. Their state — flip angle, velocity, and how
           long each has left to hold — lives in a GPU storage buffer that a
           compute pass integrates; the CPU writes five floats a frame however
@@ -24,41 +27,37 @@ export function Why() {
       <FlipGridCanvas />
 
       <Wrap className="relative">
-        <RevealGroup className="max-w-[820px]">
-          <div className="eyebrow" data-reveal>
-            {SECTION_COPY.why.eyebrow}
-          </div>
-          <SectionTitle data-reveal>{SECTION_COPY.why.title}</SectionTitle>
+        <RevealGroup className="max-w-[860px]">
           <p
-            className="mt-4 text-base leading-[1.65] text-muted-foreground"
+            className="text-[24px] leading-[1.3] font-medium tracking-[-0.025em] text-foreground sm:text-[30px] lg:text-[36px]"
             data-reveal
           >
             {WHY.lede}
           </p>
-          <div className="mt-4" data-reveal>
+        </RevealGroup>
+
+        <RevealGroup className="mt-14">
+          <div className="grid gap-x-10 gap-y-9 sm:grid-cols-2 lg:grid-cols-3">
+            {WHY.points.map(({ n, t, d }) => (
+              <Card key={n} className="max-w-sm gap-0 p-6" data-reveal>
+                <h2 className="text-[18px] font-medium tracking-[-0.02em]">
+                  {t}
+                </h2>
+                <p className="mt-2.5 text-[15px] leading-[1.6] text-muted-foreground">
+                  {d}
+                </p>
+              </Card>
+            ))}
+          </div>
+
+          <div className="mt-6" data-reveal>
             <ExploreLink
               href="/demos/flip-grid"
               label="Explore the flip grid"
             />
           </div>
         </RevealGroup>
-
-        <RevealGroup className="mt-9 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {WHY.points.map(({ n, t, d }) => (
-            <Card key={n} className="gap-3 p-6" data-reveal>
-              <div className="font-mono text-[11px] font-medium text-faint">
-                {n}
-              </div>
-              <div className="text-[19px] font-semibold tracking-[-0.02em]">
-                {t}
-              </div>
-              <div className="text-[15px] leading-[1.6] text-muted-foreground">
-                {d}
-              </div>
-            </Card>
-          ))}
-        </RevealGroup>
       </Wrap>
-    </Section>
+    </section>
   );
 }

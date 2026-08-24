@@ -374,7 +374,7 @@ export function Hero() {
             </div>
           </div>
 
-          <div className="relative isolate px-4 pt-8 pb-20 sm:px-8 sm:pt-12 sm:pb-28 lg:pt-16">
+          <div className="relative isolate px-4 pt-8 pb-8 sm:px-8 sm:pt-12 sm:pb-12 lg:pt-16">
             <div className="pointer-events-none absolute inset-x-0 -top-40 bottom-0 z-0 bg-gradient-to-b from-transparent via-black/90 via-30% to-black" />
 
             <RevealGroup className="relative z-10 mx-auto max-w-[1180px]">

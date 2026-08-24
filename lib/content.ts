@@ -122,30 +122,24 @@ export const FACTS = [
   { k: "Level", v: "Intermediate" },
 ];
 
-/**
- * Forward-looking framing: what R3F and v10 make possible, and why now.
- *
- * The agentic angle lives in point 03 only — a supporting note, not the thesis.
- * See CONTENT.md §2.1: the site is "building the future with R3F", not a
- * defence of learning against AI.
- */
+/** Three workshop-ready features highlighted in the R3F v10 changelog. */
 export const WHY = {
-  lede: "WebGPU shipped. React Three Fiber v10 puts it behind an API you already know. The parts of 3D that used to need a graphics team are turning into components — and this is where you learn to build with them.",
+  lede: "Explore three of the biggest additions to R3F v10.",
   points: [
     {
       n: "01",
-      t: "React is the fastest way to build 3D",
-      d: "You already have components, hooks and state. R3F maps them straight onto the scene graph, so what you are learning is the 3D, not another framework.",
+      t: "Declarative WebGL and WebGPU",
+      d: "Use one declarative R3F API to build scenes for both WebGL and WebGPU renderers.",
     },
     {
       n: "02",
-      t: "The ecosystem is the multiplier",
-      d: "drei, rapier, postprocessing, gltfjsx. Knowing which one to reach for is most of the job, and two days with the people who build them is a shortcut you cannot read your way to.",
+      t: "A frame loop you can schedule",
+      d: "Schedule work dynamically with dependencies, coordinate it across multiple canvases, control tick rates and more.",
     },
     {
       n: "03",
-      t: "You will write the code",
-      d: "Bring your agent, we use them too. But you will type it, break it and fix it, because you cannot direct a tool through a domain you cannot read.",
+      t: "TSL built into R3F",
+      d: "Build uniforms, node graphs and postprocessing with new hooks supported in R3F's core.",
     },
   ],
 };
