@@ -104,11 +104,13 @@ function createLetterMaterial(towerGlow: THREE.PointLight) {
     // Sky response above physical so the dusk gradient clearly reads on
     // camera-facing surfaces the IBL would otherwise barely reach.
     material.envMapIntensity = 2;
-    // A whisper of self-glow so the letters never fall to pure silhouette
-    // on the dark side of the orbit — kept subtle so the sky and tower
-    // lighting carry the shading. (The halo the scene's bloom used to lend
-    // is re-applied in the composite, from the tower's own glow.)
-    material.emissiveNode = context.shader.color.mul(0.1);
+    // Self-glow does real work now: the composite no longer paints the
+    // tower's bloom back over letter pixels (type in front of the tower
+    // must show no glow through it), and that overlay was most of what
+    // made the letters read warm cream instead of dusk-lit gray. The
+    // equivalent brightness lives in the material instead — tuned so the
+    // letters match their former on-page value without the halo.
+    material.emissiveNode = context.shader.color.mul(0.4);
     return material;
   });
 }
@@ -129,13 +131,12 @@ function createLetterMaterial(towerGlow: THREE.PointLight) {
  * reference does binary layers too: its P entirely behind the tip, its
  * lower letters entirely over the base.
  *
- * - P is the threaded ring around the tip, and the one letter that mixes
- *   layers — deliberately, via `tilt` rather than an in-envelope z: its
- *   top leans behind the tower (dome pavilion inside the counter, finial
- *   out through the bowl's top band) and its bottom leans in front (the
- *   bowl's lower band lies over the shaft), with a single clean crossing
- *   at the bowl's waist instead of the per-member ambiguity an
- *   in-envelope flat letter had.
+ * - P crowns the tower, and is the one letter that mixes layers —
+ *   deliberately, via a gentle `tilt` rather than an in-envelope z: the
+ *   top leans behind so the beacon ball reads through the counter, the
+ *   bottom leans camera-ward so the letter's lower edge lies over the
+ *   pavilion — a slight overlap with one clean crossing, instead of the
+ *   per-member ambiguity an in-envelope flat letter had.
  * - N is the second "behind" letter: the mid-tower silhouette cuts its
  *   right third, the rest reads against sky and skyline.
  * - M, D, R, S float fully in front, like the reference's lower letters.
@@ -168,7 +169,7 @@ const LETTERS: {
    */
   tilt?: number;
 }[] = [
-  { char: "P", position: [-0.3, 21.2, 0], center: [0.35, 0.355], tilt: -0.61 },
+  { char: "P", position: [-0.3, 23.2, 0.2], center: [0.35, 0.355], tilt: -0.25 },
   { char: "M", position: [3.5, 17.8, 2.5], center: [0.451, 0.355] },
   { char: "N", position: [-2.8, 14.6, -3], center: [0.374, 0.355] },
   { char: "D", position: [3.2, 11.6, 4.5], center: [0.3745, 0.355] },

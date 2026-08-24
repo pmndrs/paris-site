@@ -463,31 +463,30 @@ export function FX({
        * scene depth against the letter's own depth (anything the scene
        * rendered nearer — the tower, the odd near-ring roof — wins), so
        * each letter keeps its authored layer against the lattice and the
-       * cut pattern follows the tower's spin. That boundary resolves at
-       * scene res; on the thick ironwork it hides inside the tower's bloom
-       * halo, which is what masks the resolution seam. `glow` lays the
-       * already-composited bloom back over the letters, so the tower's
-       * halo still bleeds across type it used to bleed across in-pass.
+       * cut pattern follows the tower's spin.
+       *
+       * A letter in front occludes the bloom too: `base` fades by the
+       * covered fraction with nothing added back, so no glow bleeds
+       * through type that sits in front of the tower — the letter is an
+       * opaque card, and the halo stops at its edge. (An earlier version
+       * re-added the bloom over letter pixels; the letters' cream warmth
+       * came almost entirely from that overlay, so the material now
+       * carries the equivalent brightness itself — see the emissive note
+       * in lettering.tsx.) Where the tower is in front, the scene and its
+       * glow render over the letter untouched. The cut boundary resolves
+       * at scene res; on the thick ironwork it lands inside the tower's
+       * own halo, which keeps the resolution seam from reading.
        * Alpha keeps the canvas's transparent boot window honest.
        */
       const overlayText = textTex && textDepth
-        ? (
-            baseNode: unknown,
-            textRgbNode: unknown,
-            glowNode?: unknown,
-          ) => {
+        ? (baseNode: unknown, textRgbNode: unknown) => {
             const base = baseNode as AnyVec4;
             const sceneDepth = TSL.abs(scenePass.getViewZNode());
             const vis = TSL.step(textDepth, sceneDepth);
             const covered = textTex.a.mul(vis);
-            let rgb = base.rgb
+            const rgb = base.rgb
               .mul(TSL.oneMinus(covered))
               .add((textRgbNode as AnyVec3).mul(vis)) as unknown as AnyVec3;
-            if (glowNode) {
-              rgb = rgb.add(
-                (glowNode as AnyVec4).rgb.mul(covered),
-              ) as unknown as AnyVec3;
-            }
             return TSL.vec4(rgb, TSL.max(base.a, covered));
           }
         : null;
@@ -516,13 +515,9 @@ export function FX({
 
       let graph = color;
 
-      // Held, not just added: the text composite at the end re-samples the
-      // same bloom RT to lay the tower's halo back over the letters.
-      let bloomNode: ReturnType<typeof bloom> | null = null;
       if (withBloom) {
         const emissive = scenePass.getTextureNode("emissive");
-        bloomNode = bloom(emissive, 0.5, 0.5);
-        graph = graph.add(bloomNode);
+        graph = graph.add(bloom(emissive, 0.5, 0.5));
       }
 
       // Normals are packed into a byte texture, so they come back as colour
@@ -757,10 +752,9 @@ export function FX({
       // pass exists for. Fog is applied to the type analytically: same
       // formula, same live knobs, with the text pass's per-pixel depth
       // standing in for the scene depth buffer, so the poster keeps its
-      // atmospheric seat even though it skipped the scene pass. The bloom
-      // re-add is in `overlayText` (glow argument) — pre-split, the tower's
-      // halo bled onto letter pixels in-pass; without it the sharp
-      // composite would cut a hard cream edge through the glow.
+      // atmospheric seat even though it skipped the scene pass. Bloom is
+      // part of `resolved` and letters occlude it like everything else —
+      // see the no-glow-through-type note on `overlayText`.
       if (overlayText && textTex) {
         const resolved = graph;
         graph = TSL.Fn(() => {
@@ -779,7 +773,7 @@ export function FX({
               fog.fogAmount,
             ) as unknown as AnyVec3;
           }
-          return overlayText(resolved, textRgb, bloomNode);
+          return overlayText(resolved, textRgb);
         })();
       }
 
