@@ -41,7 +41,7 @@ interface SSGIPass {
   getGINode(): unknown;
 }
 
-/** Bloom result accessor, named `getTexture` by the stale bundled types. */
+/** Bloom texture accessor. */
 interface BloomPass {
   getTextureNode(): THREE.TextureNode;
 }
@@ -144,7 +144,6 @@ export function FX({
   textEnabled = true,
   textGlow = 1,
 }: FXOptions) {
-  // The sky is null when no Sky provider is mounted.
   const sky = useSky();
 
   const useFsr = fsr;
@@ -338,8 +337,7 @@ export function FX({
       if (withBloom) {
         const emissive = scenePass.getTextureNode("emissive");
         const bloomPass = bloom(emissive, 0.5, 0.5);
-        // The pass renders once per frame; its result texture can be sampled
-        // again later without running the blur chain a second time.
+        // Reuse the result texture without running bloom again.
         bloomTex = (
           bloomPass as unknown as BloomPass
         ).getTextureNode() as unknown as AnyVec4;
@@ -521,27 +519,12 @@ export function FX({
         graph = TSL.Fn(() => {
           let textRgb = textTex.rgb as unknown as AnyVec3;
           if (bloomTex) {
-            // Read the tower bloom as the light arriving at each glyph pixel
-            // and multiply it into the glyph color, so the letters warm up
-            // where the glow reaches them instead of the glow being
-            // composited over their silhouette.
-            //
-            // Raw bloom is useless here: it falls off close to Gaussian, so
-            // it is ~0.8 against the ironwork and ~0.03 by the time it
-            // reaches the outer glyphs — a 3% lift nobody can see. The square
-            // root spreads that reach across the whole wordmark and leaves
-            // the near-tower core roughly where it was. Only the magnitude is
-            // shaped; dividing the color back out keeps the tower's amber
-            // instead of desaturating toward white as a per-channel curve
-            // would.
+            // Shape bloom luminance to extend its reach across the lettering.
+            // Restore the bloom hue before applying it to each glyph.
             const raw = bloomTex.rgb as unknown as AnyVec3;
             const level = TSL.max(TSL.luminance(raw), 1e-4);
             const lit = TSL.pow(level, 0.6).mul(glowKnobs.textGlow).min(2.0);
-            // Added as light falling on a white glyph rather than scaling
-            // what is already there: the glyph's own value is a dim floor, so
-            // a multiply would just scale the floor. Coverage keeps the light
-            // inside the silhouette, which is what separates this from the
-            // bloom being composited over the letters.
+            // Coverage keeps the added light inside each glyph.
             textRgb = textRgb.add(
               raw.div(level).mul(lit).mul(textTex.a),
             ) as unknown as AnyVec3;

@@ -21,7 +21,7 @@ export const RIVER_BUILDING_MARGIN = 6;
 /** Trees may stand on the bank but not in the water. */
 export const RIVER_TREE_MARGIN = 1.5;
 
-/** Open lawn/plaza around the tower before the Paris blocks begin. */
+/** Open area around the tower. */
 export const TOWER_CLEARING_RADIUS = 34;
 
 export function inTowerClearing(x: number, z: number, margin = 0): boolean {
@@ -108,8 +108,5 @@ export function inPark(x: number, z: number, margin = 0): boolean {
   );
 }
 
-/**
- * The stylized-building ring: beyond the tower clearing, everything this close
- * that isn't park or river gets Haussmann blocks instead of cubes.
- */
+/** Outer edge of the Haussmann block ring. */
 export const HAUSSMANN_RADIUS = 70;

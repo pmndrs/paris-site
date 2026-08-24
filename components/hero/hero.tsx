@@ -11,8 +11,7 @@ import {
   type AnimationEvent as ReactAnimationEvent,
 } from "react";
 
-import { LogoFull } from "@/components/brand/logo";
-import { SectionGate } from "@/components/sections/section-gate";
+import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { TimeDial } from "@/components/hero/time-dial";
 import { HERO, REGISTER_URL } from "@/lib/content";
@@ -246,7 +245,7 @@ export function Hero() {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
     const sync = () => {
       setReducedMotion(query.matches);
-      // The canvas replays when motion is re-enabled; reset the DOM cue too.
+      // Reset the DOM cue when the canvas animation is enabled again.
       if (sectionRef.current) {
         const nextState = query.matches ? "settled" : "out";
         if (sectionRef.current.dataset.heroUiState !== nextState) {
@@ -278,7 +277,7 @@ export function Hero() {
       id="top"
       data-hero-ui-state="out"
       onAnimationEnd={settleUiLayers}
-      className="relative flex h-svh min-h-[600px] flex-col overflow-hidden bg-background"
+      className="relative flex h-svh min-h-[500px] flex-col overflow-hidden bg-background"
     >
       <TimeOfDayExperience
         reducedMotion={reducedMotion}
@@ -286,28 +285,30 @@ export function Hero() {
         onUiReveal={revealUi}
       />
 
-      {/* z-30 — top bar */}
+      {/* The masthead leads the scene-cued UI entrance. */}
       <div
         data-hero-ui
         data-hero-ui-step="0"
         className="relative z-30 flex items-center justify-between gap-5 px-4 py-5 font-mono text-[11px] font-medium tracking-[0.11em] text-white uppercase sm:px-8"
       >
-        <div className="flex min-w-0 items-center gap-4">
-          <LogoFull color="currentColor" className="h-4 w-auto shrink-0" />
-          <span className="hidden truncate opacity-50 sm:inline">
-            Advanced R3F Workshop
-          </span>
-        </div>
         <a
-          href={REGISTER_URL}
-          className="rounded-md border border-white/30 px-3 py-1.5 whitespace-nowrap text-white transition-colors hover:border-white/60"
+          href="https://pmnd.rs/"
+          aria-label="Visit pmnd.rs"
+          className="shrink-0 transition-opacity hover:opacity-70"
         >
-          Register
+          <Logo color="currentColor" className="size-6" />
         </a>
+        <Button
+          asChild
+          size="sm"
+          className="h-8 px-4 font-sans text-sm normal-case tracking-normal shadow-[0_0_24px_rgba(255,255,255,0.2)]"
+        >
+          <a href={REGISTER_URL}>Register</a>
+        </Button>
       </div>
 
       {/* Grounds the copy against the city. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-[340px] bg-gradient-to-b from-transparent to-black to-66%" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-[280px] bg-gradient-to-b from-transparent via-black/50 to-black/90" />
 
       <div className="relative z-30 mt-auto px-4 pb-6 sm:px-8">
         <div className="max-w-2xl">
@@ -319,7 +320,7 @@ export function Hero() {
               {HERO.kicker}
             </div>
             <h1
-              className="font-semibold tracking-[-0.035em] text-white"
+              className="font-bold tracking-[-0.035em] text-white"
               style={{
                 fontSize: "clamp(34px, 5.4vw, 58px)",
                 lineHeight: 1.02,
@@ -329,25 +330,6 @@ export function Hero() {
               <br />
               {HERO.title[1]}
             </h1>
-            <p className="mt-4 max-w-[520px] text-[15px] leading-[1.55] text-white/70 lg:text-base">
-              {HERO.lede}
-            </p>
-          </div>
-          <div
-            data-hero-ui
-            data-hero-ui-step="2"
-            className="mt-5 flex flex-wrap gap-2.5"
-          >
-            <Button asChild size="lg">
-              <a href={REGISTER_URL}>Register on threejs.paris</a>
-            </Button>
-            {/* Only when there is a two-days section to land on. The short
-                version ships it off, and the hero runs on Register alone. */}
-            <SectionGate id="two-days">
-              <Button asChild size="lg" variant="outline">
-                <a href="#two-days">See the two days</a>
-              </Button>
-            </SectionGate>
           </div>
         </div>
       </div>

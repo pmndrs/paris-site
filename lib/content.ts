@@ -21,12 +21,18 @@ export type SectionId = (typeof SECTIONS)[number]["id"];
 export const HERO = {
   kicker: "September 8 & 9, 2026 · Gobelins, Paris",
   title: ["Advanced React", "Three Fiber"],
-  // "Intermediate" is the positioning and only existed in the Overview facts
-  // strip, which the short version hides. The seat count comes out rather than
-  // getting a number: the hero said thirty while the facts strip and the closer
-  // both say forty, so dropping the outlier makes the page agree with itself
-  // instead of guessing which figure is right. See COPY.md §1.
-  lede: "One day learning React Three Fiber v10 and the pmndrs ecosystem, one day building with it. Intermediate level.",
+  days: [
+    {
+      label: "Day 1",
+      body: "Learn the full R3F v10 WebGPU stack from staging to reactivity to TSL and postprocessing.",
+      highlights: ["WebGPU"],
+    },
+    {
+      label: "Day 2",
+      body: "Build something amazing. Choose between a game, product editor or creative portfolio.",
+      highlights: ["game", "product editor", "creative portfolio"],
+    },
+  ],
 };
 
 /**

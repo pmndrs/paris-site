@@ -69,11 +69,7 @@ function createLetterMaterial(
     material.lightsNode = lights([towerGlow]);
     // Increase the sky response on camera-facing glyphs.
     material.envMapIntensity = 2;
-    // A floor, not the glyph's brightness. This was 0.4, which after tone
-    // mapping was the entire visible value of a letter — the glyphs were flat
-    // emissive plates and no light could read against them. Keep just enough
-    // that a letter never drops out of the wordmark, and let the tower do the
-    // rest through the point light here and the bloom term in the composite.
+    // Keep a small emissive floor so unlit glyphs remain visible.
     material.emissiveNode = context.shader.color.mul(0.18);
     material.depthNode = depthNode;
     return material;
@@ -114,19 +110,14 @@ type Knock = {
 };
 
 /**
- * A depth band is a horizontal seam in glyph UV that decides which pixels sit
- * behind the ironwork, and it was authored against one fixed piece of tower.
- * Sliding a banded letter sideways is free — the seam still crosses the same
- * part of the glyph at the same height. Lifting or tilting it is not: the seam
- * walks off the feature it was cut for. So banded letters keep most of their
- * sway and give up their lift, the P most of all, whose seam is pinned to a
- * mast a fifth of a unit wide.
+ * Reduce lift and tilt for depth banded letters so their seams stay aligned
+ * with the tower.
  */
-/** No band: the glyph is wholly in front of or behind the tower. */
+/** Glyph has one depth layer. */
 const FREE: Knock = { sway: 0.45, lift: 0.34, spin: 0.032 };
-/** Banded across the tower's body, where the silhouette is broad. */
+/** Glyph crosses a broad tower section. */
 const BANDED: Knock = { sway: 0.36, lift: 0.18, spin: 0.018 };
-/** Threaded on the spire, where the seam is only as tall as the mast tip. */
+/** Glyph crosses the narrow spire. */
 const THREADED: Knock = { sway: 0.3, lift: 0.07, spin: 0.008 };
 
 /**
@@ -240,7 +231,7 @@ type LetterSpring = {
   vr: number;
 };
 
-/** Semi-implicit step of a damped spring, matching the hero's other springs. */
+/** Semi implicit step for a damped spring. */
 function spring(
   value: number,
   velocity: number,
@@ -256,14 +247,8 @@ function spring(
 }
 
 /**
- * Knocks letters around as the pointer passes over them.
- *
- * The hero canvas is `pointer-events: none` and sits under the copy, so there
- * is nothing to raycast against — the cursor is read off the window and
- * measured against each letter in clip space instead, which also keeps the
- * cost at one projection per letter. Each letter is a spring anchored to its
- * authored slot. Hovering pulls it away from the cursor, while a pass across
- * the stack adds velocity and leaves a wobble trailing behind it.
+ * Projects each letter into pointer space and tests the cursor sweep.
+ * Hits add velocity to springs anchored at the authored letter positions.
  */
 function usePointerKnock(
   groups: RefObject<(THREE.Group | null)[]>,
@@ -303,8 +288,7 @@ function usePointerKnock(
       if (document.hidden) park();
     };
 
-    // Motion preferences can be switched with the page open, so the listener
-    // is attached and dropped rather than decided once at mount.
+    // Update the pointer listener when motion preferences change.
     const sync = () => {
       if (reduced.matches) {
         window.removeEventListener("pointermove", onMove);
@@ -341,14 +325,10 @@ function usePointerKnock(
     const wobbleGroups = groups.current;
     const step = Math.min(frameDelta, MAX_STEP);
     const view = camera as THREE.PerspectiveCamera;
-    // Clip x spans the width, so scaling it by aspect puts both axes in
-    // half-height units and makes a letter's reach a circle rather than an
-    // ellipse.
+    // Scale clip space x by aspect so hit areas remain circular.
     const aspect = view.aspect || 1;
 
-    // Pointer travel since the last frame. Keep both ends: a fast cursor can
-    // cross an entire letter between frames, so the hit test uses the swept
-    // segment rather than only the latest point.
+    // Keep both cursor positions so fast motion uses a swept hit test.
     const now = cursor.current;
     const was = previous.current;
     const x = now.x * aspect;
@@ -379,8 +359,7 @@ function usePointerKnock(
 
     LETTERS.forEach(({ knock }, i) => {
       const group = wobbleGroups[i];
-      // The slot group above holds the authored position, so it is the stable
-      // target for the hit test — a letter cannot dodge its own knock.
+      // Test against the stable authored slot instead of the moving letter.
       const slot = group?.parent;
       if (!group || !slot) return;
       const wobble = wobbles.current[i];
@@ -392,16 +371,14 @@ function usePointerKnock(
         slot.getWorldPosition(scratch.slot);
         const depth = scratch.eye.distanceTo(scratch.slot);
         scratch.slot.project(view);
-        // Half the viewport in world units at the letter's depth, which turns
-        // the glyph's em into a clip-space reach.
+        // Convert glyph size into clip space at the letter depth.
         const halfHeight =
           Math.tan((view.fov * THREE.MathUtils.DEG2RAD) / 2) * depth;
         const reach = (size * worldScale * KNOCK_REACH) / halfHeight;
         const letterX = scratch.slot.x * aspect;
         const letterY = scratch.slot.y;
 
-        // A resting pointer gives the spring a small offset target. The slot
-        // stays fixed, so the letter cannot move its own hover area away.
+        // A resting pointer gives the spring a small offset target.
         const hoverX = letterX - x;
         const hoverY = letterY - y;
         const hoverGap = Math.hypot(hoverX, hoverY);
@@ -417,8 +394,7 @@ function usePointerKnock(
           targetSpin = -awayX * knock.spin * HOVER_OFFSET * falloff;
         }
 
-        // Find the closest point on this frame's cursor sweep. Sampling only
-        // the endpoint made quick passes jump clean over a letter.
+        // Find the closest point on the cursor sweep.
         const alongSweep =
           passing && sweepLengthSq > 1e-8
             ? THREE.MathUtils.clamp(
@@ -439,7 +415,7 @@ function usePointerKnock(
           const near = 1 - gap / reach;
           const falloff = near * near * (3 - 2 * near);
           const strength = Math.min(speed / FULL_KNOCK_SPEED, 1) * falloff;
-          // Shove the letter along the pointer's travel, and out of its way.
+          // Push the letter with and away from the pointer motion.
           const along = SHOVE / speed;
           const away = DODGE / Math.max(gap, 1e-4);
           const pushX = travel.current.x * along + toLetterX * away;
@@ -447,7 +423,7 @@ function usePointerKnock(
           const drive = strength * KNOCK_FORCE * step;
           wobble.vx += pushX * knock.sway * drive;
           wobble.vy += pushY * knock.lift * drive;
-          // An off-center hit spins the glyph: torque from the contact offset.
+          // Use the contact offset to spin the glyph.
           const armX = -toLetterX / reach;
           const armY = -toLetterY / reach;
           wobble.vSpin += (armX * pushY - armY * pushX) * knock.spin * drive;
@@ -502,15 +478,12 @@ function usePointerKnock(
         step,
       );
 
-      // The caps are a rail, not the shape of the motion: the force above
-      // settles well inside them, and they only catch a cursor that keeps
-      // scrubbing one letter.
+      // Clamp repeated hits without affecting normal spring motion.
       wobble.x = THREE.MathUtils.clamp(wobble.x, -knock.sway, knock.sway);
       wobble.y = THREE.MathUtils.clamp(wobble.y, -knock.lift, knock.lift);
       wobble.spin = THREE.MathUtils.clamp(wobble.spin, -knock.spin, knock.spin);
 
-      // Park the letter once the ring falls below a fraction of a pixel, so a
-      // settled stack stops dirtying its matrices.
+      // Park settled letters to avoid unnecessary matrix updates.
       const settling =
         Math.abs(wobble.x) +
         Math.abs(wobble.y) +
@@ -572,8 +545,7 @@ function AnimatedLetter({
     const object = group.current;
     if (!object) return;
 
-    // Motion preferences can change while the page is open. When the shared
-    // clock rewinds, restore this link so the whole chain can play from zero.
+    // Reset this link when the shared intro clock rewinds.
     if (clock.current < previousTime.current) {
       state.current = initialState();
       settled.current = false;
@@ -691,13 +663,12 @@ export function Lettering({
     [towerGlow, worldScale],
   );
 
-  /** Baseline offset measured from the committed glyph layout in em units. */
+  /** Glyph baseline offset in em units. */
   const [baselineEm, setBaselineEm] = useState<number | null>(null);
   const probeRef = useRef<TextObject<typeof msdf> | null>(null);
   useFrame(() => {
     if (baselineEm !== null) return;
     const probe = probeRef.current;
-    // Measure only after the current layout properties have been applied.
     if (!probe || probe.needsApply()) return;
     const measured = probe.measureLayout();
     if (measured) setBaselineEm(measured.firstBaseline / size);

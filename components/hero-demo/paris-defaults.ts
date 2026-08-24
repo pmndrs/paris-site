@@ -9,7 +9,7 @@ export const PARIS_CITY_DEFAULTS = {
   haussmann: true,
 } as const;
 
-/** Lighter density for the homepage; geography and authored layout stay intact. */
+/** The homepage uses lighter density. Geography and layout stay unchanged. */
 export const PARIS_HOMEPAGE_CITY_DEFAULTS = {
   ...PARIS_CITY_DEFAULTS,
   treeCount: 12_000,
