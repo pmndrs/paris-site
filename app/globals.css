@@ -88,8 +88,7 @@
   html {
     @apply font-sans;
     scroll-behavior: smooth;
-    /* Reserve the vertical scrollbar track while the loading gate locks
-       scrolling, so restoring overflow cannot change the layout width. */
+    /* Reserve scrollbar space while the gate locks scrolling. */
     scrollbar-gutter: stable;
   }
   body {
@@ -209,11 +208,7 @@
   }
 }
 
-/* First-load gate. The page stays hidden behind this until the hero canvas
-   reports its first rendered frames — assets fetched, WebGPU pipelines
-   compiled — and `components/loading-screen.tsx` flips data-state to "done".
-   Displayed only under `scripting: enabled`, like the reveal styles above:
-   with JS off nothing can ever dismiss it, so it must never appear. */
+/* Show the loading gate only when JavaScript can dismiss it. */
 [data-loading-screen] {
   display: none;
 }
@@ -245,9 +240,7 @@
   }
 }
 
-/* The logomark coin-flips about a different axis each beat: right, down,
-   left, up. Whole turns per beat, so every dwell lands on the true face — a
-   half turn would park the mark mirrored. The eased segments do the dwell. */
+/* Rotate around each edge in sequence. Full turns keep the logo face forward. */
 .loading-logo-stage {
   perspective: 480px;
 }

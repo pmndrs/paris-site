@@ -1,12 +1,10 @@
 /**
- * Shared state machine for the two client islands involved in first paint:
- * the DOM loading overlay and the WebGPU hero.
+ * Coordinates the loading overlay and WebGPU hero.
  *
  * Normal path:
  * warming -> priming-intro -> revealing-intro -> armed -> playing -> settled
  *
- * The bypass path (scroll, timeout, reduced motion, or no WebGPU) always
- * resolves to the final pose. It never rewinds an already-visible scene.
+ * Bypass paths settle on the final pose without rewinding visible animation.
  */
 export type HeroGateState =
   | "warming"
@@ -26,7 +24,7 @@ export type HeroGateEvent =
   | { type: "INTRO_FINISHED" }
   | { type: "BYPASS" };
 
-/** Pure transition function, kept separate from notification side effects. */
+/** Returns the next state without performing side effects. */
 export function transitionHeroGate(
   state: HeroGateState,
   event: HeroGateEvent,
@@ -53,12 +51,11 @@ export function transitionHeroGate(
       return state === "playing" ? "settled" : state;
 
     case "BYPASS":
-      // During warmup the scene is already held at its final rehearsal pose.
+      // Warmup already holds the final pose.
       if (state === "warming") return "revealing-final";
-      // If the start pose is being primed, render final once before revealing.
+      // Confirm the final pose before revealing it.
       if (state === "priming-intro") return "priming-final";
-      // Once the overlay is fading, a bypass may show the final pose but must
-      // never restart or rewind the lettering.
+      // Preserve the overlay fade and settle on the final pose.
       if (state === "revealing-intro") return "revealing-final";
       if (state === "armed" || state === "playing") return "settled";
       return state;

@@ -49,7 +49,7 @@ function useIdleWhenHidden(paused: boolean) {
   }, [paused, scheduler]);
 }
 
-/** The design doc's tower plate, shown when WebGPU is unavailable. */
+/** Static fallback shown when WebGPU is unavailable. */
 function FallbackPoster() {
   return (
     <div
@@ -97,8 +97,8 @@ export function TowerHero({
 
   useEffect(() => {
     if (support !== "no") return;
-    // Capability detection, rather than Canvas's fallback child, owns this
-    // transition. Canvas mounts that child invisibly even on successful boots.
+    // Canvas always mounts its fallback. Capability detection avoids
+    // bypassing the gate after a successful WebGPU boot.
     heroGate.bypass();
   }, [support]);
 
@@ -144,8 +144,6 @@ export function TowerHero({
       canvasStyle={{ pointerEvents: "none" }}
       // No WebGPU: the design doc's original tower plate, placed to match the
       // 3D framing, so the hero still shows a tower.
-      // Canvas always mounts this child inside its DOM <canvas>; it must stay
-      // pure. The capability effect above is the only fallback readiness cue.
       fallback={<FallbackPoster />}
     >
       <DepthAttachmentSync />

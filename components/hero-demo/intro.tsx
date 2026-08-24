@@ -13,11 +13,11 @@ export const INTRO_COMPLETE = 6.2;
 export const LETTER_CHAIN_START = 2.65;
 /** The letter chain is past halfway and beginning to settle. */
 export const UI_REVEAL_START = 3.72;
-/** Let the fully revealed start pose register before motion begins. */
+/** Delay playback briefly after the start pose renders. */
 const INTRO_START_BEAT = 0.3;
 
 const MAX_DT = 1 / 20;
-/** Run after the gate handoff but before clock consumers such as lettering. */
+/** Run after gate handoff and before intro clock consumers. */
 const INTRO_CLOCK_PRIORITY = 50;
 
 export function IntroClock({
@@ -28,18 +28,14 @@ export function IntroClock({
 }: {
   clock: RefObject<number>;
   enabled: boolean;
-  /**
-   * Optional first-load state machine. It hard-gates warmup, the hidden start
-   * pose, overlay exit, and playback. Without it the demo plays immediately.
-   */
+  /** Coordinates warmup, pose confirmation, overlay exit, and playback. */
   gate?: HeroGateController;
   onUiReveal?: () => void;
 }) {
   const invalidate = useThree((state) => state.invalidate);
   const cueSent = useRef(false);
   const beatElapsed = useRef(0);
-  // Mounting after the overlay has already exited means this is a client-side
-  // return, not the original handoff. Show the final pose instead of replaying.
+  // Replay only when mounted during the initial gate sequence.
   const eligibleForPlayback = useRef(
     !gate ||
       gate.getState() === "warming" ||
@@ -53,7 +49,7 @@ export function IntroClock({
     clock.current = enabled && !gate ? 0 : INTRO_COMPLETE;
     cueSent.current = !enabled;
     if (!enabled) onUiReveal?.();
-    // Request one frame so the current machine pose is applied immediately.
+    // Apply the current pose on the next frame.
     invalidate();
   }, [clock, enabled, gate, invalidate, onUiReveal]);
 
@@ -76,14 +72,13 @@ export function IntroClock({
         const state = gate.getState();
 
         if (state === "warming") {
-          // Final pose rehearsal: compile everything behind an opaque gate.
+          // Hold the final pose while the scene warms behind the overlay.
           clock.current = INTRO_COMPLETE;
           return;
         }
 
         if (state === "priming-intro" || state === "revealing-intro") {
-          // The intro remains exactly at zero through pose confirmation and
-          // the entire DOM fade. It cannot advance underneath the overlay.
+          // Hold the intro at zero until the overlay exits.
           clock.current = 0;
           beatElapsed.current = 0;
           cueSent.current = false;

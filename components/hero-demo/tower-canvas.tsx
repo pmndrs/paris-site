@@ -150,10 +150,7 @@ export interface TowerCanvasProps {
   intro?: boolean;
   /** Fires when the in-scene lettering is far enough along to reveal the UI. */
   onUiReveal?: () => void;
-  /**
-   * Optional first-load controller. When present, warmup, pose confirmation,
-   * overlay exit, and intro playback are hard-gated by its state machine.
-   */
+  /** Coordinates first-load warmup and intro playback. */
   gate?: HeroGateController;
 }
 
@@ -230,7 +227,7 @@ export function TowerCanvas({
   gate,
 }: TowerCanvasProps) {
   const towerRef = useRef<THREE.Group>(null);
-  // A gated scene opens at the final pose for its hidden dress rehearsal.
+  // Begin gated warmup at the final pose.
   const introClock = useRef(intro && !gate ? 0 : INTRO_COMPLETE);
   const towerLights = towerLightLevel({ timeOfDay, latitude, dayOfYear });
   const sunLight = useMemo(() => {

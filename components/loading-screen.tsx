@@ -9,34 +9,25 @@ import {
   heroGateOverlayHasExited,
 } from "@/lib/hero-gate";
 
-/** One flip beat — dismissing mid-flip on a warm load reads as a glitch. */
+/** Minimum display time prevents dismissal during a logo flip. */
 const MIN_SHOW_MS = 800;
-/** Backstop: a wedged canvas must never strand the page behind the gate. */
+/** Maximum wait before bypassing a stalled canvas. */
 const MAX_WAIT_MS = 15_000;
 /** Keep the counter responsive without re-rendering on every animation frame. */
 const PROGRESS_TICK_MS = 100;
 /** Hold the completed loading screen for one beat before its exit begins. */
 const EXIT_BEAT_MS = 300;
-/** Transition-end backstop for browsers that drop the event. */
+/** Transition fallback for browsers that omit the event. */
 const FADE_FALLBACK_MS = 750;
 
 /**
- * First-load gate over the whole page.
+ * Covers the page until the hero confirms its starting pose.
  *
- * Server-rendered visible — the `globals.css` rules only display it when
- * scripting is enabled — so it is in place before hydration and nothing
- * flashes. It stays up until the hero canvas reports it is warmed up:
- * assets fetched, WebGPU pipelines compiled against a hidden rehearsal of
- * the scene's final pose, and frame pacing settled — the cold-load jank
- * spent behind the gate. Then it fades out, unmounts, and the entrance
- * plays from the top.
- *
- * The document remains scroll-locked until the overlay has fully exited, so
- * the hero cannot be paused or bypassed halfway through this handshake.
+ * It renders before hydration, locks scrolling, and releases intro playback
+ * after its opacity transition finishes.
  */
 export function LoadingScreen() {
-  // A client-side return skips the gate: the module-level machine has already
-  // reached playing/settled and the pipelines it waited on remain warm.
+  // Skip the overlay after the gate has completed.
   const [gone, setGone] = useState(() =>
     heroGateOverlayHasExited(heroGate.getState()),
   );
@@ -62,8 +53,7 @@ export function LoadingScreen() {
       setProgress(100);
       fadeTimer = window.setTimeout(
         () => {
-          // Hold at full opacity, then restore the scrollbar at the exact
-          // moment the loading screen begins fading.
+          // Restore scrolling when the opacity transition starts.
           exitBeatTimer = window.setTimeout(() => {
             root.dataset.state = "done";
             fadeFallback = window.setTimeout(() => {
@@ -113,7 +103,7 @@ export function LoadingScreen() {
           event.target === event.currentTarget &&
           event.propertyName === "opacity"
         ) {
-          // Playback is hard-gated on the overlay reaching zero opacity.
+          // Start playback after the overlay reaches zero opacity.
           heroGate.overlayExited();
           setGone(true);
         }

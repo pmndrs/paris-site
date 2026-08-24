@@ -5,35 +5,23 @@ import { useFrame, useThree } from "@react-three/fiber/webgpu";
 
 import type { HeroGateController, HeroGateState } from "@/lib/hero-gate";
 
-/** A frame slower than this still counts as jank, not just a slow machine. */
+/** Maximum frame delta that counts toward warmup completion. */
 const SETTLED_DELTA = 0.04;
 /** Consecutive smooth frames before the scene counts as warmed up. */
 const SETTLED_STREAK = 12;
-/** Give up and reveal after this long — late jank beats a stranded page. */
+/** Maximum warmup duration before the scene is revealed. */
 const WARMUP_BUDGET = 8;
-/**
- * Keep the gate opaque through two renders of the rewound pose. Besides
- * removing callback-order ambiguity, the extra frame covers queued WebGPU
- * presentation before the DOM overlay begins its fade.
- */
+/** Two frames confirm the selected pose reached WebGPU presentation. */
 const POSE_CONFIRMATION_FRAMES = 2;
-/** Run before the intro and its animated dependants in the update phase. */
+/** Run before intro consumers in the update phase. */
 const HANDOFF_PRIORITY = 100;
 
 /**
- * Reports when the scene is ready to be shown without jank.
+ * Warms the scene behind the loading overlay.
  *
- * Mounted inside the canvas's `Suspense` boundary, so measuring starts only
- * once every asset in the tree (tower model, glyph font, sky) has resolved.
- * While the gate is `warming`, IntroClock parks at the final pose, so every
- * draw the entrance will ever issue is on screen behind the opaque overlay.
- * Once frame pacing settles, the machine moves to `priming-intro`; the clock
- * rewinds, and two finish-phase confirmations must render before the overlay
- * may fade. Playback remains blocked until the overlay reports its own exit.
- *
- * `invalidate` keeps demand-mode frameloops ticking until the streak lands.
- * `useFrame` never fires while the render job is paused, which is why the
- * loading screen keeps its own escape hatches.
+ * It measures frame pacing after assets resolve and confirms the selected pose
+ * before allowing the overlay to exit. Demand rendering continues until each
+ * phase completes.
  */
 export function WarmupProbe({
   gate,
@@ -56,8 +44,7 @@ export function WarmupProbe({
         gateState === "priming-final" &&
         confirmingState.current !== gateState
       ) {
-        // A bypass landed after the intro had rewound. Confirm the restored
-        // final pose before allowing the overlay to continue its exit.
+        // Confirm the final pose before the overlay continues fading.
         confirmingState.current = gateState;
         confirmationFrames.current = POSE_CONFIRMATION_FRAMES;
         invalidate();
@@ -76,8 +63,7 @@ export function WarmupProbe({
 
       gate.warmupFinished(replayIntro);
       if (gate.getState() === "priming-intro") {
-        // IntroClock runs later in this update phase and applies time zero to
-        // every animation subscriber before the renderer sees the scene.
+        // IntroClock applies time zero before the renderer submits the scene.
         confirmingState.current = "priming-intro";
         confirmationFrames.current = POSE_CONFIRMATION_FRAMES;
         invalidate();
@@ -102,8 +88,7 @@ export function WarmupProbe({
         return;
       }
 
-      // The renderer has submitted the requested pose twice. Only this event
-      // can open the next gate and allow the loading overlay to fade.
+      // Reveal after WebGPU submits the selected pose twice.
       confirmingState.current = null;
       gate.poseRendered();
     },
