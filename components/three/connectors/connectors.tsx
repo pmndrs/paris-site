@@ -20,6 +20,8 @@ import type { ConnectorsConfig } from "./config";
 import { ConnectorsEnvironment } from "./environment";
 import { getShape, shapeRadius, type ShapeKind } from "./shapes";
 
+import { useSectionOnScreen } from "@/components/three/section-canvas";
+
 /**
  * A container with no walls.
  *
@@ -128,6 +130,12 @@ export function ConnectorsScene({
    */
   bounds: RefObject<HTMLElement | null>;
 }) {
+  // Body sleep (see `Bodies`) quiets a settled pile, but the solver still
+  // steps every frame. Off screen, stop stepping entirely — this is the one
+  // scene whose per-frame cost is CPU physics rather than its (already
+  // skipped) render pass.
+  const onScreen = useSectionOnScreen();
+
   return (
     <>
       <ConnectorsEnvironment config={config} />
@@ -135,7 +143,7 @@ export function ConnectorsScene({
           Nothing renders in the meantime, which is the right answer for a
           backdrop — a half-built pile appearing would be worse than none. */}
       <Suspense fallback={null}>
-        <Physics gravity={[0, 0, 0]}>
+        <Physics gravity={[0, 0, 0]} paused={!onScreen}>
           <Cursor bounds={bounds} radius={config.pointerRadius} />
           <Bodies config={config} />
         </Physics>
@@ -163,8 +171,14 @@ function Bodies({ config }: { config: ConnectorsConfig }) {
   const wanted = useRef(new Color());
 
   const palette = [config.dark, config.light, config.accent];
+  const onScreen = useSectionOnScreen();
 
   useFrame(({ viewport }, delta) => {
+    // Impulses land on velocities immediately, stepped or not — feeding them
+    // into a paused world would wind the pile up like a spring and release it
+    // all at once on scroll-back.
+    if (!onScreen) return;
+
     const reach = (viewport.width / 2) * config.spreadX;
 
     bodies.forEach((body, i) => {

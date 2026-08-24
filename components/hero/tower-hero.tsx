@@ -9,6 +9,7 @@ import {
   PARIS_HOMEPAGE_CITY_DEFAULTS,
 } from "@/components/hero-demo/paris-defaults";
 import { TowerCanvas } from "@/components/hero-demo/tower-canvas";
+import { isMobileDevice } from "@/lib/device-profile";
 import { heroGate } from "@/lib/hero-gate";
 import { useWebGPU } from "@/lib/use-webgpu";
 
@@ -126,6 +127,13 @@ export function TowerHero({
   const daylight = t * t * (3 - 2 * t);
   const exposure = 40 + (6 - 40) * daylight;
 
+  // The hero already runs well on iOS, so phones trade only resolution FSR
+  // makes near-invisible — never scene content. The DPR ceiling shrinks the
+  // full-resolution stages (reconstruction, lettering, present) ~23%; FSR
+  // "Balanced" trims the scene pass another ~22% under the same temporal
+  // resolve. AO, stars, shadows, and city density are identical everywhere.
+  const mobile = isMobileDevice();
+
   return (
     <TowerCanvas
       {...PARIS_HOMEPAGE_CITY_DEFAULTS}
@@ -139,6 +147,11 @@ export function TowerHero({
       autoRotateSpeed={reducedMotion ? 0 : 1}
       frameloop={reducedMotion ? "demand" : "always"}
       intro={!reducedMotion}
+      dpr={mobile ? [1, 1.75] : [1, 2]}
+      renderScale={mobile ? 1.7 : 1.5}
+      // The homepage never enables SSGI, so don't let the widened device
+      // limit it needs fail canvas creation on adapters that lack it.
+      reserveSsgiHeadroom={false}
       onUiReveal={onUiReveal}
       gate={heroGate}
       canvasStyle={{ pointerEvents: "none" }}

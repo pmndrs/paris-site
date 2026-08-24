@@ -3,7 +3,7 @@
  * Lifted from the `renderVals()` block of the original design doc.
  */
 
-export const REGISTER_URL = "https://threejs.paris/";
+export const REGISTER_URL = "https://threejs.paris/workshop";
 
 export const SECTIONS = [
   { id: "overview", label: "Overview" },
@@ -26,7 +26,7 @@ export const HERO = {
   days: [
     {
       label: "Day 1",
-      body: "Learn the full R3F v10 WebGPU stack from staging to reactivity to TSL and postprocessing.",
+      body: "Learn the full R3F v10 WebGPU stack from staging to reactivity to TSL and postprocessing. We'll break down the Paris hero and more.",
       highlights: ["WebGPU"],
     },
     {

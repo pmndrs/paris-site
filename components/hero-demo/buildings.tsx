@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { useFrame, useLocalNodes } from "@react-three/fiber/webgpu";
 import {
   attribute,
@@ -115,7 +121,11 @@ function useBuildPosition(
     if (uTime.value !== clock.current) uTime.value = clock.current;
   });
 
-  return useLocalNodes(() => {
+  // `useLocalNodes` memoizes on the creator's identity, so an inline arrow
+  // rebuilds the whole TSL graph on every render — and a fresh `positionNode`
+  // makes R3F flag `material.needsUpdate`, which costs a full WGSL recompile
+  // of every instanced mesh. Keep the creator stable.
+  const createPositionNodes = useCallback(() => {
     return {
       positionNode: Fn(() => {
         const verticalGrowth = float(1).toVar();
@@ -166,7 +176,9 @@ function useBuildPosition(
         );
       })(),
     };
-  }).positionNode;
+  }, [uTime, ground, motion]);
+
+  return useLocalNodes(createPositionNodes).positionNode;
 }
 
 export function Buildings({

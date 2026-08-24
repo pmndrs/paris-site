@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -230,6 +231,29 @@ type LetterSpring = {
   vy: number;
   vr: number;
 };
+
+type LetterPose = LetterSpring & {
+  phase: "uninitialized" | "animating" | "settled";
+  previousTime: number;
+};
+
+type LetterPoseAction = "reset" | "animate" | "finish" | "hold";
+
+/** The only legal pose transition for the current clock and transform. */
+function gateLetterPose(
+  pose: LetterPose,
+  time: number,
+  settledPoseIsValid: boolean,
+): LetterPoseAction {
+  if (pose.phase === "uninitialized") {
+    return time >= INTRO_COMPLETE ? "finish" : "reset";
+  }
+  if (time < pose.previousTime) return "reset";
+  if (time >= INTRO_COMPLETE || pose.phase === "settled") {
+    return settledPoseIsValid ? "hold" : "finish";
+  }
+  return "animate";
+}
 
 /** Semi implicit step for a damped spring. */
 function spring(
@@ -525,95 +549,138 @@ function AnimatedLetter({
 }) {
   const group = useRef<THREE.Group>(null);
   const side = index % 2 === 0 ? -1 : 1;
-  // Begin on the tower axis, just below the final slot. The letter is fully
-  // sized but transparent, so its first readable motion is outward.
-  const initialX = 0;
-  const initialY = target[1] - 1.15;
-  const initialState = (): LetterSpring => ({
-    x: initialX,
-    y: initialY,
+  const targetX = target[0];
+  const targetY = target[1];
+  const targetRef = useRef({ x: targetX, y: targetY });
+  targetRef.current.x = targetX;
+  targetRef.current.y = targetY;
+
+  const pose = useRef<LetterPose>({
+    x: 0,
+    y: targetY - 1.15,
     rotation: -side * 0.18,
     vx: 0,
     vy: 0,
     vr: 0,
+    phase: "uninitialized",
+    previousTime: clock.current,
   });
-  const state = useRef<LetterSpring>(initialState());
-  const settled = useRef(false);
-  const previousTime = useRef(clock.current);
 
+  const applyPose = useCallback(
+    (phase: "animating" | "settled") => {
+      const object = group.current;
+      if (!object) return;
+      const destination = targetRef.current;
+      const finished = phase === "settled";
+      const x = finished ? destination.x : 0;
+      const y = finished ? destination.y : destination.y - 1.15;
+      const rotation = finished ? 0 : -side * 0.18;
+
+      Object.assign(pose.current, {
+        x,
+        y,
+        rotation,
+        vx: 0,
+        vy: 0,
+        vr: 0,
+        phase,
+      });
+      object.position.set(x, y, 0);
+      object.rotation.z = rotation;
+      reveal.value = finished ? 1 : 0;
+    },
+    [reveal, side],
+  );
+
+  /**
+   * Transform invariants:
+   * 1. JSX never owns the live position or rotation.
+   * 2. Only `applyPose` and this frame step write the transform.
+   * 3. A settled pose is held unless the clock rewinds or its target changes.
+   */
   useFrame((_, frameDelta) => {
     const object = group.current;
     if (!object) return;
+    const current = pose.current;
+    const destination = targetRef.current;
+    const time = clock.current;
+    const settledPoseIsValid =
+      current.phase === "settled" &&
+      current.x === destination.x &&
+      current.y === destination.y &&
+      object.position.x === destination.x &&
+      object.position.y === destination.y &&
+      object.position.z === 0 &&
+      object.rotation.z === 0;
+    const action = gateLetterPose(current, time, settledPoseIsValid);
+    current.previousTime = time;
 
-    // Reset this link when the shared intro clock rewinds.
-    if (clock.current < previousTime.current) {
-      state.current = initialState();
-      settled.current = false;
-      object.position.set(initialX, initialY, 0);
-      object.rotation.z = -side * 0.18;
-      reveal.value = 0;
+    if (action === "reset") {
+      applyPose("animating");
+      return;
     }
-    previousTime.current = clock.current;
-
-    const finish = () => {
-      object.position.set(target[0], target[1], 0);
-      object.rotation.z = 0;
-      reveal.value = 1;
-    };
-
-    if (clock.current >= INTRO_COMPLETE) {
-      finish();
-      settled.current = true;
+    if (action === "finish") {
+      applyPose("settled");
+      return;
+    }
+    if (action === "hold") {
       return;
     }
 
     const release = LETTER_CHAIN_START + index * 0.14;
-    if (clock.current < release) {
+    if (time < release) {
       reveal.value = 0;
       return;
     }
-    if (settled.current) return;
 
     const dt = Math.min(frameDelta, 1 / 30);
-    const s = state.current;
-    [s.x, s.vx] = spring(s.x, s.vx, target[0], 76, 6.7, dt);
-    [s.y, s.vy] = spring(s.y, s.vy, target[1], 88, 7.3, dt);
-    [s.rotation, s.vr] = spring(s.rotation, s.vr, 0, 72, 6.8, dt);
+    [current.x, current.vx] = spring(
+      current.x,
+      current.vx,
+      destination.x,
+      76,
+      6.7,
+      dt,
+    );
+    [current.y, current.vy] = spring(
+      current.y,
+      current.vy,
+      destination.y,
+      88,
+      7.3,
+      dt,
+    );
+    [current.rotation, current.vr] = spring(
+      current.rotation,
+      current.vr,
+      0,
+      72,
+      6.8,
+      dt,
+    );
 
     const revealProgress = THREE.MathUtils.clamp(
-      (clock.current - release) / 0.26,
+      (time - release) / 0.26,
       0,
       1,
     );
     reveal.value = revealProgress * revealProgress * (3 - 2 * revealProgress);
 
-    object.position.set(s.x, s.y, 0);
-    object.rotation.z = s.rotation;
+    object.position.set(current.x, current.y, 0);
+    object.rotation.z = current.rotation;
 
     const error =
-      Math.abs(s.x - target[0]) +
-      Math.abs(s.y - target[1]) +
-      Math.abs(s.rotation);
-    const speed = Math.abs(s.vx) + Math.abs(s.vy) + Math.abs(s.vr);
+      Math.abs(current.x - destination.x) +
+      Math.abs(current.y - destination.y) +
+      Math.abs(current.rotation);
+    const speed =
+      Math.abs(current.vx) + Math.abs(current.vy) + Math.abs(current.vr);
     if (error < 0.002 && speed < 0.01) {
-      finish();
-      settled.current = true;
+      applyPose("settled");
     }
   });
 
-  const finishedAtMount = clock.current >= INTRO_COMPLETE;
-
-  return (
-    <group
-      ref={group}
-      position={
-        finishedAtMount ? [target[0], target[1], 0] : [initialX, initialY, 0]
-      }
-      rotation-z={finishedAtMount ? 0 : -side * 0.18}
-    >
-      {children}
-    </group>
-  );
+  return <group ref={group}>{children}</group>;
 }
 
 export function Lettering({

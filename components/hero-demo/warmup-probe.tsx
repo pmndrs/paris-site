@@ -16,6 +16,11 @@ const POSE_CONFIRMATION_FRAMES = 2;
 /** Run before intro consumers in the update phase. */
 const HANDOFF_PRIORITY = 100;
 
+/** R3F's state type is shared with WebGL, but this module uses its WebGPU entry. */
+function getRenderCallCount(renderer: { info: unknown }): number {
+  return (renderer.info as { calls: number }).calls;
+}
+
 /**
  * Warms the scene behind the loading overlay.
  *
@@ -26,18 +31,23 @@ const HANDOFF_PRIORITY = 100;
 export function WarmupProbe({
   gate,
   replayIntro,
+  maxFps = 0,
 }: {
   gate: HeroGateController;
   replayIntro: boolean;
+  /** Match the canvas render job; zero means both remain uncapped. */
+  maxFps?: number;
 }) {
   const invalidate = useThree((state) => state.invalidate);
   const elapsed = useRef(0);
   const streak = useRef(0);
   const confirmationFrames = useRef(0);
   const confirmingState = useRef<HeroGateState | null>(null);
+  const lastRenderCall = useRef(0);
+  const frameRate = maxFps > 0 ? { fps: maxFps } : {};
 
   useFrame(
-    (_, delta) => {
+    ({ renderer }, delta) => {
       const gateState = gate.getState();
 
       if (
@@ -47,6 +57,7 @@ export function WarmupProbe({
         // Confirm the final pose before the overlay continues fading.
         confirmingState.current = gateState;
         confirmationFrames.current = POSE_CONFIRMATION_FRAMES;
+        lastRenderCall.current = getRenderCallCount(renderer);
         invalidate();
         return;
       }
@@ -66,14 +77,15 @@ export function WarmupProbe({
         // IntroClock applies time zero before the renderer submits the scene.
         confirmingState.current = "priming-intro";
         confirmationFrames.current = POSE_CONFIRMATION_FRAMES;
+        lastRenderCall.current = getRenderCallCount(renderer);
         invalidate();
       }
     },
-    { phase: "update", priority: HANDOFF_PRIORITY },
+    { phase: "update", priority: HANDOFF_PRIORITY, ...frameRate },
   );
 
   useFrame(
-    () => {
+    ({ renderer }) => {
       if (confirmationFrames.current === 0) return;
 
       if (gate.getState() !== confirmingState.current) {
@@ -81,6 +93,17 @@ export function WarmupProbe({
         confirmingState.current = null;
         return;
       }
+
+      // Finish-phase callbacks still run at the display's refresh rate when
+      // the render job is capped. Only count a confirmation when Three's
+      // monotonic render-call counter proves that the selected pose was
+      // actually submitted during this scheduler frame.
+      const renderCall = getRenderCallCount(renderer);
+      if (renderCall === lastRenderCall.current) {
+        invalidate();
+        return;
+      }
+      lastRenderCall.current = renderCall;
 
       confirmationFrames.current -= 1;
       if (confirmationFrames.current > 0) {
@@ -92,7 +115,7 @@ export function WarmupProbe({
       confirmingState.current = null;
       gate.poseRendered();
     },
-    { phase: "finish" },
+    { phase: "finish", ...frameRate },
   );
 
   return null;

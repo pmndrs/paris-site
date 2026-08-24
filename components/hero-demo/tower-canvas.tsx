@@ -132,6 +132,31 @@ export interface TowerCanvasProps {
   tower?: boolean;
   environment?: boolean;
   shadows?: boolean;
+  // performance envelope
+  /**
+   * Caps the render job's rate. ProMotion phones and 120Hz monitors
+   * otherwise drive the whole pipeline at 120fps — twice the GPU work for
+   * motion this scene doesn't need, and on iOS the difference between an
+   * entrance that holds its frame budget and one that thermally sags partway
+   * through. `0` lifts the cap (the lab measures uncapped throughput).
+   */
+  maxFps?: number;
+  /**
+   * Device pixel ratio range, as r3f's `dpr`. The ceiling scales the stages
+   * FSR's `renderScale` cannot touch — the reconstruction itself, the
+   * full-resolution lettering pass, and the present — so it is the knob for
+   * devices where those are the budget.
+   */
+  dpr?: [number, number];
+  /**
+   * Requests the widened `maxColorAttachmentBytesPerSample` device limit the
+   * five SSGI attachments need. Without SSGI the MRT layout fits WebGPU's
+   * default 32 bytes, and asking for headroom the adapter can't grant fails
+   * device creation outright — a hero that shows the fallback poster on
+   * devices that could have run it. The lab keeps the headroom so its SSGI
+   * toggle works live; surfaces that never enable SSGI should turn this off.
+   */
+  reserveSsgiHeadroom?: boolean;
   // host integration
   /** Performance samples are collected only when this callback is set. */
   onSample?: (s: PerfSample) => void;
@@ -215,6 +240,9 @@ export function TowerCanvas({
   tower = true,
   environment = false,
   shadows = true,
+  maxFps = 60,
+  dpr = [1, 2],
+  reserveSsgiHeadroom = true,
   onSample,
   tools = false,
   canvasId,
@@ -278,7 +306,9 @@ export function TowerCanvas({
         onUiReveal={onUiReveal}
       />
 
-      {gate && <WarmupProbe gate={gate} replayIntro={intro} />}
+      {gate && (
+        <WarmupProbe gate={gate} replayIntro={intro} maxFps={maxFps} />
+      )}
 
       {/* Stars use their own dome radius and render target pixel size. */}
       {stars && (
@@ -399,9 +429,12 @@ export function TowerCanvas({
         // Keep the canvas transparent until the sky background is ready.
         alpha: true,
         // The five SSGI attachments require at least 40 bytes per sample.
-        requiredLimits: { maxColorAttachmentBytesPerSample: 64 },
+        ...(reserveSsgiHeadroom
+          ? { requiredLimits: { maxColorAttachmentBytesPerSample: 64 } }
+          : {}),
+        ...(maxFps ? { scheduler: { fps: maxFps } } : {}),
       }}
-      dpr={[1, 2]}
+      dpr={dpr}
       forceEven
       style={canvasStyle}
       fallback={fallback}
