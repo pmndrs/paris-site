@@ -1,7 +1,6 @@
 import { Hero } from "@/components/hero/hero";
 import { Closer } from "@/components/sections/closer";
 import { Faq } from "@/components/sections/faq";
-import { Instructors } from "@/components/sections/instructors";
 import { Outcomes } from "@/components/sections/outcomes";
 import { Overview } from "@/components/sections/overview";
 import { Setup } from "@/components/sections/setup";
@@ -22,7 +21,6 @@ export default function Page() {
         <Why />
         <Outcomes />
         <TwoDays />
-        <Instructors />
         <Setup />
         <Venue />
         <Faq />

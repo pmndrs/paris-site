@@ -231,8 +231,6 @@ export const TRACKS = [
   },
 ];
 
-const FLOOR_BIO = "On hand through both days for setup and one-to-one help.";
-
 /**
  * The `role` line is a credential, not a rank.
  *
@@ -242,23 +240,44 @@ const FLOOR_BIO = "On hand through both days for setup and one-to-one help.";
  * track on day two is real information, so it moves into the bio, where it is a
  * fact about the schedule rather than a label on a person.
  */
-export const PEOPLE = [
+export interface Instructor {
+  name: string;
+  role: string;
+  bio: string;
+  github: string;
+  /** Add a public asset path when a small profile photo is available. */
+  image?: string;
+}
+
+export const PEOPLE: readonly Instructor[] = [
   {
     name: "Dennis Smolek",
     role: "pmndrs core",
-    bio: "Wrote React Three Fiber v10, and builds production R3F for a living. Leads a track on day two.",
+    bio: "Author of React Three Fiber v10 and builds production R3F for a living.",
+    github: "https://github.com/DennisSmolek",
+    image: "/instructors/dennis-smolek.jpg",
   },
   {
     name: "Kris Baumgartner",
     role: "pmndrs core",
-    // TODO: name the libraries. "Several of the libraries" is true but soft —
-    // two or three names would do far more work here than the sentence does.
-    bio: "Wrote several of the libraries you will use, and works on rendering and performance. Leads a track on day two.",
+    bio: "Poimandres organizer, Koota author, and maintainer of the ecosystem.",
+    github: "https://github.com/krispya",
+    image: "/instructors/kris-baumgartner.png",
   },
-  // Surnames pending — first names are correct, so ship those rather than a
-  // public "TBC". Fill in when Dennis has them.
-  { name: "Ava", role: "Interactive developer", bio: FLOOR_BIO },
-  { name: "Faraz", role: "pmndrs contributor", bio: FLOOR_BIO },
+  {
+    name: "Faraz Shaikh",
+    role: "pmndrs contributor",
+    bio: "Senior graphics programmer, technical artist, and maintainer at Poimandres.",
+    github: "https://github.com/farazzshaikh",
+    image: "/instructors/faraz-shaikh.jpg",
+  },
+  {
+    name: "Ava Lehner",
+    role: "Interactive developer",
+    bio: "Former education lobbyist turned creative developer working with Poimandres.",
+    github: "https://github.com/avalehner",
+    image: "/instructors/ava-lehner.jpg",
+  },
 ];
 
 export const PREREQ_GROUPS = [

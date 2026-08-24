@@ -13,6 +13,7 @@ import {
 
 import { RevealGroup } from "@/components/motion/reveal";
 import { TimeDial } from "@/components/hero/time-dial";
+import { Instructors } from "@/components/sections/instructors";
 import { HERO } from "@/lib/content";
 import { skyGradient, todAt } from "@/lib/time-of-day";
 
@@ -403,6 +404,8 @@ export function Hero() {
                   </article>
                 ))}
               </div>
+
+              <Instructors />
             </RevealGroup>
           </div>
         </div>
