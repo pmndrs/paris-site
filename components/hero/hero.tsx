@@ -278,7 +278,7 @@ export function Hero() {
       id="top"
       data-hero-ui-state="out"
       onAnimationEnd={settleUiLayers}
-      className="relative flex h-svh min-h-[700px] flex-col overflow-hidden bg-background"
+      className="relative flex h-svh min-h-[600px] flex-col overflow-hidden bg-background"
     >
       <TimeOfDayExperience
         reducedMotion={reducedMotion}
