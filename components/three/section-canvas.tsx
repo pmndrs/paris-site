@@ -13,6 +13,7 @@ import {
 
 import { DepthAttachmentSync } from "./depth-attachment-sync";
 
+import { isMobileDevice } from "@/lib/device-profile";
 import { useWebGPU } from "@/lib/use-webgpu";
 
 /**
@@ -142,6 +143,11 @@ export function SectionCanvas({
 
   if (!mounted) return null;
 
+  // Phones trim the decoration budget: these canvases are backdrops behind
+  // text, and every pixel they draw competes with the hero for the same
+  // mobile GPU. The hero itself keeps its full frame rate — see tower-hero.
+  const mobile = isMobileDevice();
+
   return (
     <Canvas
       ref={canvasRef}
@@ -149,7 +155,7 @@ export function SectionCanvas({
       className={className}
       orthographic={orthographic}
       camera={camera}
-      dpr={[1, 1.75]}
+      dpr={mobile ? [1, 1.5] : [1, 1.75]}
       // Sections are laid out on a fractional grid, so a bare
       // getBoundingClientRect flaps between e.g. 148.4 and 148.6 as the page
       // scrolls — each flip resizes the swap chain and desyncs the depth
@@ -166,7 +172,7 @@ export function SectionCanvas({
         primaryCanvas: PRIMARY,
         // Draw after the hero each frame, at half its rate. These are
         // backdrops; nobody is looking for 60fps in them.
-        scheduler: { after: PRIMARY, fps },
+        scheduler: { after: PRIMARY, fps: mobile ? Math.min(fps, 30) : fps },
       }}
       // Backgrounds must never eat clicks or text selection. Where a scene
       // needs the cursor it reads it from the window instead. Interactive

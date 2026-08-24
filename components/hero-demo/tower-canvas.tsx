@@ -142,6 +142,13 @@ export interface TowerCanvasProps {
    */
   maxFps?: number;
   /**
+   * Device pixel ratio range, as r3f's `dpr`. The ceiling scales the stages
+   * FSR's `renderScale` cannot touch — the reconstruction itself, the
+   * full-resolution lettering pass, and the present — so it is the knob for
+   * devices where those are the budget.
+   */
+  dpr?: [number, number];
+  /**
    * Requests the widened `maxColorAttachmentBytesPerSample` device limit the
    * five SSGI attachments need. Without SSGI the MRT layout fits WebGPU's
    * default 32 bytes, and asking for headroom the adapter can't grant fails
@@ -234,6 +241,7 @@ export function TowerCanvas({
   environment = false,
   shadows = true,
   maxFps = 60,
+  dpr = [1, 2],
   reserveSsgiHeadroom = true,
   onSample,
   tools = false,
@@ -424,7 +432,7 @@ export function TowerCanvas({
           : {}),
         ...(maxFps ? { scheduler: { fps: maxFps } } : {}),
       }}
-      dpr={[1, 2]}
+      dpr={dpr}
       forceEven
       style={canvasStyle}
       fallback={fallback}
