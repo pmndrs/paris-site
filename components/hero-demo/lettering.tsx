@@ -120,27 +120,27 @@ function createLetterMaterial(towerGlow: THREE.PointLight) {
  *
  * The z is the letter's view-axis offset from the tower axis (+ toward the
  * camera — the Billboard re-aims each frame, so the offset means the same
- * thing at every orbit and spin angle). It picks each letter's layer against
- * the rotating lattice: outside the tower's sweep envelope at that height
- * the layering is stable (always in front / always behind the near
- * ironwork); inside it, the interleave animates as corners sweep past.
- * The reference poster's weave, re-authored against the spin:
+ * thing at every orbit and spin angle), and it is always authored OUTSIDE
+ * the tower's sweep envelope at the letter's height: each letter is fully
+ * behind the tower or fully in front of it, in every spin pose. A letter
+ * *inside* the envelope is simultaneously behind the near ironwork and in
+ * front of the far ironwork, and that half-woven state read as an
+ * impossible object (and, over the bloom, as broken occlusion) — the
+ * reference does binary layers too: its P entirely behind the tip, its
+ * lower letters entirely over the base.
  *
- * - P sits so the spire threads its bowl: bowl centered on the axis, low
- *   enough that the cone/mast/beacon cross the counter and the tip pokes
- *   out the top — and nudged just behind the axis so the mast, which IS
- *   the axis, is always the thing in front, pose-invariant.
- * - M rides camera-ward of the axis: mostly in front, cut by the upper
- *   body where it crosses the core. N holds the centerline weave.
- * - D and R sit just camera-ward of the axis — enough that the near half
- *   of the lattice still sweeps across their inner edges (the visible
- *   weave at the hero's framing) without the full centerline cut.
- * - S is the compromise: the base is dense and bloom-hot, and a letter
- *   deep inside it just gets eaten (headless pass showed R reduced to a P
- *   and S erased entirely) — so S floats at mid-base depth, woven by the
- *   near legs but in front of the furnace. It also rides higher than the
- *   old layout: below y≈4 the near-ring rooftops (real scene depth, much
- *   closer than the tower) blank out the whole letter band.
+ * - P is behind, and placed as a ring around the tip: bowl centered on
+ *   the axis, low enough that the dome pavilion sits inside the counter,
+ *   the finial exits through the bowl's top band, and the shaft cuts the
+ *   bowl's bottom — every crossing consistently tower-in-front.
+ * - N is the second "behind" letter: the mid-tower silhouette cuts its
+ *   right third, the rest reads against sky and skyline.
+ * - M, D, R, S float fully in front, like the reference's lower letters.
+ *   Fully-behind doesn't survive down there: the lower tower is dense and
+ *   bloom-hot, and an occluded letter just gets eaten (headless pass
+ *   showed R reduced to a P and S erased entirely). S also rides higher
+ *   than the old layout: below y≈4 the near-ring rooftops (real scene
+ *   depth, much closer than the tower) blank out the whole letter band.
  *
  * `center` is the letter's outline-bbox center in em units, measured with
  * opentype.js against the same TTF the GLB is baked from. The old
@@ -153,12 +153,12 @@ const LETTERS: {
   position: [number, number, number];
   center: [number, number];
 }[] = [
-  { char: "P", position: [-1, 22.3, -0.4], center: [0.35, 0.355] },
-  { char: "M", position: [3, 19.7, 1.2], center: [0.451, 0.355] },
-  { char: "N", position: [-3.5, 15.9, 0], center: [0.374, 0.355] },
-  { char: "D", position: [4, 12.1, 0.5], center: [0.3745, 0.355] },
-  { char: "R", position: [-5, 8.3, 0.5], center: [0.357, 0.355] },
-  { char: "S", position: [6, 5.5, 2.5], center: [0.334, 0.355] },
+  { char: "P", position: [-0.3, 21.2, -1.2], center: [0.35, 0.355] },
+  { char: "M", position: [3, 19.7, 2.5], center: [0.451, 0.355] },
+  { char: "N", position: [-3.5, 15.9, -3], center: [0.374, 0.355] },
+  { char: "D", position: [4, 12.1, 4], center: [0.3745, 0.355] },
+  { char: "R", position: [-5, 8.3, 5], center: [0.357, 0.355] },
+  { char: "S", position: [6, 5.5, 7], center: [0.334, 0.355] },
 ];
 
 export function Lettering({

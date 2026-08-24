@@ -41,14 +41,16 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
       letter carries its own authored z; the tower's bloom is laid back over
       them) — judge the glyph edges and the occlusion boundary through the
       ironwork instead.
-- [ ] **Letter weave** (`letter-intersect`) — the letters now interleave the
-      ironwork per pixel and each holds its own layer: P hangs off the tip
-      with the mast threading in front of it; M/D mostly in front, grazed by
-      corner sweeps; N centerline; R/S camera-ward of the lower tower. Watch
-      a full spin: every letter should stay readable in every pose (headless
-      passes verified two poses — R once read as a P, S once vanished into
-      the base bloom; both re-authored). The taste calls are each letter's
-      z and the P's exact hang; all in `LETTERS` (lettering.tsx).
+- [ ] **Letter layering** (`letter-intersect`) — every letter is fully
+      behind the tower or fully in front, never half-woven (z authored
+      outside the sweep envelope): P rings the tip — dome pavilion in its
+      counter, finial out the top, shaft cutting the bowl; N threads
+      behind mid-tower; M/D/R/S float in front like the reference's lower
+      letters. Watch a full spin: the two "behind" letters should stay
+      readable in every pose, and no letter should flicker between layers
+      (that would mean its z is inside the envelope for some pose). The
+      taste calls are each letter's z and the P's exact hang; all in
+      `LETTERS` (lettering.tsx).
 - [ ] **Mast-through-P cut edge** — the occlusion boundary resolves at scene
       res and the mast is thin against open sky: orbit slowly and watch the
       cut for stair-stepping or crawl. If it shimmers, the fix is a
