@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -9,12 +10,13 @@ import {
   useRef,
   useState,
   type AnimationEvent as ReactAnimationEvent,
+  type ReactNode,
 } from "react";
 
 import { RevealGroup } from "@/components/motion/reveal";
 import { TimeDial } from "@/components/hero/time-dial";
 import { Instructors } from "@/components/sections/instructors";
-import { HERO } from "@/lib/content";
+import { HERO, REGISTER_URL } from "@/lib/content";
 import { skyGradient, todAt } from "@/lib/time-of-day";
 
 // WebGPU has no business running during SSR, and the scene is the heaviest
@@ -228,12 +230,14 @@ function TimeOfDayExperience({
   );
 }
 
-function HighlightedText({
+function DecoratedText({
   text,
   phrases,
+  decorate,
 }: {
   text: string;
   phrases: readonly string[];
+  decorate: (phrase: string) => ReactNode;
 }) {
   if (phrases.length === 0) return text;
 
@@ -244,12 +248,28 @@ function HighlightedText({
 
   return text.split(phrasePattern).map((segment, index) =>
     phrases.includes(segment) ? (
-      <span key={`${segment}-${index}`} className="font-medium text-white">
-        {segment}
-      </span>
+      <Fragment key={`${segment}-${index}`}>{decorate(segment)}</Fragment>
     ) : (
       segment
     ),
+  );
+}
+
+function HighlightedText({
+  text,
+  phrases,
+}: {
+  text: string;
+  phrases: readonly string[];
+}) {
+  return (
+    <DecoratedText
+      text={text}
+      phrases={phrases}
+      decorate={(phrase) => (
+        <span className="font-medium text-white">{phrase}</span>
+      )}
+    />
   );
 }
 
@@ -382,7 +402,20 @@ export function Hero() {
                 className="max-w-[860px] text-[24px] leading-[1.25] font-medium tracking-[-0.025em] text-white sm:text-[30px] lg:text-[36px]"
                 data-reveal
               >
-                {HERO.description}
+                <DecoratedText
+                  text={HERO.description}
+                  phrases={["three.js conf"]}
+                  decorate={(phrase) => (
+                    <a
+                      href={REGISTER_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline decoration-white/35 underline-offset-[0.16em] transition-colors hover:decoration-white/80 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                    >
+                      {phrase}
+                    </a>
+                  )}
+                />
               </h2>
 
               <div className="mt-14 border-t border-white/25 sm:mt-18">
