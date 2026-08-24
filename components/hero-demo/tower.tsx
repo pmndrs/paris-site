@@ -91,7 +91,7 @@ const BEAM_FLARE = 36;
  * ANTENNA_ROOT below the summit so it grows out of the finial instead of
  * floating on it.
  */
-const ANTENNA_REACH = 13;
+const ANTENNA_REACH = 9;
 const ANTENNA_ROOT = 2;
 const ANTENNA_PARTS: {
   /** [radiusTop, radiusBottom, height] or a horizontal arm. */
@@ -99,10 +99,10 @@ const ANTENNA_PARTS: {
   y: number;
   size: [number, number, number];
 }[] = [
-  { kind: "mast", y: 0, size: [0.5, 1.4, ANTENNA_REACH + ANTENNA_ROOT] },
-  { kind: "collar", y: 2.5, size: [2.1, 2.4, 1.1] },
-  { kind: "arms", y: 5.5, size: [0.28, 0.28, 7] },
-  { kind: "arms", y: 8.5, size: [0.22, 0.22, 5] },
+  { kind: "mast", y: 0, size: [0.18, 0.5, ANTENNA_REACH + ANTENNA_ROOT] },
+  { kind: "collar", y: 1.5, size: [0.9, 1.1, 0.9] },
+  { kind: "arms", y: 4, size: [0.09, 0.09, 3] },
+  { kind: "arms", y: 6.2, size: [0.07, 0.07, 2] },
 ];
 
 function Beacon({ speed = 0.6 }: { speed?: number }) {
@@ -257,8 +257,8 @@ export function Tower({
    */
   const antennaDepthProxy = useMemo(() => {
     const g = new THREE.CylinderGeometry(
-      0.9,
-      2.1,
+      0.45,
+      1.0,
       ANTENNA_REACH + ANTENNA_ROOT,
       12,
     );

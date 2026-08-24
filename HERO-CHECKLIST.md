@@ -66,7 +66,7 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
 
 ## 2 · Taste calls (say the word, I bake them in)
 
-- [ ] Final `letterSize` / `letterSpread` (current defaults 6 / 0.8).
+- [ ] Final `letterSize` / `letterSpread` (current defaults 5 / 0.8).
 - [ ] Default `towerMode` for the hero: glow · metal · sparkle.
 - [ ] `beacon` on the hero: currently **off**.
 - [ ] Haze vs sky-fog as the shipped look: currently fog on / haze off (the

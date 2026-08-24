@@ -176,15 +176,15 @@ const LETTERS: {
 }[] = [
   {
     char: "P",
-    position: [-0.3, 23.2, 0.2],
+    position: [-0.3, 23, 0.2],
     center: [0.355, 0.355],
     tilt: -0.25,
   },
-  { char: "M", position: [3.5, 17.8, 2.5], center: [0.4635, 0.355] },
-  { char: "N", position: [-2.8, 14.6, -3], center: [0.3765, 0.355] },
-  { char: "D", position: [3.2, 11.6, 4.5], center: [0.377, 0.355] },
-  { char: "R", position: [-3.8, 8.8, 6], center: [0.3635, 0.355] },
-  { char: "S", position: [4.5, 6, 8], center: [0.3475, 0.355] },
+  { char: "M", position: [3, 20.2, 2], center: [0.4635, 0.355] },
+  { char: "N", position: [-2.5, 17.4, -2.5], center: [0.3765, 0.355] },
+  { char: "D", position: [2.9, 14.6, 3.2], center: [0.377, 0.355] },
+  { char: "R", position: [-3.2, 11.8, 4], center: [0.3635, 0.355] },
+  { char: "S", position: [3.8, 9, 5], center: [0.3475, 0.355] },
 ];
 
 export function Lettering({
