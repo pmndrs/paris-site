@@ -9,6 +9,10 @@ import { TowerCanvas } from "@/components/hero-demo/tower-canvas";
 /** This canvas's id, which is also the id of the render job r3f registers. */
 const PRIMARY = "main";
 
+// Dark blue ground reflectance keeps the horizon saturated.
+// Stable identity prevents unnecessary sky rebakes.
+const HERO_GROUND_ALBEDO = { x: 0.025, y: 0.075, z: 0.18 } as const;
+
 /**
  * Idle this canvas without touching the frame loop.
  *
@@ -67,20 +71,19 @@ export function TowerHero({
   // Slider fraction → solar hours for the sky.
   const hours = (value / 100) * 24;
 
-  // First-pass auto-exposure: the scene is graded at 40 for dusk/night, but
-  // full daylight at that exposure blows out. Fade toward a daylight stop
-  // around midday; the sky applies exposure through a live uniform, so this
-  // costs nothing per change.
-  // Smoothstep removes brightness kinks at 07:00 and 19:00.
-  const t = Math.max(0, 1 - Math.abs(hours - 13) / 6);
+  // Hold a low daytime exposure, then fade to the night grade at dawn and dusk.
+  const t = Math.min(1, Math.max(0, (8 - Math.abs(hours - 12)) / 3));
   const daylight = t * t * (3 - 2 * t);
-  const exposure = 40 + (12 - 40) * daylight;
+  const exposure = 40 + (6 - 40) * daylight;
 
   return (
     <TowerCanvas
       canvasId={PRIMARY}
       timeOfDay={hours}
       exposure={exposure}
+      // Remove aerosol scattering for a clearer blue horizon.
+      turbidity={0}
+      groundAlbedo={HERO_GROUND_ALBEDO}
       autoRotateSpeed={reducedMotion ? 0 : 1}
       frameloop={reducedMotion ? "demand" : "always"}
       canvasStyle={{ pointerEvents: "none" }}

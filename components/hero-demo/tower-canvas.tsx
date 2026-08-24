@@ -51,6 +51,10 @@ export interface TowerCanvasProps {
   north?: string;
   sunDisc?: boolean;
   turbidity?: number;
+  groundAlbedo?:
+    | number
+    | THREE.Vector3
+    | { x?: number; y?: number; z?: number };
   mirrorBelowHorizon?: boolean;
   preset?: string;
   quality?: string;
@@ -125,6 +129,7 @@ export function TowerCanvas({
   north = "+Z",
   sunDisc = true,
   turbidity = 1,
+  groundAlbedo,
   mirrorBelowHorizon = false,
   preset = "earth",
   quality = "medium",
@@ -298,6 +303,7 @@ export function TowerCanvas({
             north={north}
             sunDisc={sunDisc}
             turbidity={turbidity}
+            groundAlbedo={groundAlbedo}
             mirrorBelowHorizon={mirrorBelowHorizon}
             enableAerialPerspective={haze}
             apKmPerSlice={apKmPerSlice}
