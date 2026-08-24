@@ -9,7 +9,11 @@ Title: ( FREE ) La tour Eiffel
 */
 
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame, useLocalNodes } from "@react-three/fiber/webgpu";
+import {
+  createPortal,
+  useFrame,
+  useLocalNodes,
+} from "@react-three/fiber/webgpu";
 import { useGLTF } from "@react-three/drei";
 import * as TSL from "three/tsl";
 import * as THREE from "three/webgpu";
@@ -21,6 +25,137 @@ import * as THREE from "three/webgpu";
 const MODEL_URL = "/hero-demo/free__la_tour_eiffel.glb";
 
 const TOWER_MESHES = ["Object_4", "Object_5", "Object_6"] as const;
+
+/** The model transform, shared by the visible tower and its depth twin. */
+const TOWER_MODEL_SCALE = 0.2;
+const TOWER_MODEL_YAW = THREE.MathUtils.degToRad(30);
+
+/**
+ * Model-space floor for the occluder twin (see `occluderGeometry`). The
+ * poster's lowest ink sits near city y 7, which is model y 35 at
+ * TOWER_MODEL_SCALE, and nothing below that can reach a letter. Dropping it
+ * halves the twin, 148k triangles to 65k, and what it drops is the dense
+ * base and its four arches.
+ */
+const OCCLUDER_MIN_Y = 30;
+
+/** Keyed by source geometry, which lives as long as the GLB cache. */
+const occluderCache = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>();
+
+/**
+ * One mesh of the tower's depth-only twin (see `DepthTwin`). The result
+ * shares the source position attribute, so it costs one GPU buffer and one
+ * upload, and re-lists only the triangles that reach the letter band.
+ */
+function occluderGeometry(source: THREE.BufferGeometry) {
+  const cached = occluderCache.get(source);
+  if (cached) return cached;
+
+  const position = source.getAttribute("position");
+  const index = source.getIndex();
+  const triangles = (index?.count ?? position.count) / 3;
+  const kept: number[] = [];
+
+  for (let t = 0; t < triangles; t += 1) {
+    const o = t * 3;
+    const a = index ? index.getX(o) : o;
+    const b = index ? index.getX(o + 1) : o + 1;
+    const c = index ? index.getX(o + 2) : o + 2;
+    const top = Math.max(position.getY(a), position.getY(b), position.getY(c));
+    if (top >= OCCLUDER_MIN_Y) kept.push(a, b, c);
+  }
+
+  const twin = new THREE.BufferGeometry();
+  twin.setAttribute("position", position);
+  twin.setIndex(kept);
+  // The shared attribute still holds every source vertex, so the source's
+  // bounds are conservative for the twin and cheaper than rescanning.
+  if (!source.boundingBox) source.computeBoundingBox();
+  if (!source.boundingSphere) source.computeBoundingSphere();
+  twin.boundingBox = source.boundingBox?.clone() ?? null;
+  twin.boundingSphere = source.boundingSphere?.clone() ?? null;
+  occluderCache.set(source, twin);
+  return twin;
+}
+
+/** Depth only, no color. The twin exists to lose or win the depth test. */
+const occluderMaterial = new THREE.MeshBasicNodeMaterial({ colorWrite: false });
+
+/**
+ * The antenna, from a set of part geometries. One mesh per part, plus the
+ * second copy of each arm that makes the crossed pair. `material` is a React
+ * element rendered once per mesh. The visible antenna passes the mode's
+ * material, the depth twin passes `occluderMaterial`.
+ */
+function antennaMeshes(
+  parts: { kind: AntennaPart["kind"]; geometry: THREE.BufferGeometry }[],
+  material: React.ReactNode,
+) {
+  return parts.map(({ kind, geometry }, i) => (
+    <group key={i}>
+      <mesh geometry={geometry}>{material}</mesh>
+      {kind === "arms" && (
+        <mesh geometry={geometry} rotation-y={Math.PI / 2}>
+          {material}
+        </mesh>
+      )}
+    </group>
+  ));
+}
+
+/**
+ * The tower as depth and nothing else, portalled into the poster type's
+ * scene (see `occluderScene`). Ironwork plus antenna make up the whole
+ * silhouette the letters can be cut by. Anything the twin leaves out cannot
+ * cross the type. The antenna carries its own geometry here, so the notch it
+ * cuts through a letter is exactly the iron the eye sees.
+ */
+function DepthTwin({
+  nodes,
+  summitY,
+  antennaGeometries,
+  worldScale,
+  scene,
+}: {
+  nodes: Record<string, THREE.Mesh>;
+  summitY: number;
+  antennaGeometries: {
+    kind: AntennaPart["kind"];
+    geometry: THREE.BufferGeometry;
+  }[];
+  worldScale: number;
+  scene: THREE.Scene;
+}) {
+  const geometries = useMemo(
+    () => TOWER_MESHES.map((name) => occluderGeometry(nodes[name].geometry)),
+    [nodes],
+  );
+
+  return createPortal(
+    // `dispose={null}` because these geometries share the GLB's position
+    // buffers and outlive this mount, so R3F must not free them when the
+    // portal unmounts. Both wrappers mirror what the tower sits under in the
+    // main scene, which is what lands the twin exactly on it.
+    <group dispose={null} scale={worldScale}>
+      <group scale={TOWER_MODEL_SCALE} rotation-y={TOWER_MODEL_YAW}>
+        {geometries.map((geometry, i) => (
+          <mesh
+            key={TOWER_MESHES[i]}
+            geometry={geometry}
+            material={occluderMaterial}
+          />
+        ))}
+        <group position={[0, summitY, 0]}>
+          {antennaMeshes(
+            antennaGeometries,
+            <primitive object={occluderMaterial} attach="material" />,
+          )}
+        </group>
+      </group>
+    </group>,
+    scene,
+  );
+}
 
 export type TowerMode = "glow" | "metal" | "sparkle";
 
@@ -79,6 +214,47 @@ function makeBeamNodes() {
 const BEAM_LENGTH = 600;
 const BEAM_FLARE = 36;
 
+/**
+ * Antenna extension, local units (×0.2 = city units). The model's spire
+ * stops at a stub finial, so the broadcast mast is built here. It reaches
+ * ANTENNA_REACH above the summit, which is what carries it across the P
+ * that crowns the poster and out into open sky above the letter. The
+ * silhouette follows the reference photo: a collar where it crosses the
+ * letter and two crossed pairs of dipole arms above it. Crossed pairs keep
+ * the profile the same from every orbit angle. The mast roots
+ * ANTENNA_ROOT below the summit so it grows out of the finial.
+ */
+const ANTENNA_REACH = 9;
+const ANTENNA_ROOT = 2;
+type AntennaPart = {
+  /** [radiusTop, radiusBottom, height] or a horizontal arm. */
+  kind: "mast" | "collar" | "arms";
+  y: number;
+  size: [number, number, number];
+};
+
+const ANTENNA_PARTS: AntennaPart[] = [
+  { kind: "mast", y: 0, size: [0.18, 0.5, ANTENNA_REACH + ANTENNA_ROOT] },
+  { kind: "collar", y: 1.5, size: [0.9, 1.1, 0.9] },
+  { kind: "arms", y: 4, size: [0.09, 0.09, 3] },
+  { kind: "arms", y: 6.2, size: [0.07, 0.07, 2] },
+];
+
+/** One antenna member, anchored so y = 0 sits at the summit. */
+function makeAntennaGeometry({ kind, y, size: [rt, rb, h] }: AntennaPart) {
+  const g = new THREE.CylinderGeometry(rt, rb, h, kind === "arms" ? 8 : 12);
+  if (kind === "mast") {
+    g.translate(0, h / 2 - ANTENNA_ROOT, 0);
+  } else if (kind === "collar") {
+    g.translate(0, y, 0);
+  } else {
+    // A crossed pair: the same thin cylinder laid flat both ways.
+    g.rotateZ(Math.PI / 2);
+    g.translate(0, y, 0);
+  }
+  return g;
+}
+
 function Beacon({ speed = 0.6 }: { speed?: number }) {
   const spinRef = useRef<THREE.Group>(null);
 
@@ -128,10 +304,21 @@ export function Tower({
   onReady,
   mode = "glow",
   beacon = false,
+  occluderScene,
+  worldScale = 1,
 }: {
   onReady?: () => void;
   mode?: TowerMode;
   beacon?: boolean;
+  /**
+   * The poster type's own scene (fx.tsx `TextLayer`). Given one, the tower
+   * portals a depth-only twin of itself into it. The depth test between that
+   * twin and the letters is what decides which letters the ironwork crosses,
+   * per pixel, at display resolution. See `DepthTwin`.
+   */
+  occluderScene?: THREE.Scene;
+  /** Mirrors the scene's outer scale across the portal. */
+  worldScale?: number;
 }) {
   const { nodes } = useGLTF(MODEL_URL) as unknown as {
     nodes: Record<string, THREE.Mesh>;
@@ -185,7 +372,7 @@ export function Tower({
   } as const satisfies Record<TowerMode, object>;
 
   // Local-space summit height, measured from the geometry rather than
-  // hardcoded, so the beacon survives a model swap.
+  // hardcoded, so the beacon and antenna survive a model swap.
   const summitY = useMemo(() => {
     let maxY = 0;
     for (const name of TOWER_MESHES) {
@@ -197,35 +384,72 @@ export function Tower({
     return maxY;
   }, [nodes]);
 
+  // Mast, collar and dipole arms. One group per part, one material per mode.
+  // See ANTENNA_PARTS.
+  const antennaGeometries = useMemo(
+    () =>
+      ANTENNA_PARTS.map((part) => ({
+        kind: part.kind,
+        geometry: makeAntennaGeometry(part),
+      })),
+    [],
+  );
+
   return (
-    <group dispose={null} scale={0.2} rotation-y={THREE.MathUtils.degToRad(30)}>
-      {/* Keep the warm wash mounted to avoid recompiling shaders when the mode
-          changes. Zero intensity disables it outside glow mode. */}
-      <pointLight
-        position={[0, 10, 0]}
-        color="#ffb35c"
-        intensity={mode === "glow" ? 400 : 0}
-        distance={100}
-        decay={2}
-      />
+    <>
+      <group
+        dispose={null}
+        scale={TOWER_MODEL_SCALE}
+        rotation-y={TOWER_MODEL_YAW}
+      >
+        {/* Keep the warm wash mounted to avoid recompiling shaders when the
+            mode changes. Zero intensity disables it outside glow mode. */}
+        <pointLight
+          position={[0, 10, 0]}
+          color="#ffb35c"
+          intensity={mode === "glow" ? 400 : 0}
+          distance={100}
+          decay={2}
+        />
 
-      {TOWER_MESHES.map((name) => (
-        <mesh
-          key={name}
-          castShadow
-          receiveShadow
-          geometry={nodes[name].geometry}
-        >
-          <meshStandardNodeMaterial {...modeProps[mode]} />
-        </mesh>
-      ))}
+        {TOWER_MESHES.map((name) => (
+          <mesh
+            key={name}
+            castShadow
+            receiveShadow
+            geometry={nodes[name].geometry}
+          >
+            <meshStandardNodeMaterial {...modeProps[mode]} />
+          </mesh>
+        ))}
 
-      {beacon && (
+        {/* Same material as the body so every mode carries the mast. Glow's
+            emissive feeds the same bloom, metal stays iron. No shadow flags,
+            since nothing up there receives one and the sun never reads it. */}
         <group position={[0, summitY, 0]}>
-          <Beacon />
+          {antennaMeshes(
+            antennaGeometries,
+            <meshStandardNodeMaterial {...modeProps[mode]} />,
+          )}
         </group>
+
+        {beacon && (
+          <group position={[0, summitY + ANTENNA_REACH, 0]}>
+            <Beacon />
+          </group>
+        )}
+      </group>
+
+      {occluderScene && (
+        <DepthTwin
+          nodes={nodes}
+          summitY={summitY}
+          antennaGeometries={antennaGeometries}
+          worldScale={worldScale}
+          scene={occluderScene}
+        />
       )}
-    </group>
+    </>
   );
 }
 

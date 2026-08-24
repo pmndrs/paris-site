@@ -61,27 +61,32 @@ interface SkyWithBaker {
  * The full-resolution text layer.
  *
  * The scene pass renders at `1/renderScale` and a temporal resolver
- * reconstructs it — the worst possible treatment for static, high-contrast
- * glyphs, so the poster type opts out: `Lettering` portals its content into
- * `scene`, and this component renders that scene as its own pass at display
- * resolution and composites it AFTER the resolver. Occlusion survives the
- * split analytically: the billboard plane is image-parallel, so every text
- * pixel shares one view-axis depth — `planeDepth`, written by `Lettering`
- * each frame — and a single compare against the scene depth puts the tower
- * back in front. `camera` is kept an unjittered twin of the scene camera
- * here (see the sync in `useFrame`). Created once by `TowerCanvas`.
+ * reconstructs it, which is the worst possible treatment for static,
+ * high-contrast glyphs. The poster type opts out. `Lettering` portals its
+ * content into `scene`, and this component renders that scene as its own
+ * pass at display resolution and composites it AFTER the resolver.
+ *
+ * This scene owns the poster's occlusion. `Tower` portals a depth-only twin
+ * of its ironwork in beside the letters, so the interleave is settled the
+ * ordinary way, by one depth test inside the pass at display resolution, and
+ * the composite is a plain over. Anything expected to cross the type has to
+ * be in here. The twin covers the tower and its antenna, which is everything
+ * the locked composition puts the letters against. Scene geometry that is
+ * not twinned, such as rooftops and trees, cannot cut a letter, so the
+ * layout keeps the type above the skyline (see `LETTERS` in lettering.tsx).
+ *
+ * `camera` is kept an unjittered twin of the scene camera here (see the sync
+ * in `useFrame`). Created once by `TowerCanvas`.
  */
 export interface TextLayer {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  /** View-axis distance of the billboard plane, world units. */
-  planeDepth: THREE.UniformNode<"float", number>;
 }
 
 /**
- * Loose handles for TSL expressions handed between graph helpers — the
- * precise node generics vary per operator and buy nothing at this seam;
- * only the component arity matters for the swizzles each helper touches.
+ * Loose handles for TSL expressions handed between graph helpers. The
+ * precise node generics vary per operator and buy nothing at this seam.
+ * Only the component arity matters for the swizzles each helper touches.
  */
 type AnyFloat = ReturnType<typeof TSL.float>;
 type AnyVec3 = ReturnType<typeof TSL.vec3>;
@@ -236,13 +241,13 @@ export function FX({
 
   /**
    * One owned pass for the lifetime of this FX instance. Pipeline rebuilds
-   * reuse it instead of allocating another display-sized render target; the
+   * reuse it instead of allocating another display-sized render target. The
    * feature-off path and unmount release it explicitly.
    */
   const textPassRef = useRef<ReturnType<typeof TSL.pass> | null>(null);
 
-  // Unmount (and StrictMode remount) would strand the owned GPU resources the
-  // same way a rebuild used to — see the FSR dispose in the pipeline callback.
+  // Unmount, and StrictMode remount, would otherwise strand the owned GPU
+  // resources. See the FSR dispose in the pipeline callback.
   useEffect(() => {
     return () => {
       fsrNodeRef.current?.dispose();
@@ -373,11 +378,11 @@ export function FX({
 
     // The text pass renders with an unjittered twin of the scene camera.
     // Both temporal resolvers jitter the projection for sub-pixel
-    // accumulation, and the text pass has no resolver downstream — jitter
-    // there would read as a 60fps shimmer on the one thing the split
-    // exists to hold still. Rebuilding the projection from intrinsics
-    // sidesteps whichever technique mutated the matrix; the world
-    // transform is copied whole.
+    // accumulation, and the text pass has no resolver downstream, so jitter
+    // there reads as a 60fps shimmer on the one thing the split exists to
+    // hold still. Rebuilding the projection from intrinsics sidesteps
+    // whichever technique mutated the matrix. The world transform is copied
+    // whole.
     const source = camera as THREE.PerspectiveCamera;
     if (source.isPerspectiveCamera) {
       const textCamera = textLayer.camera;
@@ -433,54 +438,55 @@ export function FX({
       fsrNodeRef.current?.dispose();
       fsrNodeRef.current = null;
 
-      // The poster type's own pass, at full display resolution — no
+      // The poster type's own pass, at full display resolution. It sets no
       // `setResolutionScale`, so it never joins the reduced-res render the
-      // resolver reconstructs. It is a stable, explicitly owned resource:
-      // unrelated graph rebuilds reuse it, while disabling the feature frees
-      // it. The glyph material neither tests nor writes depth, so allocating a
-      // display-sized depth attachment here would only waste memory.
+      // resolver reconstructs. The pass is a stable, explicitly owned
+      // resource: unrelated graph rebuilds reuse it, and disabling the
+      // feature frees it.
+      //
+      // Its depth attachment is where the interleave is decided. The glyph
+      // material writes each letter's authored depth, the tower's twin
+      // writes the ironwork's, and the hardware depth test cuts one against
+      // the other at display resolution (see `occluderScene` in tower.tsx).
+      // The letter fog reads the same attachment back as `textDepth`.
       if (!textEnabled && textPassRef.current) {
         textPassRef.current.dispose();
         textPassRef.current = null;
       }
       if (textEnabled && !textPassRef.current) {
-        textPassRef.current = TSL.pass(textLayer.scene, textLayer.camera, {
-          depthBuffer: false,
-        });
+        textPassRef.current = TSL.pass(textLayer.scene, textLayer.camera);
       }
       const textTex = textPassRef.current?.getTextureNode("output");
+      // What the pass wrote to depth, read back for the letter fog. That is
+      // each letter's authored depth, so a band that reads as behind the
+      // tower hazes like it. Elsewhere the value is the twin's depth or the
+      // far clear, which is harmless because fog is masked by `textTex.a`.
+      const textDepth = textPassRef.current
+        ? TSL.abs(textPassRef.current.getViewZNode())
+        : null;
 
       /**
-       * Composite the text pass over `base`. The pass accumulates standard
-       * blending onto a transparent clear, so its RGB arrives premultiplied
-       * by coverage — text adds as-is while `base` fades by the covered
-       * fraction. `vis` is the occlusion mask: one compare of the scene
-       * depth against the plane's constant view-axis depth (anything the
-       * scene rendered nearer — the tower, the odd near-ring roof — wins).
-       * That boundary resolves at scene res; it lands inside the tower's
-       * bloom halo, which is what hides the resolution seam. `glow` lays
-       * the already-composited bloom back over the letters, so the tower's
-       * halo still bleeds across type it used to bleed across in-pass.
-       * Alpha keeps the canvas's transparent boot window honest.
+       * Composite the text pass over `base`. A plain over, because the
+       * occlusion already happened inside the pass. The pass accumulates
+       * standard blending onto a transparent clear, so its RGB arrives
+       * premultiplied by coverage: text adds as-is while `base` fades by the
+       * covered fraction. A letter the ironwork crosses has no coverage
+       * there, so the scene and its glow come through the cut untouched.
+       *
+       * A letter in front also occludes the bloom, since `base` fades by the
+       * covered fraction with nothing added back. No glow bleeds through
+       * type that sits in front of the tower. The letter is an opaque card
+       * and the halo stops at its edge, which is why the letters carry their
+       * cream warmth in their own emissive (see lettering.tsx). Alpha keeps
+       * the canvas's transparent boot window honest.
        */
       const overlayText = textTex
-        ? (
-            baseNode: unknown,
-            textRgbNode: unknown,
-            glowNode?: unknown,
-          ) => {
+        ? (baseNode: unknown, textRgbNode: unknown) => {
             const base = baseNode as AnyVec4;
-            const sceneDepth = TSL.abs(scenePass.getViewZNode());
-            const vis = TSL.step(textLayer.planeDepth, sceneDepth);
-            const covered = textTex.a.mul(vis);
-            let rgb = base.rgb
+            const covered = textTex.a;
+            const rgb = base.rgb
               .mul(TSL.oneMinus(covered))
-              .add((textRgbNode as AnyVec3).mul(vis)) as unknown as AnyVec3;
-            if (glowNode) {
-              rgb = rgb.add(
-                (glowNode as AnyVec4).rgb.mul(covered),
-              ) as unknown as AnyVec3;
-            }
+              .add(textRgbNode as AnyVec3) as unknown as AnyVec3;
             return TSL.vec4(rgb, TSL.max(base.a, covered));
           }
         : null;
@@ -490,9 +496,10 @@ export function FX({
         // full res here so the pass buys no sharpness, but routing text
         // through the same seam keeps one code path and one look.
         const base = scenePass.getTextureNode("output");
-        renderPipeline.outputNode = overlayText && textTex
-          ? TSL.Fn(() => overlayText(base, textTex.rgb))()
-          : base;
+        renderPipeline.outputNode =
+          overlayText && textTex
+            ? TSL.Fn(() => overlayText(base, textTex.rgb))()
+            : base;
         // Upstream bug in `useRenderPipeline`: it assigns `outputNode` without
         // setting `needsUpdate`, and three's RenderPipeline only recompiles its
         // present-quad material when `needsUpdate` is true (three.webgpu.js
@@ -509,13 +516,9 @@ export function FX({
 
       let graph = color;
 
-      // Held, not just added: the text composite at the end re-samples the
-      // same bloom RT to lay the tower's halo back over the letters.
-      let bloomNode: ReturnType<typeof bloom> | null = null;
       if (withBloom) {
         const emissive = scenePass.getTextureNode("emissive");
-        bloomNode = bloom(emissive, 0.5, 0.5);
-        graph = graph.add(bloomNode);
+        graph = graph.add(bloom(emissive, 0.5, 0.5));
       }
 
       // Normals are packed into a byte texture, so they come back as colour
@@ -560,9 +563,7 @@ export function FX({
         ) as unknown as { rgb: unknown };
         const albedo = scenePass.getTextureNode("diffuse");
         graph = TSL.vec4(
-          graph.rgb
-            .mul(giPass.getAONode().r)
-            .add(albedo.rgb.mul(gi.rgb)),
+          graph.rgb.mul(giPass.getAONode().r).add(albedo.rgb.mul(gi.rgb)),
           graph.a,
         );
       }
@@ -611,15 +612,15 @@ export function FX({
 
       /**
        * Sky-colored exponential height fog (see FXOptions.skyFog), split
-       * into two helpers because it now has two consumers: the scene fog
-       * below (distance from the depth buffer) and the text composite at
-       * the end (distance from the plane's constant depth). Ray
-       * reconstruction follows the sky's own haze node: hand-built NDC
-       * with WebGPU's flipped Y, inverse projection to a view ray, and
-       * distance = axial depth / |rayDir.z| so oblique pixels aren't
+       * into two helpers for its two consumers: the scene fog below, which
+       * takes distance from the depth buffer, and the text composite at the
+       * end, which takes it from the text pass's depth. Ray reconstruction
+       * follows the sky's own haze node: hand-built NDC with WebGPU's
+       * flipped Y, inverse projection to a view ray, and
+       * distance = axial depth / |rayDir.z| so oblique pixels are not
        * underfogged. The fog color is the baked sky cube sampled along the
-       * world ray — the cube is in scene-luminance units already (the
-       * background renders it directly), so no scaling.
+       * world ray. That cube is already in scene-luminance units, since the
+       * background renders it directly, so it needs no scaling.
        */
       const reconstructRay = () => {
         const u = TSL.uv();
@@ -645,7 +646,7 @@ export function FX({
             //   OD = σ₀ · e^(−camY/H) · dist · (1 − e^(−x)) / x,  x = dist·rayY/H
             // with the x→0 limit handled explicitly (level rays).
             const H = fogKnobs.heightFalloff;
-            const sigma = fogKnobs.density.div(1000.0); // per-km → per-world-unit
+            const sigma = fogKnobs.density.div(1000.0); // per-km to per-world-unit
             const rayY = rayDirWorld.y;
             const x = dist.mul(rayY).div(H);
             const term = TSL.abs(x)
@@ -664,14 +665,13 @@ export function FX({
               1.0,
             );
 
-            // The baked cube is black below the horizon (verified by rendering
-            // the raw sample: sky upright above, void below — the rays are
-            // fine), so downward rays must not sample it directly or ground
-            // fog fades toward black and reads as no fog. Clamp the *color*
-            // lookup to just above the horizon — near-ground inscatter is
-            // horizon light in real aerial perspective anyway. The density
-            // math above keeps the true ray. Toggleable via the uniform for
-            // A/B against the raw sample (see FXOptions.skyFogHorizonClamp).
+            // The baked cube is black below the horizon, so downward rays
+            // must not sample it directly or ground fog fades toward black
+            // and reads as no fog. Clamp the color lookup to just above the
+            // horizon. Near-ground inscatter is horizon light in real aerial
+            // perspective anyway, and the density math above keeps the true
+            // ray. Toggleable via the uniform for A/B against the raw sample
+            // (see FXOptions.skyFogHorizonClamp).
             const sampleDir = TSL.normalize(
               TSL.vec3(
                 rayDirWorld.x,
@@ -746,21 +746,20 @@ export function FX({
         graph = traaPass;
       }
 
-      // Full-res text over the resolved frame — the seam the whole text
-      // pass exists for. Fog is applied to the type analytically: same
-      // formula, same live knobs, with the plane's constant depth standing
-      // in for the depth buffer, so the poster keeps its atmospheric seat
-      // even though it skipped the scene pass. The bloom re-add is in
-      // `overlayText` (glow argument) — pre-split, the tower's halo bled
-      // onto letter pixels in-pass; without it the sharp composite would
-      // cut a hard cream edge through the glow.
+      // Full-res text over the resolved frame, the seam the whole text pass
+      // exists for. Fog is applied to the type analytically, with the same
+      // formula and the same live knobs, using the text pass's per-pixel
+      // depth in place of the scene depth buffer. That keeps the poster in
+      // the same atmosphere even though it skipped the scene pass. Bloom is
+      // part of `resolved`, and letters occlude it like everything else.
+      // See the no-glow-through-type note on `overlayText`.
       if (overlayText && textTex) {
         const resolved = graph;
         graph = TSL.Fn(() => {
           let textRgb = textTex.rgb as unknown as AnyVec3;
           if (fogAlong) {
             const ray = reconstructRay();
-            const dist = (textLayer.planeDepth as unknown as AnyFloat).div(
+            const dist = (textDepth as unknown as AnyFloat).div(
               ray.cosFromAxis,
             );
             const fog = fogAlong(dist, ray.rayDirWorld);
@@ -772,7 +771,7 @@ export function FX({
               fog.fogAmount,
             ) as unknown as AnyVec3;
           }
-          return overlayText(resolved, textRgb, bloomNode);
+          return overlayText(resolved, textRgb);
         })();
       }
 

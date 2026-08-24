@@ -37,10 +37,18 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
 - [ ] **FSR ghosting** — orbit at renderScale 1.5; watch tower edges for
       smearing. Compare renderScale 1 (TRAA path, fsr off). The lettering
       no longer rides the resolver: it renders in its own display-res pass
-      composited afterwards (occlusion is one depth compare against the
-      letters' shared axis plane; the tower's bloom is laid back over
-      them) — judge the glyph edges and the occlusion boundary through the
-      ironwork instead.
+      composited afterwards, and the tower portals a depth-only twin into
+      that pass so the interleave is one depth test at display resolution —
+      judge the glyph edges and the cut through the ironwork instead.
+- [ ] **Letter layering** (`letter-intersect`) — every quad sits on the
+      tower's axis plane (so all six are the same size) and layering is
+      authored per band in `layer` (`LETTERS`, lettering.tsx): the antenna
+      threads the P, M behind, N in front, D behind, the R's bowl behind
+      with its leg in front, the S's upper curve in front with its lower
+      bowl behind. Watch a full spin: the woven letters should keep the same
+      relationship in every pose (their bands clear the sweep envelope), and
+      no letter should flicker between layers. The taste calls are each
+      letter's `layer` z's and the band positions.
 - [ ] **TOD sweep on `/`** — drag the slider 0→100; exposure curve through
       midday should never blow out or crush. (Curve: 40 at night → 12 at 13h.)
 - [ ] **Reduced motion** — with OS reduced-motion on: no auto-rotate, demand
@@ -52,7 +60,7 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
 
 ## 2 · Taste calls (say the word, I bake them in)
 
-- [ ] Final `letterSize` / `letterSpread` (current defaults 6 / 0.8).
+- [ ] Final `letterSize` / `letterSpread` (current defaults 5 / 0.8).
 - [ ] Default `towerMode` for the hero: glow · metal · sparkle.
 - [ ] `beacon` on the hero: currently **off**.
 - [ ] Haze vs sky-fog as the shipped look: currently fog on / haze off (the
