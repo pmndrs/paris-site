@@ -41,6 +41,11 @@ interface SSGIPass {
   getGINode(): unknown;
 }
 
+/** Bloom result accessor, named `getTexture` by the stale bundled types. */
+interface BloomPass {
+  getTextureNode(): THREE.TextureNode;
+}
+
 /** FSR3 fields used for motion vectors and cleanup. */
 interface FSRNodeLike {
   upscaler: { unjitteredProjectionMatrix: THREE.Matrix4 } | null;
@@ -112,6 +117,8 @@ export interface FXOptions {
   textLayer: TextLayer;
   /** Includes the lettering pass in the graph. */
   textEnabled?: boolean;
+  /** How strongly the tower bloom lights the lettering. */
+  textGlow?: number;
 }
 
 export function FX({
@@ -135,6 +142,7 @@ export function FX({
   ssgiRadius = 12,
   textLayer,
   textEnabled = true,
+  textGlow = 1,
 }: FXOptions) {
   // The sky is null when no Sky provider is mounted.
   const sky = useSky();
@@ -175,6 +183,12 @@ export function FX({
     },
     "heroFog",
   ) as unknown as FogKnobs;
+
+  /** Lettering response to the tower bloom, tunable without a rebuild. */
+  const glowKnobs = useUniforms(
+    { textGlow },
+    "heroTextGlow",
+  ) as unknown as Record<"textGlow", THREE.UniformNode<"float", number>>;
 
   /** Main camera uniforms for ray reconstruction in the output pass. */
   const fogCamRef = useRef<ReturnType<typeof makeFogCameraUniforms> | null>(
@@ -318,9 +332,18 @@ export function FX({
 
       let graph = color;
 
+      /** Tower bloom, reused as the light the lettering responds to. */
+      let bloomTex: AnyVec4 | null = null;
+
       if (withBloom) {
         const emissive = scenePass.getTextureNode("emissive");
-        graph = graph.add(bloom(emissive, 0.5, 0.5));
+        const bloomPass = bloom(emissive, 0.5, 0.5);
+        // The pass renders once per frame; its result texture can be sampled
+        // again later without running the blur chain a second time.
+        bloomTex = (
+          bloomPass as unknown as BloomPass
+        ).getTextureNode() as unknown as AnyVec4;
+        graph = graph.add(bloomPass);
       }
 
       // Unpack byte-encoded normals through a shared sampling node.
@@ -497,6 +520,32 @@ export function FX({
         const resolved = graph;
         graph = TSL.Fn(() => {
           let textRgb = textTex.rgb as unknown as AnyVec3;
+          if (bloomTex) {
+            // Read the tower bloom as the light arriving at each glyph pixel
+            // and multiply it into the glyph color, so the letters warm up
+            // where the glow reaches them instead of the glow being
+            // composited over their silhouette.
+            //
+            // Raw bloom is useless here: it falls off close to Gaussian, so
+            // it is ~0.8 against the ironwork and ~0.03 by the time it
+            // reaches the outer glyphs — a 3% lift nobody can see. The square
+            // root spreads that reach across the whole wordmark and leaves
+            // the near-tower core roughly where it was. Only the magnitude is
+            // shaped; dividing the color back out keeps the tower's amber
+            // instead of desaturating toward white as a per-channel curve
+            // would.
+            const raw = bloomTex.rgb as unknown as AnyVec3;
+            const level = TSL.max(TSL.luminance(raw), 1e-4);
+            const lit = TSL.pow(level, 0.6).mul(glowKnobs.textGlow).min(2.0);
+            // Added as light falling on a white glyph rather than scaling
+            // what is already there: the glyph's own value is a dim floor, so
+            // a multiply would just scale the floor. Coverage keeps the light
+            // inside the silhouette, which is what separates this from the
+            // bloom being composited over the letters.
+            textRgb = textRgb.add(
+              raw.div(level).mul(lit).mul(textTex.a),
+            ) as unknown as AnyVec3;
+          }
           if (fogAlong) {
             const ray = reconstructRay();
             const dist = (textDepth as unknown as AnyFloat).div(

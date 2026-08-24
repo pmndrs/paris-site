@@ -1,6 +1,7 @@
 "use client";
 
 import { Environment } from "@react-three/drei";
+import type { ColorRepresentation } from "three";
 
 /**
  * Ported from `threejs-conf-pmndrs/src/Lights.tsx`.
@@ -15,9 +16,16 @@ export function Lights({
   shadowRadius = 60,
   environment = true,
   sunlight = true,
+  sunColor = "#fff6e8",
+  sunIntensity = 0,
+  sunPosition = [25, 35, 20],
 }: {
   shadowRadius?: number;
   environment?: boolean;
+  /** Warm direct light synchronized with the visible atmospheric sun. */
+  sunColor?: ColorRepresentation;
+  sunIntensity?: number;
+  sunPosition?: [number, number, number];
   /**
    * Faraz's hand-placed moonlight + ambient + hemisphere fill.
    *
@@ -54,6 +62,24 @@ export function Lights({
           />
         </>
       )}
+
+      {/* The atmosphere supplies image-based fill, but not direct sunlight.
+          This warm key gives the painted iron readable bronze faces against
+          cool sky reflections during the day. */}
+      <directionalLight
+        position={sunPosition}
+        intensity={sunIntensity}
+        color={sunColor}
+      />
+
+      {/* A restrained photographic fill keeps camera-facing latticework from
+          falling into silhouette when the physically placed sun is behind it.
+          It follows the daylight fade, so it disappears with the sun. */}
+      <directionalLight
+        position={[12, 24, 35]}
+        intensity={sunIntensity * 0.2}
+        color="#ffd3b0"
+      />
 
       {/* Moonlight key light casting soft cool shadows.
           The ortho frustum is fitted to the near city rather than the full

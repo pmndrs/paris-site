@@ -8,11 +8,12 @@ Source: https://sketchfab.com/3d-models/free-la-tour-eiffel-8553f94d06e24cb4b0fd
 Title: ( FREE ) La tour Eiffel
 */
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   createPortal,
   useFrame,
   useLocalNodes,
+  useUniforms,
 } from "@react-three/fiber/webgpu";
 import { useGLTF } from "@react-three/drei";
 import * as TSL from "three/tsl";
@@ -145,7 +146,9 @@ export type TowerMode = "glow" | "metal" | "sparkle";
  * emissive MRT attachment feeds straight into bloom — that's the glitter.
  * The base material is the dark iron the tower actually is at dusk.
  */
-function makeSparkleNodes() {
+function makeSparkleNodes(
+  lightLevel: THREE.UniformNode<"float", number>,
+) {
   const cell = TSL.floor(TSL.positionLocal.mul(0.9));
   const seed = TSL.fract(
     TSL.sin(cell.dot(TSL.vec3(127.1, 311.7, 74.7))).mul(43758.5453),
@@ -157,7 +160,9 @@ function makeSparkleNodes() {
   const brightness = seed.mul(0.6).add(0.4);
 
   return {
-    emissiveNode: TSL.color("#fff3d0").mul(flash.mul(brightness).mul(8)),
+    emissiveNode: TSL.color("#fff3d0").mul(
+      flash.mul(brightness).mul(8).mul(lightLevel),
+    ),
   };
 }
 
@@ -177,12 +182,14 @@ function makeSparkleNodes() {
  * these beams live in the sky and rarely cross geometry. Additive, no
  * depth write, double-sided (abs() covers the flipped back-face normals).
  */
-function makeBeamNodes() {
+function makeBeamNodes(lightLevel: THREE.UniformNode<"float", number>) {
   // Geometry below is translated so the hub is at y = 0, beam along +y.
   const along = TSL.positionLocal.y.div(BEAM_LENGTH).clamp(0.0, 1.0);
   const distanceFade = TSL.oneMinus(along);
   const angleFade = TSL.pow(TSL.abs(TSL.normalView.z), 4.0);
-  return { opacityNode: distanceFade.mul(angleFade).mul(0.6) };
+  return {
+    opacityNode: distanceFade.mul(angleFade).mul(0.6).mul(lightLevel),
+  };
 }
 
 /** Beam length/flare in the tower's local (pre-scale-0.2) units. */
@@ -221,7 +228,13 @@ function makeAntennaGeometry({ kind, y, size: [rt, rb, h] }: AntennaPart) {
   return g;
 }
 
-function Beacon({ speed = 0.6 }: { speed?: number }) {
+function Beacon({
+  lightLevel,
+  speed = 0.6,
+}: {
+  lightLevel: THREE.UniformNode<"float", number>;
+  speed?: number;
+}) {
   const spinRef = useRef<THREE.Group>(null);
 
   const geometry = useMemo(() => {
@@ -240,9 +253,12 @@ function Beacon({ speed = 0.6 }: { speed?: number }) {
     return g;
   }, []);
 
-  // Module-level creator, so the memo inside `useLocalNodes` holds until the
-  // shared TSL stores (or HMR) invalidate it. Both beams share the graph.
-  const beam = useLocalNodes(makeBeamNodes);
+  const createBeamNodes = useCallback(
+    () => makeBeamNodes(lightLevel),
+    [lightLevel],
+  );
+  // Both beams share one graph and the live tower-light uniform.
+  const beam = useLocalNodes(createBeamNodes);
 
   useFrame((_, delta) => {
     if (spinRef.current) spinRef.current.rotation.y += delta * speed;
@@ -270,12 +286,15 @@ export function Tower({
   onReady,
   mode = "glow",
   beacon = false,
+  lightLevel = 1,
   occluderScene,
   worldScale = 1,
 }: {
   onReady?: () => void;
   mode?: TowerMode;
   beacon?: boolean;
+  /** 0 in daylight, 1 at night, smoothly blended through twilight. */
+  lightLevel?: number;
   /** Scene that receives the depth-only tower twin. */
   occluderScene?: THREE.Scene;
   /** Scale shared with the main scene. */
@@ -293,11 +312,39 @@ export function Tower({
     onReady?.();
   }, [onReady, nodes]);
 
-  // Registered through `useLocalNodes` (module-level creator, so the memo is
-  // stable) rather than a bare `useMemo`: the graph re-creates when the shared
-  // TSL stores invalidate — which is what makes editing the sparkle shader
-  // hot-reload instead of requiring a refresh.
-  const sparkle = useLocalNodes(makeSparkleNodes);
+  const lightKnobs = useUniforms(
+    { lightLevel },
+    "heroTowerLights",
+  ) as unknown as Record<
+    "lightLevel",
+    THREE.UniformNode<"float", number>
+  >;
+  const createSparkleNodes = useCallback(
+    () => makeSparkleNodes(lightKnobs.lightLevel),
+    [lightKnobs.lightLevel],
+  );
+  // The shader graph stays stable as the dial moves; only its uniform changes.
+  const sparkle = useLocalNodes(createSparkleNodes);
+
+  // The real tower is painted bronze, not black metal. Its warm diffuse paint
+  // carries the subject in daylight; the darker night base returns as the
+  // architectural illumination takes over.
+  const glowBaseColor = useMemo(
+    () =>
+      new THREE.Color("#a96843").lerp(
+        new THREE.Color("#3a2a15"),
+        lightLevel,
+      ),
+    [lightLevel],
+  );
+  const sparkleBaseColor = useMemo(
+    () =>
+      new THREE.Color("#80553d").lerp(
+        new THREE.Color("#15181c"),
+        lightLevel,
+      ),
+    [lightLevel],
+  );
 
   // One declarative material per mode. Every mode spells out the full union
   // of props — R3F diffs JSX props on the *same* material instance, so a
@@ -305,11 +352,12 @@ export function Tower({
   // resetting.
   const modeProps = {
     glow: {
-      color: "#3a2a15",
+      color: glowBaseColor,
       emissive: "#ff9f3f",
-      emissiveIntensity: 1.6,
-      metalness: 0.8,
-      roughness: 0.45,
+      emissiveIntensity: 1.6 * lightLevel,
+      metalness: THREE.MathUtils.lerp(0.18, 0.8, lightLevel),
+      roughness: THREE.MathUtils.lerp(0.55, 0.45, lightLevel),
+      envMapIntensity: THREE.MathUtils.lerp(1.5, 1, lightLevel),
       emissiveNode: null,
     },
     metal: {
@@ -318,16 +366,18 @@ export function Tower({
       emissiveIntensity: 1,
       metalness: 0.85,
       roughness: 0.45,
+      envMapIntensity: 1,
       emissiveNode: null,
     },
     sparkle: {
       // Dark iron base; the glitter is entirely the emissive node feeding
       // the pipeline's emissive MRT attachment (→ bloom).
-      color: "#15181c",
+      color: sparkleBaseColor,
       emissive: "#000000",
       emissiveIntensity: 1,
       metalness: 0.85,
       roughness: 0.55,
+      envMapIntensity: THREE.MathUtils.lerp(1.3, 1, lightLevel),
       emissiveNode: sparkle.emissiveNode,
     },
   } as const satisfies Record<TowerMode, object>;
@@ -365,7 +415,7 @@ export function Tower({
         <pointLight
           position={[0, 10, 0]}
           color="#ffb35c"
-          intensity={mode === "glow" ? 400 : 0}
+          intensity={mode === "glow" ? 400 * lightLevel : 0}
           distance={100}
           decay={2}
         />
@@ -391,7 +441,7 @@ export function Tower({
 
         {beacon && (
           <group position={[0, summitY + ANTENNA_REACH, 0]}>
-            <Beacon />
+            <Beacon lightLevel={lightKnobs.lightLevel} />
           </group>
         )}
       </group>
