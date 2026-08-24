@@ -36,18 +36,21 @@ import type { TextLayer } from "./fx";
  * layering author-once — "P tucked behind the mast" holds in every pose,
  * since the mast sits on the spin axis.
  *
- * The font GLB is baked offline from the same Geist SemiBold the DOM uses:
+ * The font GLB is baked offline from Geist ExtraBold — near the reference
+ * poster's heavy type without Black's closed-up counters (the DOM stays on
+ * the lighter text weights; only the poster letters go heavy):
  *
- *   pnpm exec glyph bake --input Geist-SemiBold.ttf \
- *     --output public/hero-demo/Geist-SemiBold.font.glb \
+ *   pnpm exec glyph bake --input Geist-ExtraBold.ttf \
+ *     --output public/hero-demo/Geist-ExtraBold.font.glb \
  *     --unicodes U+0020-007E --msdf
  *
- * (Geist-SemiBold.ttf is the static instance from vercel/geist-font; the
- * ASCII subset keeps the GLB small while covering any future in-scene label.)
+ * (Geist-ExtraBold.ttf is the static instance from vercel/geist-font,
+ * fonts/Geist/ttf; the ASCII subset keeps the GLB small while covering any
+ * future in-scene label.)
  */
 
 const FONT_REQUEST = {
-  input: { baked: "/hero-demo/Geist-SemiBold.font.glb" },
+  input: { baked: "/hero-demo/Geist-ExtraBold.font.glb" },
   raster: { technique: msdf },
 } as const;
 
@@ -169,12 +172,17 @@ const LETTERS: {
    */
   tilt?: number;
 }[] = [
-  { char: "P", position: [-0.3, 23.2, 0.2], center: [0.35, 0.355], tilt: -0.25 },
-  { char: "M", position: [3.5, 17.8, 2.5], center: [0.451, 0.355] },
-  { char: "N", position: [-2.8, 14.6, -3], center: [0.374, 0.355] },
-  { char: "D", position: [3.2, 11.6, 4.5], center: [0.3745, 0.355] },
-  { char: "R", position: [-3.8, 8.8, 6], center: [0.357, 0.355] },
-  { char: "S", position: [4.5, 6, 8], center: [0.334, 0.355] },
+  {
+    char: "P",
+    position: [-0.3, 23.2, 0.2],
+    center: [0.355, 0.355],
+    tilt: -0.25,
+  },
+  { char: "M", position: [3.5, 17.8, 2.5], center: [0.4635, 0.355] },
+  { char: "N", position: [-2.8, 14.6, -3], center: [0.3765, 0.355] },
+  { char: "D", position: [3.2, 11.6, 4.5], center: [0.377, 0.355] },
+  { char: "R", position: [-3.8, 8.8, 6], center: [0.3635, 0.355] },
+  { char: "S", position: [4.5, 6, 8], center: [0.3475, 0.355] },
 ];
 
 export function Lettering({
