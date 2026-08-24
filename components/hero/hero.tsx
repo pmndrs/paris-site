@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { LogoFull } from "@/components/brand/logo";
 import { SectionGate } from "@/components/sections/section-gate";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
+import { TimeDial } from "@/components/hero/time-dial";
 import { HERO, REGISTER_URL } from "@/lib/content";
 import { skyGradient, todAt } from "@/lib/time-of-day";
 
@@ -124,22 +124,18 @@ export function Hero() {
           </div>
         </div>
 
-        <div className="flex flex-col items-start gap-2.5 pb-1">
-          <label
-            htmlFor="tod"
+        <div className="flex flex-col items-center gap-2.5 pb-1">
+          <div
+            id="tod-label"
             className="font-mono text-[10px] tracking-[0.11em] text-white/55"
           >
             TIME OF DAY — {palette.phase}
-          </label>
-          <Slider
-            id="tod"
-            value={[tod]}
-            onValueChange={([v]) => setTod(v)}
-            min={0}
-            max={100}
-            step={1}
-            aria-label="Time of day"
-            className="w-[170px]"
+          </div>
+          <TimeDial
+            value={tod}
+            onValueChange={setTod}
+            phase={palette.phase}
+            aria-labelledby="tod-label"
           />
         </div>
       </div>
