@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 const FULL_TURN = 360;
 /** Value units between audible detents. */
 const DETENT = 4;
+const MIN_CLICK_INTERVAL = 0.032;
+const AUDIO_FLOOR = 0.0001;
 
 const PHASE_ICON: Record<Phase, typeof Sun> = {
   NIGHT: Moon,
@@ -35,40 +37,74 @@ type DialAudio = {
   lastClickAt: number;
 };
 
-/** A contact snap followed by the damped resonances of the dial body. */
-function playClick(
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+const lerp = (from: number, to: number, t: number) =>
+  from + (to - from) * t;
+
+function envelope(
   ctx: AudioContext,
-  noise: AudioBuffer,
-  output: AudioNode,
-  t01: number,
-  force: number,
-  speed: number,
-  variation: number,
+  now: number,
+  peak: number,
+  attack: number,
+  decay: number,
 ) {
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(AUDIO_FLOOR, now);
+  gain.gain.linearRampToValueAtTime(peak, now + attack);
+  gain.gain.exponentialRampToValueAtTime(AUDIO_FLOOR, now + decay);
+  return gain;
+}
+
+function createDialAudio(): DialAudio | null {
+  const Ctor =
+    window.AudioContext ??
+    (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctor) return null;
+
+  const ctx = new Ctor();
+  const noise = ctx.createBuffer(1, ctx.sampleRate * 0.04, ctx.sampleRate);
+  const data = noise.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+
+  const output = ctx.createGain();
+  output.gain.value = 0.62;
+  const compressor = ctx.createDynamicsCompressor();
+  compressor.threshold.value = -18;
+  compressor.knee.value = 12;
+  compressor.ratio.value = 6;
+  compressor.attack.value = 0.002;
+  compressor.release.value = 0.08;
+  output.connect(compressor).connect(ctx.destination);
+
+  return {
+    ctx,
+    noise,
+    output,
+    lastClickAt: Number.NEGATIVE_INFINITY,
+  };
+}
+
+/** A contact snap followed by the damped resonances of the dial body. */
+function playClick(audio: DialAudio, speed: number) {
+  const { ctx, noise, output } = audio;
   const now = ctx.currentTime;
-  const contactLevel = force * (1 - speed * 0.68);
-  const resonanceLevel = force * (1 - speed * 0.5);
-  const bodyLevel = force * (1 - speed * 0.7);
-  const decayScale = 1 - speed * 0.48;
+  const variation = 0.94 + Math.random() * 0.12;
+  const decayScale = lerp(1, 0.52, speed);
 
   // The plastic-on-metal contact is bright, short, and nearly non-tonal.
   const burst = ctx.createBufferSource();
   burst.buffer = noise;
-  burst.playbackRate.value = (0.92 + force * 0.12) * variation;
+  burst.playbackRate.value = variation;
   const band = ctx.createBiquadFilter();
   band.type = "bandpass";
-  band.frequency.value =
-    (3900 + t01 * 180 + force * 700 - speed * 650) * variation;
+  band.frequency.value = lerp(4500, 3800, speed) * variation;
   band.Q.value = 1.7;
-  const burstGain = ctx.createGain();
-  burstGain.gain.setValueAtTime(0.0001, now);
-  burstGain.gain.linearRampToValueAtTime(
-    0.1 * contactLevel,
-    now + 0.0008,
-  );
-  burstGain.gain.exponentialRampToValueAtTime(
-    0.0001,
-    now + 0.018 * decayScale,
+  const burstGain = envelope(
+    ctx,
+    now,
+    lerp(0.068, 0.025, speed),
+    0.0008,
+    0.018 * decayScale,
   );
   burst.connect(band).connect(burstGain).connect(output);
   burst.start(now);
@@ -76,39 +112,20 @@ function playClick(
 
   // Two differently damped modes make the detent feel like a small object
   // with a hard shell and a heavier body instead of a synthesized beep.
-  const shell = ctx.createOscillator();
-  shell.type = "triangle";
-  shell.frequency.value = (680 + t01 * 36 + force * 70) * variation;
-  const shellGain = ctx.createGain();
-  shellGain.gain.setValueAtTime(0.0001, now);
-  shellGain.gain.linearRampToValueAtTime(
-    0.025 * resonanceLevel,
-    now + 0.001,
-  );
-  shellGain.gain.exponentialRampToValueAtTime(
-    0.0001,
-    now + 0.034 * decayScale,
-  );
-  shell.connect(shellGain).connect(output);
-  shell.start(now);
-  shell.stop(now + 0.04);
+  const modes = [
+    ["triangle", 735, lerp(0.017, 0.01, speed), 0.001, 0.034],
+    ["sine", 190, lerp(0.024, 0.008, speed), 0.0015, 0.052],
+  ] as const;
 
-  const body = ctx.createOscillator();
-  body.type = "sine";
-  body.frequency.value = (170 + t01 * 18 + force * 20) * variation;
-  const bodyGain = ctx.createGain();
-  bodyGain.gain.setValueAtTime(0.0001, now);
-  bodyGain.gain.linearRampToValueAtTime(
-    0.035 * bodyLevel,
-    now + 0.0015,
-  );
-  bodyGain.gain.exponentialRampToValueAtTime(
-    0.0001,
-    now + 0.052 * decayScale,
-  );
-  body.connect(bodyGain).connect(output);
-  body.start(now);
-  body.stop(now + 0.06);
+  for (const [type, frequency, peak, attack, decay] of modes) {
+    const oscillator = ctx.createOscillator();
+    oscillator.type = type;
+    oscillator.frequency.value = frequency * variation;
+    const gain = envelope(ctx, now, peak, attack, decay * decayScale);
+    oscillator.connect(gain).connect(output);
+    oscillator.start(now);
+    oscillator.stop(now + decay + 0.008);
+  }
 }
 
 export function TimeDial({
@@ -144,49 +161,20 @@ export function TimeDial({
   }, [value]);
 
   // Create the audio context during a user gesture to satisfy autoplay policy.
-  const tick = useCallback((v: number) => {
-    if (!audioRef.current) {
-      const Ctor =
-        window.AudioContext ??
-        (window as { webkitAudioContext?: typeof AudioContext })
-          .webkitAudioContext;
-      if (!Ctor) return;
-      const ctx = new Ctor();
-      const noise = ctx.createBuffer(1, ctx.sampleRate * 0.04, ctx.sampleRate);
-      const data = noise.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-
-      const output = ctx.createGain();
-      output.gain.value = 0.62;
-      const compressor = ctx.createDynamicsCompressor();
-      compressor.threshold.value = -18;
-      compressor.knee.value = 12;
-      compressor.ratio.value = 6;
-      compressor.attack.value = 0.002;
-      compressor.release.value = 0.08;
-      output.connect(compressor).connect(ctx.destination);
-
-      audioRef.current = {
-        ctx,
-        noise,
-        output,
-        lastClickAt: Number.NEGATIVE_INFINITY,
-      };
-    }
-    const audio = audioRef.current;
-    const { ctx, noise, output } = audio;
-    if (ctx.state === "suspended") void ctx.resume();
+  const tick = useCallback(() => {
+    const audio = audioRef.current ?? createDialAudio();
+    if (!audio) return;
+    audioRef.current = audio;
+    if (audio.ctx.state === "suspended") void audio.ctx.resume();
 
     // At speed, physical detents blur into a ratchet. Discard intervals too
     // dense to resolve, then soften and vary the remaining impacts so they do
     // not become a rigid machine-gun sequence.
-    const interval = ctx.currentTime - audio.lastClickAt;
-    if (interval < 0.032) return;
-    const speed = Math.max(0, Math.min(1, (0.18 - interval) / 0.14));
-    const force = 0.68 + speed * 0.1;
-    const variation = 0.94 + Math.random() * 0.12;
-    audio.lastClickAt = ctx.currentTime;
-    playClick(ctx, noise, output, v / 100, force, speed, variation);
+    const interval = audio.ctx.currentTime - audio.lastClickAt;
+    if (interval < MIN_CLICK_INTERVAL) return;
+    const speed = clamp01((0.18 - interval) / 0.14);
+    audio.lastClickAt = audio.ctx.currentTime;
+    playClick(audio, speed);
   }, []);
 
   const setValue = useCallback(
@@ -195,7 +183,7 @@ export function TimeDial({
       const detent = Math.round(next / DETENT);
       if (detent !== lastDetent.current) {
         lastDetent.current = detent;
-        tick(wrapValue(next));
+        tick();
       }
       // Preserve whole turns for delayed replay.
       onValueChange(next);
