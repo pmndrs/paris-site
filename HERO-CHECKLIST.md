@@ -37,10 +37,22 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
 - [ ] **FSR ghosting** — orbit at renderScale 1.5; watch tower edges for
       smearing. Compare renderScale 1 (TRAA path, fsr off). The lettering
       no longer rides the resolver: it renders in its own display-res pass
-      composited afterwards (occlusion is one depth compare against the
-      letters' shared axis plane; the tower's bloom is laid back over
+      composited afterwards (occlusion is a per-pixel depth compare — each
+      letter carries its own authored z; the tower's bloom is laid back over
       them) — judge the glyph edges and the occlusion boundary through the
       ironwork instead.
+- [ ] **Letter weave** (`letter-intersect`) — the letters now interleave the
+      ironwork per pixel and each holds its own layer: P hangs off the tip
+      with the mast threading in front of it; M/D mostly in front, grazed by
+      corner sweeps; N centerline; R/S camera-ward of the lower tower. Watch
+      a full spin: every letter should stay readable in every pose (headless
+      passes verified two poses — R once read as a P, S once vanished into
+      the base bloom; both re-authored). The taste calls are each letter's
+      z and the P's exact hang; all in `LETTERS` (lettering.tsx).
+- [ ] **Mast-through-P cut edge** — the occlusion boundary resolves at scene
+      res and the mast is thin against open sky: orbit slowly and watch the
+      cut for stair-stepping or crawl. If it shimmers, the fix is a
+      neighborhood min/max on the scene-depth sample in `overlayText`.
 - [ ] **TOD sweep on `/`** — drag the slider 0→100; exposure curve through
       midday should never blow out or crush. (Curve: 40 at night → 12 at 13h.)
 - [ ] **Reduced motion** — with OS reduced-motion on: no auto-rotate, demand
