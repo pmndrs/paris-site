@@ -10,6 +10,7 @@ import {
   PARK,
   RIVER_HALF_WIDTH,
   riverCurve,
+  TOWER_CLEARING_RADIUS,
 } from "./geography";
 
 /** The slice of the `Sky` instance the water reflection reads. */
@@ -35,12 +36,19 @@ interface SkyWithBaker {
 
 const GROUND_COLOR = "#131313";
 const PARK_COLOR = "#26381f";
+const PATH_COLOR = "#716b60";
 const WATER_COLOR = "#0a1622";
 
 /** y-offsets: ground < park < water, all far apart enough not to z-fight. */
 const GROUND_Y = -0.06;
+const PARK_STRIP_Y = 0.03;
 const PARK_Y = 0.04;
+const PATH_Y = 0.055;
 const WATER_Y = 0.12;
+
+const RING_PATH_INNER = TOWER_CLEARING_RADIUS * 0.56;
+const RING_PATH_OUTER = TOWER_CLEARING_RADIUS * 0.64;
+const AXIS_PATH_WIDTH = 3.6;
 
 function useRiverGeometry() {
   return useMemo(() => {
@@ -182,20 +190,70 @@ export function Terrain({
       </mesh>
 
       {park && (
-        <mesh
-          position={[
-            (PARK.minX + PARK.maxX) / 2,
-            PARK_Y,
-            (PARK.minZ + PARK.maxZ) / 2,
-          ]}
-          rotation-x={-Math.PI / 2}
-          receiveShadow
-        >
-          <planeGeometry
-            args={[PARK.maxX - PARK.minX, PARK.maxZ - PARK.minZ]}
-          />
-          <meshStandardMaterial color={PARK_COLOR} roughness={1} metalness={0} />
-        </mesh>
+        <>
+          {/* A broad lawn gives the tower breathing room on every side. The
+              rectangular Champ-de-Mars strip overlaps it and continues away
+              from the river, so the park reads as one connected landscape. */}
+          <mesh
+            position={[
+              (PARK.minX + PARK.maxX) / 2,
+              PARK_STRIP_Y,
+              (PARK.minZ + PARK.maxZ) / 2,
+            ]}
+            rotation-x={-Math.PI / 2}
+            receiveShadow
+          >
+            <planeGeometry
+              args={[PARK.maxX - PARK.minX, PARK.maxZ - PARK.minZ]}
+            />
+            <meshStandardMaterial
+              color={PARK_COLOR}
+              roughness={1}
+              metalness={0}
+            />
+          </mesh>
+
+          <mesh
+            position={[0, PARK_Y, 0]}
+            rotation-x={-Math.PI / 2}
+            receiveShadow
+          >
+            <circleGeometry args={[TOWER_CLEARING_RADIUS, 64]} />
+            <meshStandardMaterial
+              color={PARK_COLOR}
+              roughness={1}
+              metalness={0}
+            />
+          </mesh>
+
+          {/* One circular promenade and a narrow central axis suggest the real
+              park without adding geometry noise around the tower silhouette. */}
+          <mesh position={[0, PATH_Y, 0]} rotation-x={-Math.PI / 2}>
+            <ringGeometry args={[RING_PATH_INNER, RING_PATH_OUTER, 64]} />
+            <meshStandardMaterial
+              color={PATH_COLOR}
+              roughness={1}
+              metalness={0}
+            />
+          </mesh>
+          <mesh
+            position={[
+              0,
+              PATH_Y,
+              (PARK.maxZ + RING_PATH_OUTER) / 2,
+            ]}
+            rotation-x={-Math.PI / 2}
+          >
+            <planeGeometry
+              args={[AXIS_PATH_WIDTH, PARK.maxZ - RING_PATH_OUTER]}
+            />
+            <meshStandardMaterial
+              color={PATH_COLOR}
+              roughness={1}
+              metalness={0}
+            />
+          </mesh>
+        </>
       )}
 
       {river && (

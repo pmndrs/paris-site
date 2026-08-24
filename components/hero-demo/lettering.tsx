@@ -1,6 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Billboard } from "@react-three/drei";
 import { createPortal, useFrame } from "@react-three/fiber/webgpu";
 import { Text, TextGroup, useFont } from "@pmndrs/glyph/react";
@@ -16,12 +22,14 @@ import {
   mix,
   positionView,
   smoothstep,
+  uniform,
   uv,
   vec3,
   viewZToPerspectiveDepth,
 } from "three/tsl";
 
 import type { TextLayer } from "./fx";
+import { INTRO_COMPLETE, LETTER_CHAIN_START } from "./intro";
 
 /**
  * Billboarded MSDF letters render in a full-resolution pass. Authored depth
@@ -41,6 +49,8 @@ function createLetterMaterial(
   towerGlow: THREE.PointLight,
   /** The depth written for the visible glyph pixels. */
   depthNode: THREE.Node,
+  /** Independent reveal for this letter. */
+  revealNode: THREE.Node<"float">,
 ) {
   return defineTextMaterial((context) => {
     const material = new THREE.MeshStandardNodeMaterial({
@@ -53,7 +63,7 @@ function createLetterMaterial(
     });
     material.positionNode = context.position;
     material.colorNode = context.shader.color;
-    material.opacityNode = context.shader.opacity;
+    material.opacityNode = context.shader.opacity.mul(revealNode);
     material.normalNode = vec3(0, 0, 1);
     material.lightsNode = lights([towerGlow]);
     // Increase the sky response on camera-facing glyphs.
@@ -141,6 +151,141 @@ const LETTERS: {
   },
 ];
 
+type LetterSpring = {
+  x: number;
+  y: number;
+  rotation: number;
+  vx: number;
+  vy: number;
+  vr: number;
+};
+
+function spring(
+  value: number,
+  velocity: number,
+  target: number,
+  stiffness: number,
+  damping: number,
+  dt: number,
+) {
+  const nextVelocity =
+    (velocity + (target - value) * stiffness * dt) *
+    Math.exp(-damping * dt);
+  return [value + nextVelocity * dt, nextVelocity] as const;
+}
+
+/**
+ * One link in the PMNDRS chain. Each letter is pulled out of the tower by an
+ * underdamped spring, with the next link released a beat later. Opacity stays
+ * at zero until release, then position and rotation settle at different rates.
+ */
+function AnimatedLetter({
+  index,
+  target,
+  clock,
+  reveal,
+  children,
+}: {
+  index: number;
+  target: [number, number];
+  clock: RefObject<number>;
+  reveal: { value: number };
+  children: ReactNode;
+}) {
+  const group = useRef<THREE.Group>(null);
+  const side = index % 2 === 0 ? -1 : 1;
+  // Begin on the tower axis, just below the final slot. The letter is fully
+  // sized but transparent, so its first readable motion is outward.
+  const initialX = 0;
+  const initialY = target[1] - 1.15;
+  const initialState = (): LetterSpring => ({
+    x: initialX,
+    y: initialY,
+    rotation: -side * 0.18,
+    vx: 0,
+    vy: 0,
+    vr: 0,
+  });
+  const state = useRef<LetterSpring>(initialState());
+  const settled = useRef(false);
+  const previousTime = useRef(clock.current);
+
+  useFrame((_, frameDelta) => {
+    const object = group.current;
+    if (!object) return;
+
+    // Motion preferences can change while the page is open. When the shared
+    // clock rewinds, restore this link so the whole chain can play from zero.
+    if (clock.current < previousTime.current) {
+      state.current = initialState();
+      settled.current = false;
+      object.position.set(initialX, initialY, 0);
+      object.rotation.z = -side * 0.18;
+      reveal.value = 0;
+    }
+    previousTime.current = clock.current;
+
+    const finish = () => {
+      object.position.set(target[0], target[1], 0);
+      object.rotation.z = 0;
+      reveal.value = 1;
+    };
+
+    if (clock.current >= INTRO_COMPLETE) {
+      finish();
+      settled.current = true;
+      return;
+    }
+
+    const release = LETTER_CHAIN_START + index * 0.14;
+    if (clock.current < release) {
+      reveal.value = 0;
+      return;
+    }
+    if (settled.current) return;
+
+    const dt = Math.min(frameDelta, 1 / 30);
+    const s = state.current;
+    [s.x, s.vx] = spring(s.x, s.vx, target[0], 76, 6.7, dt);
+    [s.y, s.vy] = spring(s.y, s.vy, target[1], 88, 7.3, dt);
+    [s.rotation, s.vr] = spring(s.rotation, s.vr, 0, 72, 6.8, dt);
+
+    const revealProgress = THREE.MathUtils.clamp(
+      (clock.current - release) / 0.26,
+      0,
+      1,
+    );
+    reveal.value = revealProgress * revealProgress * (3 - 2 * revealProgress);
+
+    object.position.set(s.x, s.y, 0);
+    object.rotation.z = s.rotation;
+
+    const error =
+      Math.abs(s.x - target[0]) +
+      Math.abs(s.y - target[1]) +
+      Math.abs(s.rotation);
+    const speed = Math.abs(s.vx) + Math.abs(s.vy) + Math.abs(s.vr);
+    if (error < 0.002 && speed < 0.01) {
+      finish();
+      settled.current = true;
+    }
+  });
+
+  const finishedAtMount = clock.current >= INTRO_COMPLETE;
+
+  return (
+    <group
+      ref={group}
+      position={
+        finishedAtMount ? [target[0], target[1], 0] : [initialX, initialY, 0]
+      }
+      rotation-z={finishedAtMount ? 0 : -side * 0.18}
+    >
+      {children}
+    </group>
+  );
+}
+
 export function Lettering({
   /** Glyph em size in world units. */
   size = 6,
@@ -150,11 +295,13 @@ export function Lettering({
   worldScale = 1,
   /** Full-resolution scene used for lettering and tower depth. */
   textLayer,
+  introClock,
 }: {
   size?: number;
   spread?: number;
   worldScale?: number;
   textLayer: TextLayer;
+  introClock: RefObject<number>;
 }) {
   const geist = useFont(FONT_REQUEST);
 
@@ -168,13 +315,18 @@ export function Lettering({
   /** Each letter needs a material with its own depth node. */
   const letters = useMemo(
     () =>
-      LETTERS.map((letter) => ({
-        letter,
-        material: createLetterMaterial(
-          towerGlow,
-          layerDepthNode(letter.layer, worldScale),
-        ),
-      })),
+      LETTERS.map((letter) => {
+        const reveal = uniform(0);
+        return {
+          letter,
+          reveal,
+          material: createLetterMaterial(
+            towerGlow,
+            layerDepthNode(letter.layer, worldScale),
+            reveal,
+          ),
+        };
+      }),
     [towerGlow, worldScale],
   );
 
@@ -202,30 +354,37 @@ export function Lettering({
     <group scale={worldScale}>
       <primitive object={towerGlow} position={[0, 11, 0]} />
       <Billboard>
-        {letters.map(({ letter: { char, position, center }, material }, i) => (
-          <TextGroup
-            key={char}
-            compositing="independent"
-            material={material}
-            visible={baselineEm !== null}
-          >
-            <group position={[position[0] * spread, position[1], 0]}>
-              <Text
-                ref={i === 0 ? probeRef : undefined}
-                font={geist}
-                style={style}
-                paint={{ color: "#ffffff" }}
-                position={[
-                  -center[0] * size,
-                  (baselineEm ?? 1) * size - center[1] * size,
-                  0,
-                ]}
+        {letters.map(
+          ({ letter: { char, position, center }, material, reveal }, i) => (
+            <TextGroup
+              key={char}
+              compositing="independent"
+              material={material}
+              visible={baselineEm !== null}
+            >
+              <AnimatedLetter
+                index={i}
+                target={[position[0] * spread, position[1]]}
+                clock={introClock}
+                reveal={reveal}
               >
-                {char}
-              </Text>
-            </group>
-          </TextGroup>
-        ))}
+                <Text
+                  ref={i === 0 ? probeRef : undefined}
+                  font={geist}
+                  style={style}
+                  paint={{ color: "#ffffff" }}
+                  position={[
+                    -center[0] * size,
+                    (baselineEm ?? 1) * size - center[1] * size,
+                    0,
+                  ]}
+                >
+                  {char}
+                </Text>
+              </AnimatedLetter>
+            </TextGroup>
+          ),
+        )}
       </Billboard>
     </group>,
     textLayer.scene,

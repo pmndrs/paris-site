@@ -131,6 +131,55 @@
   }
 }
 
+/* The hero UI is cued from the canvas timeline once the PMNDRS chain is more
+   than halfway through. These layers are prepared before the cue, then use
+   only compositor-friendly opacity and transforms while the scene is busy. */
+@keyframes hero-ui-arrive {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.985);
+  }
+  68% {
+    opacity: 1;
+    transform: translate3d(0, -2px, 0) scale(1.003);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (scripting: enabled) {
+  [data-hero-ui] {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.985);
+    pointer-events: none;
+    backface-visibility: hidden;
+    will-change: opacity, transform;
+  }
+  [data-hero-ui-state="in"] [data-hero-ui] {
+    animation: hero-ui-arrive 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: var(--hero-ui-delay, 0ms);
+    pointer-events: auto;
+  }
+  [data-hero-ui-state="settled"] [data-hero-ui] {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    backface-visibility: visible;
+    will-change: auto;
+  }
+  [data-hero-ui-step="1"] {
+    --hero-ui-delay: 80ms;
+  }
+  [data-hero-ui-step="2"] {
+    --hero-ui-delay: 170ms;
+  }
+  [data-hero-ui-step="3"] {
+    --hero-ui-delay: 250ms;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -140,5 +189,12 @@
     opacity: 1;
     translate: none;
     transition: none;
+  }
+  [data-hero-ui] {
+    opacity: 1;
+    transform: none;
+    animation: none;
+    pointer-events: auto;
+    will-change: auto;
   }
 }

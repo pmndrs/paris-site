@@ -4,14 +4,14 @@ import { useEffect } from "react";
 import { useFrame } from "@react-three/fiber/webgpu";
 
 import { DepthAttachmentSync } from "@/components/three/depth-attachment-sync";
+import {
+  PARIS_ATMOSPHERE_DEFAULTS,
+  PARIS_HOMEPAGE_CITY_DEFAULTS,
+} from "@/components/hero-demo/paris-defaults";
 import { TowerCanvas } from "@/components/hero-demo/tower-canvas";
 
 /** This canvas's id, which is also the id of the render job r3f registers. */
 const PRIMARY = "main";
-
-// Dark blue ground reflectance keeps the horizon saturated.
-// Stable identity prevents unnecessary sky rebakes.
-const HERO_GROUND_ALBEDO = { x: 0.025, y: 0.075, z: 0.18 } as const;
 
 /**
  * Idle this canvas without touching the frame loop.
@@ -61,10 +61,12 @@ export function TowerHero({
   reducedMotion = false,
   /** Hero is off-screen — skip its render job, leave the loop alone. */
   paused = false,
+  onUiReveal,
 }: {
   value: number;
   reducedMotion?: boolean;
   paused?: boolean;
+  onUiReveal?: () => void;
 }) {
   useIdleWhenHidden(paused);
 
@@ -78,14 +80,15 @@ export function TowerHero({
 
   return (
     <TowerCanvas
+      {...PARIS_HOMEPAGE_CITY_DEFAULTS}
+      {...PARIS_ATMOSPHERE_DEFAULTS}
       canvasId={PRIMARY}
       timeOfDay={hours}
       exposure={exposure}
-      // Remove aerosol scattering for a clearer blue horizon.
-      turbidity={0}
-      groundAlbedo={HERO_GROUND_ALBEDO}
       autoRotateSpeed={reducedMotion ? 0 : 1}
       frameloop={reducedMotion ? "demand" : "always"}
+      intro={!reducedMotion}
+      onUiReveal={onUiReveal}
       canvasStyle={{ pointerEvents: "none" }}
       // No WebGPU: the design doc's original tower plate, placed to match the
       // 3D framing, so the hero still shows a tower.
