@@ -143,10 +143,11 @@ export function SectionCanvas({
 
   if (!mounted) return null;
 
-  // Phones trim the decoration budget: these canvases are backdrops behind
-  // text, and every pixel they draw competes with the hero for the same
-  // mobile GPU. The hero itself keeps its full frame rate — see tower-hero.
+  // Phones trim the decoration budget: backdrop canvases compete with the
+  // hero for the same mobile GPU. Interactive canvases keep their requested
+  // rate so touch input remains responsive (the magic box requests 60fps).
   const mobile = isMobileDevice();
+  const renderFps = mobile && !interactive ? Math.min(fps, 30) : fps;
 
   return (
     <Canvas
@@ -170,9 +171,9 @@ export function SectionCanvas({
         alpha: true,
         antialias: true,
         primaryCanvas: PRIMARY,
-        // Draw after the hero each frame, at half its rate. These are
-        // backdrops; nobody is looking for 60fps in them.
-        scheduler: { after: PRIMARY, fps: mobile ? Math.min(fps, 30) : fps },
+        // Draw after the hero. Mobile backdrops stay at 30fps or below;
+        // interactive canvases honor their requested rate (currently 60fps).
+        scheduler: { after: PRIMARY, fps: renderFps },
       }}
       // Backgrounds must never eat clicks or text selection. Where a scene
       // needs the cursor it reads it from the window instead. Interactive
