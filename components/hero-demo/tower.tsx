@@ -243,6 +243,29 @@ export function Tower({
     [],
   );
 
+  /**
+   * Depth-only proxy for the mast. The poster letters are re-occluded in
+   * the composite by comparing against SCENE depth, which renders at
+   * 1/renderScale — where the real mast is a 2–3 px sliver, so the cut it
+   * carved through letter ink was invisible and the antenna read as
+   * *behind* the type (its visible width is mostly bloom, which letters
+   * opaquely cover by design). This fattened copy writes depth only
+   * (colorWrite off masks every MRT attachment; depth still lands), so
+   * the compare carves a column the width the antenna *looks*, and the
+   * bloom shows through the notch. Nothing but sky sits behind the tip,
+   * so the depth block hides nothing real.
+   */
+  const antennaDepthProxy = useMemo(() => {
+    const g = new THREE.CylinderGeometry(
+      0.9,
+      2.1,
+      ANTENNA_REACH + ANTENNA_ROOT,
+      12,
+    );
+    g.translate(0, (ANTENNA_REACH + ANTENNA_ROOT) / 2 - ANTENNA_ROOT, 0);
+    return g;
+  }, []);
+
   return (
     <group dispose={null} scale={0.2} rotation-y={THREE.MathUtils.degToRad(30)}>
       {/* Keep the warm wash mounted to avoid recompiling shaders when the mode
@@ -282,6 +305,10 @@ export function Tower({
             )}
           </group>
         ))}
+        {/* See antennaDepthProxy — depth-only, no color. */}
+        <mesh geometry={antennaDepthProxy}>
+          <meshBasicNodeMaterial colorWrite={false} />
+        </mesh>
       </group>
 
       {beacon && (
