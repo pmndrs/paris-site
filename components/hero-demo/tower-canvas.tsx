@@ -148,10 +148,10 @@ export function TowerCanvas({
   groundAlbedo,
   mirrorBelowHorizon = PARIS_ATMOSPHERE_DEFAULTS.mirrorBelowHorizon,
   stars = true,
-  starCount = 2200,
-  starIntensity = 2.6,
-  starSize = 5.5,
-  starTwinkle = 0.35,
+  starCount = 4200,
+  starIntensity = 2.8,
+  starSize = 5.25,
+  starTwinkle = 0.28,
   preset = PARIS_ATMOSPHERE_DEFAULTS.preset,
   quality = PARIS_ATMOSPHERE_DEFAULTS.quality,
   cubeSize = PARIS_ATMOSPHERE_DEFAULTS.cubeSize,
@@ -225,6 +225,10 @@ export function TowerCanvas({
           intensity={starIntensity}
           size={starSize}
           twinkle={starTwinkle}
+          timeOfDay={timeOfDay}
+          latitude={latitude}
+          dayOfYear={dayOfYear}
+          north={north}
         />
       )}
 

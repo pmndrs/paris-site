@@ -104,8 +104,9 @@ export function HeroDemoScene({
   });
 
   /**
-   * The night sky (`stars.tsx`). One instanced draw call; every knob below is
-   * a live uniform except `starCount`, which rebuilds the buffers.
+   * The night sky (`stars.tsx`). One instanced star draw plus a sparse Milky Way
+   * veil; every knob below is a live uniform except `starCount`, which rebuilds
+   * the star buffer.
    *
    * Nothing here fades the field in and out — the stars read the sun's
    * elevation themselves and emerge in magnitude order through twilight. Drag
@@ -114,13 +115,13 @@ export function HeroDemoScene({
   const { stars, starCount, starIntensity, starSize, starTwinkle } =
     useControls("sky/stars", {
       stars: true,
-      starCount: { value: 2200, min: 0, max: 6000, step: 100 },
-      starIntensity: { value: 2.6, min: 0, max: 8, step: 0.05 },
+      starCount: { value: 4200, min: 0, max: 8000, step: 100 },
+      starIntensity: { value: 2.8, min: 0, max: 8, step: 0.05 },
       // Star diameter in raster pixels — the faintest run 0.55x this, the
       // brightest 1.35x. Raster, not CSS: `stars.tsx` pins the sprite to the
       // scene pass's own resolution so it can't go sub-pixel.
-      starSize: { value: 5.5, min: 1, max: 16, step: 0.25 },
-      starTwinkle: { value: 0.35, min: 0, max: 1, step: 0.01 },
+      starSize: { value: 5.25, min: 1, max: 16, step: 0.25 },
+      starTwinkle: { value: 0.28, min: 0, max: 1, step: 0.01 },
     });
 
   const { preset, quality, cubeSize } = useControls("sky/rebuild", {
