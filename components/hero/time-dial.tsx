@@ -6,25 +6,13 @@ import { useCallback, useEffect, useRef } from "react";
 import type { Phase } from "@/lib/time-of-day";
 import { cn } from "@/lib/utils";
 
-/**
- * A rotary replacement for the hero's time-of-day slider.
- *
- * The value stays the slider's 0..100 so `todAt` and the scene props don't
- * move; only the control changes. The needle can turn through the full circle
- * repeatedly, wrapping the value after every revolution. Every few units of
- * travel lands on a detent that ticks — synthesized on the fly so no audio
- * asset ships with the hero.
- */
+/** A rotary time control with a wrapping value and audible detents. */
 
 const FULL_TURN = 360;
-/** Value units between audible detents — 25 ticks across the full range. */
+/** Value units between audible detents. */
 const DETENT = 4;
 
-/**
- * The strongest light windows around Paris on June 25, in the same local
- * solar hours passed to @pmndrs/sky. Dawn/dusk cover -6°..0° sun elevation;
- * the golden hours cover 0°..6°.
- */
+/** Local solar hours for dawn, dusk, and golden light in Paris on June 25. */
 const BEAUTY_ZONES = [
   { label: "Dawn", startHour: 3.24, endHour: 4.05, color: "#c4b5fd" },
   {
@@ -52,14 +40,10 @@ const PHASE_ICON: Record<Phase, typeof Sun> = {
 const clamp = (v: number, lo: number, hi: number) =>
   Math.min(hi, Math.max(lo, v));
 
-/** Wraps a rotary value into [0, 100), including counter-clockwise turns. */
+/** Wraps clockwise and counterclockwise turns into the range [0, 100). */
 const wrapValue = (v: number) => ((v % 100) + 100) % 100;
 
-/**
- * One mechanical detent: a bandpassed noise burst (the click's texture) over
- * a low sine knock (its body). Pitch creeps up slightly toward DAY so
- * scrubbing the whole arc reads as a rising scale.
- */
+/** Plays a noise click over a sine knock with pitch based on the dial value. */
 function playClick(ctx: AudioContext, noise: AudioBuffer, t01: number) {
   const now = ctx.currentTime;
 
@@ -116,7 +100,7 @@ export function TimeDial({
     return () => void audioRef.current?.ctx.close();
   }, []);
 
-  // Lazily built inside a user gesture, where autoplay policy allows it.
+  // Create the audio context during a user gesture to satisfy autoplay policy.
   const tick = useCallback((v: number) => {
     if (!audioRef.current) {
       const Ctor =
@@ -155,12 +139,10 @@ export function TimeDial({
 
       const dx = e.clientX - drag.x;
       const dy = e.clientY - drag.y;
-      // The exact centre has no meaningful angle. Wait until the pointer has
-      // moved far enough to establish one instead of letting atan2 pick a side.
+      // Wait for a stable angle when a drag starts near the center.
       if (Math.hypot(dx, dy) < 4) return;
 
-      // Zero at twelve o'clock, clockwise positive. Unwrapping the delta keeps
-      // crossing the top of the circle from looking like a 360° jump.
+      // Unwrap the clockwise angle so crossing zero produces a small delta.
       const angle = (Math.atan2(dx, -dy) * 180) / Math.PI;
       if (drag.lastAngle === null) {
         drag.lastAngle = angle;
@@ -172,8 +154,7 @@ export function TimeDial({
       if (delta < -180) delta += FULL_TURN;
 
       drag.lastAngle = angle;
-      // Keep the drag accumulator unbounded so neither direction ever hits a
-      // stop. Only the value sent to the scene wraps once per revolution.
+      // Keep drag distance unbounded and wrap only the emitted value.
       drag.value += (delta / FULL_TURN) * 100;
       setValue(wrapValue(drag.value));
     },
@@ -254,7 +235,7 @@ export function TimeDial({
       )}
       style={{ contain: "layout style" }}
     >
-      {/* Day quadrants plus filled solar-lighting sweet spots. */}
+      {/* Day quadrants and solar lighting zones. */}
       <svg
         viewBox="0 0 56 56"
         className="pointer-events-none absolute inset-0 size-full"
@@ -302,7 +283,7 @@ export function TimeDial({
         })}
       </svg>
 
-      {/* The needle. No transition — it tracks the pointer 1:1. */}
+      {/* The needle tracks the pointer without interpolation. */}
       <div
         className="pointer-events-none absolute inset-0"
         style={{

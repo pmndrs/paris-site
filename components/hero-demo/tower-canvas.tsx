@@ -26,17 +26,7 @@ export const PARIS_LATITUDE = 48.8566;
 /** 2026-06-25, the workshop. Sun arc is seasonal, so the date is not cosmetic. */
 export const CONFERENCE_DAY_OF_YEAR = 176;
 
-/**
- * The verified tower scene as one component with plain props.
- *
- * Every default below is the browser-verified boot configuration the lab
- * (`/demos/paris-hero`) settled on — FSR3 on as the sole temporal resolver,
- * SSGI off, sky fog standing in for aerial perspective, dusk at real Paris
- * solar position. Two consumers, two prop sources: the demo page feeds these
- * from Leva so everything stays tunable, and the site hero passes a fixed
- * subset (time of day, motion flags) so the marketing page ships the
- * verified look with no debug surface.
- */
+/** Configuration for the reusable tower scene. */
 export interface TowerCanvasProps {
   // city
   highRiseCount?: number;
@@ -99,18 +89,18 @@ export interface TowerCanvasProps {
   environment?: boolean;
   shadows?: boolean;
   // host integration
-  /** Perf readout callback; the probe only mounts when this is given. */
+  /** Performance samples are collected only when this callback is set. */
   onSample?: (s: PerfSample) => void;
-  /** Mounts the Leva `logFraming` button — demo page only (it spawns a panel). */
+  /** Enables the demo framing controls. */
   tools?: boolean;
-  /** Canvas id. The site hero passes "main" to register as the primary canvas. */
+  /** Canvas identifier used by the renderer registry. */
   canvasId?: string;
-  /** Canvas frameloop; the hero switches to "demand" under reduced motion. */
+  /** Canvas frame scheduling mode. */
   frameloop?: "always" | "demand" | "never";
   canvasStyle?: CSSProperties;
-  /** Rendered when WebGPU is unavailable (the hero's poster plate). */
+  /** Content shown when WebGPU is unavailable. */
   fallback?: ReactNode;
-  /** Extra in-canvas nodes — the hero mounts DepthAttachmentSync here. */
+  /** Additional nodes rendered inside the canvas. */
   children?: ReactNode;
 }
 
@@ -178,19 +168,11 @@ export function TowerCanvas({
 }: TowerCanvasProps) {
   const towerRef = useRef<THREE.Group>(null);
 
-  // Bumped when the tower's GLTF has committed, which is the moment its
-  // bounding box becomes measurable and the camera can frame it.
+  // Refit the camera after the tower geometry becomes measurable.
   const [refitKey, setRefitKey] = useState(0);
   const onTowerReady = useCallback(() => setRefitKey((v) => v + 1), []);
 
-  /**
-   * The lettering's full-resolution layer (see `TextLayer` in fx.tsx).
-   * `Lettering` portals the letters into `scene` and `Tower` portals a
-   * depth-only twin of itself in beside them. `FX` renders that scene as its
-   * own display-res pass after the resolver and composites it, so the glyphs
-   * stay sharp over a 1/renderScale world and the ironwork interleave is
-   * decided by the depth test at display resolution.
-   */
+  /** Full-resolution scene and camera for lettering and tower depth. */
   const [textLayer] = useState<TextLayer>(() => ({
     scene: new THREE.Scene(),
     camera: new THREE.PerspectiveCamera(),
@@ -243,9 +225,7 @@ export function TowerCanvas({
         </group>
       </group>
 
-      {/* Outside the worldScale group on purpose. The component portals its
-          content into the text layer's own scene, where it wraps itself in
-          the same scale, so its mount point here is only a hook site. */}
+      {/* Lettering applies world scale inside its portal scene. */}
       {lettering && (
         <Lettering
           size={letterSize}
@@ -294,27 +274,16 @@ export function TowerCanvas({
       renderer={{
         antialias: false,
         powerPreference: "high-performance",
-        // The hero interleave needs the canvas transparent until the sky's
-        // opaque background takes over; costs nothing on the demo page.
+        // Keep the canvas transparent until the sky background is ready.
         alpha: true,
-        // WebGPU's maxColorAttachmentBytesPerSample default is 32, and the
-        // spec's per-sample cost table charges rgba8unorm attachments 8 bytes
-        // (same as rgba16float — byte textures save bandwidth, NOT this
-        // budget). The 5-attachment SSGI MRT (output + emissive + normal +
-        // velocity + diffuse) therefore costs 5×8 = 40 and needs the limit
-        // raised. This Mac's adapter reports 128; 64 is widely supported on
-        // desktop. A production build should query the adapter and degrade
-        // (drop `diffuse`, composite GI without albedo) instead of failing
-        // device creation on weaker hardware.
+        // The five SSGI attachments require at least 40 bytes per sample.
         requiredLimits: { maxColorAttachmentBytesPerSample: 64 },
       }}
       dpr={[1, 2]}
       forceEven
       style={canvasStyle}
       fallback={fallback}
-      // No `camera` prop: `<PerspectiveCamera makeDefault>` in <Camera> replaces
-      // it wholesale, so anything set here is silently discarded. The clip
-      // planes live there, with worldScale applied.
+      // The Camera component owns the default camera and clip planes.
     >
       <Suspense>
         {skyEnabled ? (
