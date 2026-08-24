@@ -9,12 +9,20 @@ import { msdf } from "@pmndrs/glyph/three/msdf";
 import type { Text as TextObject } from "@pmndrs/glyph/three";
 import * as THREE from "three/webgpu";
 import {
+  cameraFar,
+  cameraNear,
+  float,
   lights,
+  mix,
   mrt,
   output,
   packNormalToRGB,
+  positionView,
+  smoothstep,
+  uv,
   vec3,
   vec4,
+  viewZToPerspectiveDepth,
 } from "three/tsl";
 
 import type { TextLayer } from "./fx";
@@ -52,6 +60,11 @@ const FONT_REQUEST = {
   input: { baked: "/hero-demo/Geist-SemiBold.font.glb" },
   raster: { technique: msdf },
 } as const;
+
+/** View-axis depths used only for the P's art-directed depth mask. */
+const INTERSECTION_VISUAL_Z = 0.25;
+const INTERSECTION_TOP_Z = -0.1;
+const INTERSECTION_LOWER_Z = 1.1;
 
 /**
  * The dedicated text pass frees this material to be what glyph intended: a
@@ -120,7 +133,7 @@ function createOverlayLetterMaterial(towerGlow: THREE.PointLight) {
  * and passes through FSR/TRAA with the world, so its edge is less pristine
  * than the five letters that remain in the display-resolution text layer.
  */
-function createIntersectionLetterMaterial() {
+function createIntersectionLetterMaterial(worldScale: number) {
   return defineTextMaterial((context) => {
     const material = new THREE.MeshBasicNodeMaterial({
       side: THREE.DoubleSide,
@@ -129,6 +142,24 @@ function createIntersectionLetterMaterial() {
     material.colorNode = context.shader.color;
     material.opacityNode = context.shader.opacity;
     material.alphaTest = 0.5;
+    // Keep the quad visually flat, but give its upper and lower regions
+    // different view-axis depths. Glyph's unit-quad UV starts at the upper
+    // left, so this transition runs behind the counter: the tower wins across
+    // the top while the lower bowl comes forward, without foreshortening the P.
+    const lowerLayer = smoothstep(0.36, 0.5, uv().y);
+    const maskedSceneZ = mix(
+      float(INTERSECTION_TOP_Z),
+      float(INTERSECTION_LOWER_Z),
+      lowerLayer,
+    );
+    const maskedViewZ = positionView.z.add(
+      maskedSceneZ.sub(INTERSECTION_VISUAL_Z).mul(worldScale),
+    );
+    material.depthNode = viewZToPerspectiveDepth(
+      maskedViewZ,
+      cameraNear,
+      cameraFar,
+    );
     material.mrtNode = mrt({
       output: vec4(output.rgb, 0),
       emissive: vec3(0),
@@ -145,10 +176,11 @@ function createIntersectionLetterMaterial() {
  *
  * The z component is a view-axis offset inside each letter's billboard. The
  * P's billboard is anchored at its own `[x, y, 0]` point, so its inner z = 0
- * really is a plane through the tower axis at y = 20. Its small positive z
- * bias then seats the P between the summit's rear and near lattice fragments.
- * Rotating one shared billboard at the city origin would instead put the P on
- * a parallel plane through the tower base;
+ * really is a plane through the tower axis at the authored height. Its small
+ * positive z bias is its visual plane; its custom UV depth mask puts the top
+ * behind the tower while bringing the lower bowl in front. One shared
+ * billboard at the city origin would instead put the P on a parallel plane
+ * through the tower base;
  * at this height that plane sits entirely in front of the summit geometry.
  *
  * `center` is the letter's outline-bbox center in em units, measured with
@@ -162,7 +194,11 @@ const LETTERS: {
   position: [number, number, number];
   center: [number, number];
 }[] = [
-  { char: "P", position: [0, 20, 0.25], center: [0.35, 0.355] },
+  {
+    char: "P",
+    position: [0, 21.9, INTERSECTION_VISUAL_Z],
+    center: [0.35, 0.355],
+  },
   { char: "M", position: [4, 16.5, 0], center: [0.451, 0.355] },
   { char: "N", position: [-6, 13, 0], center: [0.374, 0.355] },
   { char: "D", position: [4.5, 9.5, 0], center: [0.3745, 0.355] },
@@ -212,8 +248,8 @@ export function Lettering({
     [towerGlow],
   );
   const intersectionMaterial = useMemo(
-    () => createIntersectionLetterMaterial(),
-    [],
+    () => createIntersectionLetterMaterial(worldScale),
+    [worldScale],
   );
 
   /**
