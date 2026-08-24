@@ -1,7 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { LogoFull } from "@/components/brand/logo";
 import { SectionGate } from "@/components/sections/section-gate";
@@ -22,9 +29,183 @@ const TowerHero = dynamic(
   { ssr: false },
 );
 
+const DAY_CYCLE = 100;
+const INITIAL_TIME_OF_DAY = 85;
+/** Maximum replay speed in dial units per second. */
+const REPLAY_UNITS_PER_SECOND = 70;
+/** Distance used to brake into the final value. */
+const REPLAY_EASE_OUT_UNITS = 12;
+const MAX_FRAME_MS = 64;
+
+const wrapTimeOfDay = (value: number) =>
+  ((value % DAY_CYCLE) + DAY_CYCLE) % DAY_CYCLE;
+
+/**
+ * Replays unwrapped dial input at a bounded speed.
+ * Same-direction samples share one endpoint. Direction changes remain queued.
+ */
+function useTimeOfDayReplay(initial: number, instant: boolean) {
+  const [value, setValue] = useState(initial);
+  const state = useRef({
+    value: initial,
+    queue: [] as number[],
+    lastFrame: 0,
+    frame: 0,
+  });
+
+  const step = useCallback(function replayFrame(now: number) {
+    const s = state.current;
+    let secondsLeft = Math.min(now - s.lastFrame, MAX_FRAME_MS) / 1000;
+    s.lastFrame = now;
+
+    while (secondsLeft > 0 && s.queue.length) {
+      const target = s.queue[0];
+      const distance = target - s.value;
+      // Square root scaling models constant braking to zero.
+      const speed =
+        s.queue.length === 1
+          ? REPLAY_UNITS_PER_SECOND *
+            Math.min(
+              1,
+              Math.sqrt(Math.abs(distance) / REPLAY_EASE_OUT_UNITS),
+            )
+          : REPLAY_UNITS_PER_SECOND;
+      const travel = speed * secondsLeft;
+
+      if (Math.abs(distance) <= travel) {
+        s.value = target;
+        s.queue.shift();
+        secondsLeft -= speed ? Math.abs(distance) / speed : secondsLeft;
+      } else {
+        s.value += Math.sign(distance) * travel;
+        secondsLeft = 0;
+      }
+    }
+
+    setValue(s.value);
+    if (s.queue.length) {
+      s.frame = requestAnimationFrame(replayFrame);
+    } else {
+      s.frame = 0;
+    }
+  }, []);
+
+  const enqueue = useCallback(
+    (next: number) => {
+      const s = state.current;
+      if (instant) {
+        cancelAnimationFrame(s.frame);
+        s.frame = 0;
+        s.queue.length = 0;
+        s.value = next;
+        setValue(next);
+        return;
+      }
+
+      const last = s.queue.at(-1) ?? s.value;
+      if (Math.abs(next - last) < Number.EPSILON) return;
+
+      const previous =
+        s.queue.length > 1 ? s.queue[s.queue.length - 2] : s.value;
+      const previousDirection = Math.sign(last - previous);
+      const nextDirection = Math.sign(next - last);
+
+      if (s.queue.length && previousDirection === nextDirection) {
+        // Same-direction samples share one endpoint.
+        s.queue[s.queue.length - 1] = next;
+      } else {
+        s.queue.push(next);
+      }
+
+      if (!s.frame) {
+        s.lastFrame = performance.now();
+        s.frame = requestAnimationFrame(step);
+      }
+    },
+    [instant, step],
+  );
+
+  useEffect(() => {
+    if (!instant) return;
+    const s = state.current;
+    const finalValue = s.queue.at(-1) ?? s.value;
+    cancelAnimationFrame(s.frame);
+    s.frame = 0;
+    s.queue.length = 0;
+    s.value = finalValue;
+    setValue(finalValue);
+  }, [instant]);
+
+  useEffect(() => {
+    const s = state.current;
+    return () => {
+      cancelAnimationFrame(s.frame);
+      s.frame = 0;
+    };
+  }, []);
+
+  return { value, enqueue };
+}
+
+const HeroTimeDial = memo(function HeroTimeDial({
+  onValueChange,
+}: {
+  onValueChange: (value: number) => void;
+}) {
+  const [value, setValue] = useState(INITIAL_TIME_OF_DAY);
+  const handleValueChange = useCallback(
+    (next: number) => {
+      setValue(next);
+      onValueChange(next);
+    },
+    [onValueChange],
+  );
+
+  return (
+    <TimeDial
+      value={value}
+      onValueChange={handleValueChange}
+      aria-label="Time of day"
+      className="absolute right-4 bottom-6 z-40 sm:right-8"
+    />
+  );
+});
+
+function TimeOfDayExperience({
+  reducedMotion,
+  onScreen,
+}: {
+  reducedMotion: boolean;
+  onScreen: boolean;
+}) {
+  const { value: tod, enqueue } = useTimeOfDayReplay(
+    INITIAL_TIME_OF_DAY,
+    reducedMotion,
+  );
+  const palette = useMemo(() => todAt(tod / DAY_CYCLE), [tod]);
+
+  return (
+    <>
+      {/* Covers the canvas while its shaders compile. */}
+      <div
+        className="absolute inset-0"
+        style={{ background: skyGradient(palette) }}
+      />
+
+      <div className="absolute inset-0 z-20">
+        <TowerHero
+          value={wrapTimeOfDay(tod)}
+          reducedMotion={reducedMotion}
+          paused={!onScreen}
+        />
+      </div>
+
+      <HeroTimeDial onValueChange={enqueue} />
+    </>
+  );
+}
+
 export function Hero() {
-  // Default to the graded look: 85/100 ≈ 20.4h, dusk at Paris in June.
-  const [tod, setTod] = useState(85);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [onScreen, setOnScreen] = useState(true);
   const sectionRef = useRef<HTMLElement>(null);
@@ -50,18 +231,15 @@ export function Hero() {
     return () => observer.disconnect();
   }, []);
 
-  const palette = useMemo(() => todAt(tod / 100), [tod]);
-
   return (
     <section
       ref={sectionRef}
       id="top"
       className="relative flex h-svh min-h-[700px] flex-col overflow-hidden bg-background"
     >
-      {/* z-0 — sky. Stays in the DOM so it can sit behind the wordmark. */}
-      <div
-        className="absolute inset-0 transition-[background] duration-200"
-        style={{ background: skyGradient(palette) }}
+      <TimeOfDayExperience
+        reducedMotion={reducedMotion}
+        onScreen={onScreen}
       />
 
       {/* z-30 — top bar */}
@@ -78,17 +256,6 @@ export function Hero() {
         >
           Register
         </a>
-      </div>
-
-      {/* z-20 — the scene. Transparent until the sky's first frame lands, so
-          the CSS gradient above covers the shader-compile window; the PMNDRS
-          lettering renders in-scene rather than as DOM layers. */}
-      <div className="absolute inset-0 z-20">
-        <TowerHero
-          value={tod}
-          reducedMotion={reducedMotion}
-          paused={!onScreen}
-        />
       </div>
 
       {/* Grounds the copy against the city. */}
@@ -124,14 +291,6 @@ export function Hero() {
           </div>
         </div>
       </div>
-
-      <TimeDial
-        value={tod}
-        onValueChange={setTod}
-        phase={palette.phase}
-        aria-label="Time of day"
-        className="absolute right-4 bottom-6 z-40 sm:right-8"
-      />
     </section>
   );
 }

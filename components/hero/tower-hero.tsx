@@ -71,7 +71,9 @@ export function TowerHero({
   // full daylight at that exposure blows out. Fade toward a daylight stop
   // around midday; the sky applies exposure through a live uniform, so this
   // costs nothing per change.
-  const daylight = Math.max(0, 1 - Math.abs(hours - 13) / 6);
+  // Smoothstep removes brightness kinks at 07:00 and 19:00.
+  const t = Math.max(0, 1 - Math.abs(hours - 13) / 6);
+  const daylight = t * t * (3 - 2 * t);
   const exposure = 40 + (12 - 40) * daylight;
 
   return (

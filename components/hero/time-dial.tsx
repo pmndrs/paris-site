@@ -1,9 +1,9 @@
 "use client";
 
-import { Moon, Sun, SunDim, Sunset } from "lucide-react";
+import { Moon, Sun, SunDim, Sunrise, Sunset } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 
-import type { Phase } from "@/lib/time-of-day";
+import { phaseFor, SOLAR_ZONES, zoneAt, type Phase } from "@/lib/time-of-day";
 import { cn } from "@/lib/utils";
 
 /** A rotary time control with a wrapping value and audible detents. */
@@ -12,24 +12,6 @@ const FULL_TURN = 360;
 /** Value units between audible detents. */
 const DETENT = 4;
 
-/** Local solar hours for dawn, dusk, and golden light in Paris on June 25. */
-const BEAUTY_ZONES = [
-  { label: "Dawn", startHour: 3.24, endHour: 4.05, color: "#c4b5fd" },
-  {
-    label: "Morning golden hour",
-    startHour: 4.05,
-    endHour: 4.78,
-    color: "#fde68a",
-  },
-  {
-    label: "Evening golden hour",
-    startHour: 19.29,
-    endHour: 20.02,
-    color: "#f59e0b",
-  },
-  { label: "Dusk", startHour: 20.02, endHour: 20.84, color: "#a78bfa" },
-] as const;
-
 const PHASE_ICON: Record<Phase, typeof Sun> = {
   NIGHT: Moon,
   DUSK: Sunset,
@@ -37,11 +19,14 @@ const PHASE_ICON: Record<Phase, typeof Sun> = {
   DAY: Sun,
 };
 
-const clamp = (v: number, lo: number, hi: number) =>
-  Math.min(hi, Math.max(lo, v));
-
 /** Wraps clockwise and counterclockwise turns into the range [0, 100). */
 const wrapValue = (v: number) => ((v % 100) + 100) % 100;
+
+/** Formats dial units as a 24-hour clock. */
+const clockLabel = (v: number) => {
+  const minutes = Math.round((wrapValue(v) / 100) * 24 * 60) % (24 * 60);
+  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
+};
 
 /** Plays a noise click over a sine knock with pitch based on the dial value. */
 function playClick(ctx: AudioContext, noise: AudioBuffer, t01: number) {
@@ -73,18 +58,17 @@ function playClick(ctx: AudioContext, noise: AudioBuffer, t01: number) {
 export function TimeDial({
   value,
   onValueChange,
-  phase,
   className,
   ...aria
 }: {
   value: number;
   onValueChange: (value: number) => void;
-  phase: Phase;
   className?: string;
   "aria-label"?: string;
   "aria-labelledby"?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const valueRef = useRef(value);
   const audioRef = useRef<{ ctx: AudioContext; noise: AudioBuffer } | null>(
     null,
   );
@@ -93,12 +77,17 @@ export function TimeDial({
     y: number;
     lastAngle: number | null;
     value: number;
+    moved: boolean;
   } | null>(null);
   const lastDetent = useRef(Math.round(value / DETENT));
 
   useEffect(() => {
     return () => void audioRef.current?.ctx.close();
   }, []);
+
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
 
   // Create the audio context during a user gesture to satisfy autoplay policy.
   const tick = useCallback((v: number) => {
@@ -121,24 +110,25 @@ export function TimeDial({
 
   const setValue = useCallback(
     (next: number) => {
-      const v = clamp(next, 0, 100);
-      const detent = Math.round(v / DETENT);
+      valueRef.current = next;
+      const detent = Math.round(next / DETENT);
       if (detent !== lastDetent.current) {
         lastDetent.current = detent;
-        tick(v);
+        tick(wrapValue(next));
       }
-      if (v !== value) onValueChange(v);
+      // Preserve whole turns for delayed replay.
+      onValueChange(next);
     },
-    [value, onValueChange, tick],
+    [onValueChange, tick],
   );
 
   const updateFromPointer = useCallback(
-    (e: React.PointerEvent) => {
+    (clientX: number, clientY: number) => {
       const drag = dragRef.current;
       if (!drag) return;
 
-      const dx = e.clientX - drag.x;
-      const dy = e.clientY - drag.y;
+      const dx = clientX - drag.x;
+      const dy = clientY - drag.y;
       // Wait for a stable angle when a drag starts near the center.
       if (Math.hypot(dx, dy) < 4) return;
 
@@ -154,9 +144,10 @@ export function TimeDial({
       if (delta < -180) delta += FULL_TURN;
 
       drag.lastAngle = angle;
-      // Keep drag distance unbounded and wrap only the emitted value.
+      if (Math.abs(delta) < 0.001) return;
+      drag.moved = true;
       drag.value += (delta / FULL_TURN) * 100;
-      setValue(wrapValue(drag.value));
+      setValue(drag.value);
     },
     [setValue],
   );
@@ -164,11 +155,11 @@ export function TimeDial({
   const normalizedValue = wrapValue(value);
   const angle = (normalizedValue / 100) * FULL_TURN;
   const solarHour = (normalizedValue / 100) * 24;
-  const activeBeautyZone =
-    BEAUTY_ZONES.find(
-      (zone) => solarHour >= zone.startHour && solarHour <= zone.endHour,
-    ) ?? null;
-  const Icon = PHASE_ICON[phase];
+  const activeZone = zoneAt(solarHour);
+  // The dial reflects live input while the scene catches up.
+  const phase = phaseFor(solarHour);
+  // Dawn uses Sunrise because dawn and dusk share a phase.
+  const Icon = activeZone?.label === "Dawn" ? Sunrise : PHASE_ICON[phase];
 
   return (
     <div
@@ -177,12 +168,10 @@ export function TimeDial({
       tabIndex={0}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={Math.round(value)}
-      aria-valuetext={
-        activeBeautyZone
-          ? `${phase.toLowerCase()}, ${activeBeautyZone.label.toLowerCase()}`
-          : phase.toLowerCase()
-      }
+      aria-valuenow={Math.round(normalizedValue)}
+      aria-valuetext={`${clockLabel(normalizedValue)}, ${(
+        activeZone?.label ?? phase
+      ).toLowerCase()}`}
       aria-orientation="vertical"
       {...aria}
       onPointerDown={(e) => {
@@ -199,15 +188,38 @@ export function TimeDial({
             Math.hypot(dx, dy) < 4
               ? null
               : (Math.atan2(dx, -dy) * 180) / Math.PI,
-          value,
+          value: valueRef.current,
+          moved: false,
         };
         ref.current?.setPointerCapture(e.pointerId);
         ref.current?.focus();
       }}
       onPointerMove={(e) => {
         if (ref.current?.hasPointerCapture(e.pointerId)) {
-          updateFromPointer(e);
+          const samples = e.nativeEvent.getCoalescedEvents?.();
+          if (samples?.length) {
+            for (const sample of samples) {
+              updateFromPointer(sample.clientX, sample.clientY);
+            }
+          } else {
+            updateFromPointer(e.clientX, e.clientY);
+          }
         }
+      }}
+      onPointerUp={(e) => {
+        const drag = dragRef.current;
+        if (!drag || drag.moved) return;
+
+        const dx = e.clientX - drag.x;
+        const dy = e.clientY - drag.y;
+        if (Math.hypot(dx, dy) < 4) return;
+
+        const degrees = (Math.atan2(dx, -dy) * 180) / Math.PI;
+        const clicked = wrapValue((degrees / FULL_TURN) * 100);
+        // Select the reading nearest the current unwrapped turn.
+        const next =
+          clicked + Math.round((drag.value - clicked) / 100) * 100;
+        setValue(next);
       }}
       onLostPointerCapture={() => {
         dragRef.current = null;
@@ -221,12 +233,22 @@ export function TimeDial({
           PageUp: 10,
           PageDown: -10,
         };
-        const jumps: Record<string, number | undefined> = { Home: 0, End: 100 };
+        // Home selects midnight and End selects midday on the nearest turn.
+        const wrappedJumps: Record<string, number | undefined> = {
+          Home: 0, // midnight
+          End: 50, // midday
+        };
         const step = steps[e.key];
-        const jump = jumps[e.key];
+        const wrappedJump = wrappedJumps[e.key];
+        const current = valueRef.current;
+        const jump =
+          wrappedJump === undefined
+            ? undefined
+            : wrappedJump +
+              Math.round((current - wrappedJump) / 100) * 100;
         if (step === undefined && jump === undefined) return;
         e.preventDefault();
-        setValue(jump ?? value + (step ?? 0));
+        setValue(jump ?? current + (step ?? 0));
       }}
       className={cn(
         "relative isolate size-14 shrink-0 cursor-pointer touch-none rounded-full border border-white/25 bg-white/5 select-none",
@@ -241,10 +263,10 @@ export function TimeDial({
         className="pointer-events-none absolute inset-0 size-full"
         aria-hidden
       >
-        {BEAUTY_ZONES.map((zone) => {
+        {SOLAR_ZONES.map((zone) => {
           const start = (zone.startHour / 24) * 100;
           const length = ((zone.endHour - zone.startHour) / 24) * 100;
-          const active = activeBeautyZone?.label === zone.label;
+          const active = activeZone?.label === zone.label;
           return (
             <circle
               key={zone.label}
