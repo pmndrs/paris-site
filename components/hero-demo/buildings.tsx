@@ -94,11 +94,7 @@ type BuildingsProps = {
   introClock: RefObject<number>;
 };
 
-/**
- * A radial delay makes the city grow from the tower toward the horizon. The
- * coordinate hash breaks the wavefront up without consuming the scatter RNG,
- * so adding the animation cannot reshuffle the authored city.
- */
+/** Builds a stable radial delay without consuming the scatter RNG. */
 function buildDelay(x: number, z: number, outerRadius: number, phase = 0) {
   const radial = THREE.MathUtils.clamp(Math.hypot(x, z) / outerRadius, 0, 1);
   const jitter =
@@ -107,7 +103,7 @@ function buildDelay(x: number, z: number, outerRadius: number, phase = 0) {
   return 0.35 + radial * 1.55 + jitter * 0.24 + phase;
 }
 
-/** GPU-side build motion; every instance reads its own radial delay. */
+/** Animates each instance from its radial delay on the GPU. */
 function useBuildPosition(
   clock: RefObject<number>,
   ground: number,
@@ -125,16 +121,14 @@ function useBuildPosition(
         const verticalGrowth = float(1).toVar();
         const lateralGrowth = float(1).toVar();
 
-        // A uniform branch leaves the steady-state scene at its original cost.
+        // Skip the animation branch after the intro completes.
         If(uTime.lessThan(INTRO_COMPLETE), () => {
           const elapsed = uTime
             .sub(attribute("introDelay", "float"))
             .max(0);
 
           if (motion === "tree") {
-            // Trees grow once from an effectively invisible point at their
-            // base. Monotonic smoothstep means no overshoot, recoil, or
-            // apparent trip back through the ground plane.
+            // Smoothstep grows trees from their base without overshoot.
             const t = elapsed.div(1.15).clamp(0, 1);
             const eased = t.mul(t).mul(float(3).sub(t.mul(2)));
             verticalGrowth.assign(eased.max(0.001));
@@ -154,9 +148,7 @@ function useBuildPosition(
         });
 
         if (motion === "tree") {
-          // NodeMaterial applies instanceMatrix before positionNode. Subtract
-          // the per-instance ground pivot first so scaling happens around each
-          // tree's own base instead of pulling the forest toward world zero.
+          // Scale around each tree base after the instance matrix is applied.
           const origin = vec3(attribute<"vec3">("introOrigin", "vec3"));
           return vec3(
             origin.x.add(positionLocal.x.sub(origin.x).mul(lateralGrowth)),
@@ -285,8 +277,7 @@ export function Buildings({
     const delays: number[] = [];
     const origins: number[] = [];
 
-    // Trees frame the park and riverbanks, but leave the tower's ceremonial
-    // lawn open so the city reads as a backdrop rather than a base ring.
+    // Trees frame the park and river while leaving the tower clearing open.
     for (
       let i = 0, attempts = 0;
       i < treeCount && attempts < treeCount * 8;

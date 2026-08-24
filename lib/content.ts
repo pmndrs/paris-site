@@ -21,12 +21,20 @@ export type SectionId = (typeof SECTIONS)[number]["id"];
 export const HERO = {
   kicker: "September 8 & 9, 2026 · Gobelins, Paris",
   title: ["Advanced React", "Three Fiber"],
-  // "Intermediate" is the positioning and only existed in the Overview facts
-  // strip, which the short version hides. The seat count comes out rather than
-  // getting a number: the hero said thirty while the facts strip and the closer
-  // both say forty, so dropping the outlier makes the page agree with itself
-  // instead of guessing which figure is right. See COPY.md §1.
-  lede: "One day learning React Three Fiber v10 and the pmndrs ecosystem, one day building with it. Intermediate level.",
+  description:
+    "Two focused days about building scalable R3F apps with a couple of pros at three.js conf. First learn how the pieces fit together, then turn that knowledge into something of your own.",
+  days: [
+    {
+      label: "Day 1",
+      body: "Learn the full R3F v10 WebGPU stack from staging to reactivity to TSL and postprocessing.",
+      highlights: ["WebGPU"],
+    },
+    {
+      label: "Day 2",
+      body: "Build something amazing. Choose between a game, product editor or creative portfolio.",
+      highlights: ["game", "product editor", "creative portfolio"],
+    },
+  ],
 };
 
 /**
@@ -114,30 +122,24 @@ export const FACTS = [
   { k: "Level", v: "Intermediate" },
 ];
 
-/**
- * Forward-looking framing: what R3F and v10 make possible, and why now.
- *
- * The agentic angle lives in point 03 only — a supporting note, not the thesis.
- * See CONTENT.md §2.1: the site is "building the future with R3F", not a
- * defence of learning against AI.
- */
+/** Three workshop-ready features highlighted in the R3F v10 changelog. */
 export const WHY = {
-  lede: "WebGPU shipped. React Three Fiber v10 puts it behind an API you already know. The parts of 3D that used to need a graphics team are turning into components — and this is where you learn to build with them.",
+  lede: "Explore three of the biggest additions to R3F v10.",
   points: [
     {
       n: "01",
-      t: "React is the fastest way to build 3D",
-      d: "You already have components, hooks and state. R3F maps them straight onto the scene graph, so what you are learning is the 3D, not another framework.",
+      t: "Declarative WebGL and WebGPU",
+      d: "Use one declarative R3F API to build scenes for both WebGL and WebGPU renderers.",
     },
     {
       n: "02",
-      t: "The ecosystem is the multiplier",
-      d: "drei, rapier, postprocessing, gltfjsx. Knowing which one to reach for is most of the job, and two days with the people who build them is a shortcut you cannot read your way to.",
+      t: "A frame loop you can schedule",
+      d: "Schedule work dynamically with dependencies, coordinate it across multiple canvases, control tick rates and more.",
     },
     {
       n: "03",
-      t: "You will write the code",
-      d: "Bring your agent, we use them too. But you will type it, break it and fix it, because you cannot direct a tool through a domain you cannot read.",
+      t: "TSL built into R3F",
+      d: "Build uniforms, node graphs and postprocessing with new hooks supported in R3F's core.",
     },
   ],
 };
@@ -223,8 +225,6 @@ export const TRACKS = [
   },
 ];
 
-const FLOOR_BIO = "On hand through both days for setup and one-to-one help.";
-
 /**
  * The `role` line is a credential, not a rank.
  *
@@ -234,23 +234,44 @@ const FLOOR_BIO = "On hand through both days for setup and one-to-one help.";
  * track on day two is real information, so it moves into the bio, where it is a
  * fact about the schedule rather than a label on a person.
  */
-export const PEOPLE = [
+export interface Instructor {
+  name: string;
+  role: string;
+  bio: string;
+  github: string;
+  /** Add a public asset path when a small profile photo is available. */
+  image?: string;
+}
+
+export const PEOPLE: readonly Instructor[] = [
   {
     name: "Dennis Smolek",
     role: "pmndrs core",
-    bio: "Wrote React Three Fiber v10, and builds production R3F for a living. Leads a track on day two.",
+    bio: "Author of React Three Fiber v10 and builds production R3F for a living.",
+    github: "https://github.com/DennisSmolek",
+    image: "/instructors/dennis-smolek.jpg",
   },
   {
     name: "Kris Baumgartner",
     role: "pmndrs core",
-    // TODO: name the libraries. "Several of the libraries" is true but soft —
-    // two or three names would do far more work here than the sentence does.
-    bio: "Wrote several of the libraries you will use, and works on rendering and performance. Leads a track on day two.",
+    bio: "Poimandres organizer, Koota author, and maintainer of the ecosystem.",
+    github: "https://github.com/krispya",
+    image: "/instructors/kris-baumgartner.png",
   },
-  // Surnames pending — first names are correct, so ship those rather than a
-  // public "TBC". Fill in when Dennis has them.
-  { name: "Ava", role: "Interactive developer", bio: FLOOR_BIO },
-  { name: "Faraz", role: "pmndrs contributor", bio: FLOOR_BIO },
+  {
+    name: "Faraz Shaikh",
+    role: "pmndrs contributor",
+    bio: "Senior graphics programmer, technical artist, and maintainer at Poimandres.",
+    github: "https://github.com/farazzshaikh",
+    image: "/instructors/faraz-shaikh.jpg",
+  },
+  {
+    name: "Ava Lehner",
+    role: "Interactive developer",
+    bio: "Former education lobbyist turned creative developer working with Poimandres.",
+    github: "https://github.com/avalehner",
+    image: "/instructors/ava-lehner.jpg",
+  },
 ];
 
 export const PREREQ_GROUPS = [

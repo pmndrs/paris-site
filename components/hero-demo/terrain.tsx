@@ -191,9 +191,7 @@ export function Terrain({
 
       {park && (
         <>
-          {/* A broad lawn gives the tower breathing room on every side. The
-              rectangular Champ-de-Mars strip overlaps it and continues away
-              from the river, so the park reads as one connected landscape. */}
+          {/* The lawn and park strip form one connected landscape. */}
           <mesh
             position={[
               (PARK.minX + PARK.maxX) / 2,
@@ -226,8 +224,7 @@ export function Terrain({
             />
           </mesh>
 
-          {/* One circular promenade and a narrow central axis suggest the real
-              park without adding geometry noise around the tower silhouette. */}
+          {/* A ring and central path define the park layout. */}
           <mesh position={[0, PATH_Y, 0]} rotation-x={-Math.PI / 2}>
             <ringGeometry args={[RING_PATH_INNER, RING_PATH_OUTER, 64]} />
             <meshStandardMaterial

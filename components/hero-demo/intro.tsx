@@ -4,11 +4,8 @@ import { useEffect, useRef, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber/webgpu";
 
 /**
- * One clock for the whole hero entrance.
- *
- * It advances by rendered time rather than wall time, so a background tab does
- * not return to an animation that finished without ever drawing. The timestep
- * cap also keeps the letter springs stable after a long frame.
+ * Shared clock for the hero entrance.
+ * Rendered time and a capped step keep the animation stable.
  */
 export const INTRO_COMPLETE = 6.2;
 export const LETTER_CHAIN_START = 2.65;
@@ -33,8 +30,7 @@ export function IntroClock({
     clock.current = enabled ? 0 : INTRO_COMPLETE;
     cueSent.current = !enabled;
     if (!enabled) onUiReveal?.();
-    // Reduced motion switches the canvas to demand mode. Request one frame so
-    // every animated object sees the completed clock and snaps to its rest pose.
+    // Request one frame so reduced motion reaches the final state.
     invalidate();
   }, [clock, enabled, invalidate, onUiReveal]);
 

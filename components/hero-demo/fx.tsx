@@ -41,7 +41,7 @@ interface SSGIPass {
   getGINode(): unknown;
 }
 
-/** Bloom result accessor, named `getTexture` by the stale bundled types. */
+/** Bloom texture accessor. */
 interface BloomPass {
   getTextureNode(): THREE.TextureNode;
 }
@@ -144,7 +144,6 @@ export function FX({
   textEnabled = true,
   textGlow = 1,
 }: FXOptions) {
-  // The sky is null when no Sky provider is mounted.
   const sky = useSky();
 
   const useFsr = fsr;
@@ -160,15 +159,11 @@ export function FX({
   /** Lettering pass reused across render graph rebuilds. */
   const textPassRef = useRef<ReturnType<typeof TSL.pass> | null>(null);
 
-  // Release GPU resources owned by this effect.
-  useEffect(() => {
-    return () => {
-      fsrNodeRef.current?.dispose();
-      fsrNodeRef.current = null;
-      textPassRef.current?.dispose();
-      textPassRef.current = null;
-    };
-  }, []);
+  // `useRenderPipeline` deliberately keeps its pipeline alive across component
+  // cleanup (including Fast Refresh), so disposing these refs from a React
+  // cleanup would leave that live pipeline pointing at destroyed GPU resources.
+  // Rebuilds retire them transactionally in the pipeline callback below; a
+  // real Canvas teardown releases the renderer/device that owns the remainder.
 
   /** Active SSGI pass whose tuning values are runtime uniforms. */
   const ssgiPassRef = useRef<SSGIPass | null>(null);
@@ -283,23 +278,31 @@ export function FX({
       if (!renderPipeline || !passes?.scenePass) return;
       const scenePass = passes.scenePass;
 
-      // Dispose FSR3 timer queries before replacing the node.
-      fsrNodeRef.current?.dispose();
-      fsrNodeRef.current = null;
+      // Keep the active graph alive until its replacement is fully assembled.
+      // If anything below throws, fiber retains the previous outputNode, so its
+      // resources must remain valid too.
+      const retiredFsrNode = fsrNodeRef.current;
+      let nextFsrNode: FSRNodeLike | null = null;
 
       // Render glyph color and tower occlusion depth at display resolution.
-      if (!textEnabled && textPassRef.current) {
-        textPassRef.current.dispose();
-        textPassRef.current = null;
-      }
-      if (textEnabled && !textPassRef.current) {
-        textPassRef.current = TSL.pass(textLayer.scene, textLayer.camera);
-      }
-      const textTex = textPassRef.current?.getTextureNode("output");
-      // Reuse authored glyph depth when applying fog to visible text pixels.
-      const textDepth = textPassRef.current
-        ? TSL.abs(textPassRef.current.getViewZNode())
+      const previousTextPass = textPassRef.current;
+      const textPass = textEnabled
+        ? (previousTextPass ?? TSL.pass(textLayer.scene, textLayer.camera))
         : null;
+      const retiredTextPass = textEnabled ? null : previousTextPass;
+      const textTex = textPass?.getTextureNode("output");
+      // Reuse authored glyph depth when applying fog to visible text pixels.
+      const textDepth = textPass
+        ? TSL.abs(textPass.getViewZNode())
+        : null;
+
+      /** Commits graph ownership, then releases resources no longer reachable. */
+      const commitResources = () => {
+        fsrNodeRef.current = nextFsrNode;
+        textPassRef.current = textPass;
+        retiredFsrNode?.dispose();
+        retiredTextPass?.dispose();
+      };
 
       /** Composites premultiplied text after depth occlusion is resolved. */
       const overlayText = textTex
@@ -322,6 +325,7 @@ export function FX({
             : base;
         // Mark the presentation material dirty after replacing its output node.
         renderPipeline.needsUpdate = true;
+        commitResources();
         builtKeyRef.current = wantedKey;
         builtSkyRef.current = sky;
         return;
@@ -338,8 +342,7 @@ export function FX({
       if (withBloom) {
         const emissive = scenePass.getTextureNode("emissive");
         const bloomPass = bloom(emissive, 0.5, 0.5);
-        // The pass renders once per frame; its result texture can be sampled
-        // again later without running the blur chain a second time.
+        // Reuse the result texture without running bloom again.
         bloomTex = (
           bloomPass as unknown as BloomPass
         ).getTextureNode() as unknown as AnyVec4;
@@ -499,11 +502,10 @@ export function FX({
           camera,
           { path: "temporal", jitter: true },
         );
-        fsrNodeRef.current = fsrNode as unknown as FSRNodeLike;
+        nextFsrNode = fsrNode as unknown as FSRNodeLike;
         velocityBoundRef.current = false;
         graph = fsrNode;
       } else {
-        fsrNodeRef.current = null;
         // Use TRAA as the temporal resolver when FSR3 is disabled.
         const traaPass = traa(
           graph,
@@ -521,27 +523,12 @@ export function FX({
         graph = TSL.Fn(() => {
           let textRgb = textTex.rgb as unknown as AnyVec3;
           if (bloomTex) {
-            // Read the tower bloom as the light arriving at each glyph pixel
-            // and multiply it into the glyph color, so the letters warm up
-            // where the glow reaches them instead of the glow being
-            // composited over their silhouette.
-            //
-            // Raw bloom is useless here: it falls off close to Gaussian, so
-            // it is ~0.8 against the ironwork and ~0.03 by the time it
-            // reaches the outer glyphs — a 3% lift nobody can see. The square
-            // root spreads that reach across the whole wordmark and leaves
-            // the near-tower core roughly where it was. Only the magnitude is
-            // shaped; dividing the color back out keeps the tower's amber
-            // instead of desaturating toward white as a per-channel curve
-            // would.
+            // Shape bloom luminance to extend its reach across the lettering.
+            // Restore the bloom hue before applying it to each glyph.
             const raw = bloomTex.rgb as unknown as AnyVec3;
             const level = TSL.max(TSL.luminance(raw), 1e-4);
             const lit = TSL.pow(level, 0.6).mul(glowKnobs.textGlow).min(2.0);
-            // Added as light falling on a white glyph rather than scaling
-            // what is already there: the glyph's own value is a dim floor, so
-            // a multiply would just scale the floor. Coverage keeps the light
-            // inside the silhouette, which is what separates this from the
-            // bloom being composited over the letters.
+            // Coverage keeps the added light inside each glyph.
             textRgb = textRgb.add(
               raw.div(level).mul(lit).mul(textTex.a),
             ) as unknown as AnyVec3;
@@ -566,6 +553,7 @@ export function FX({
       renderPipeline.outputNode = graph;
       // Mark the presentation material dirty after replacing its output node.
       renderPipeline.needsUpdate = true;
+      commitResources();
       builtKeyRef.current = wantedKey;
       builtSkyRef.current = sky;
     },

@@ -63,18 +63,14 @@ export function Lights({
         </>
       )}
 
-      {/* The atmosphere supplies image-based fill, but not direct sunlight.
-          This warm key gives the painted iron readable bronze faces against
-          cool sky reflections during the day. */}
+      {/* Warm direct sunlight for the painted tower. */}
       <directionalLight
         position={sunPosition}
         intensity={sunIntensity}
         color={sunColor}
       />
 
-      {/* A restrained photographic fill keeps camera-facing latticework from
-          falling into silhouette when the physically placed sun is behind it.
-          It follows the daylight fade, so it disappears with the sun. */}
+      {/* Daylight fill for camera facing latticework. */}
       <directionalLight
         position={[12, 24, 35]}
         intensity={sunIntensity * 0.2}

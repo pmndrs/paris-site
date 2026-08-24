@@ -54,6 +54,9 @@ export function RevealGroup({
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
+  // Server-component updates can replace reveal targets without remounting
+  // this client boundary. Re-register them whenever its children change so
+  // Fast Refresh does not leave new elements in the hidden CSS state.
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
@@ -78,7 +81,7 @@ export function RevealGroup({
     return () => {
       for (const el of targets) io.unobserve(el);
     };
-  }, []);
+  }, [children]);
 
   return (
     <div ref={ref} className={cn(className)}>

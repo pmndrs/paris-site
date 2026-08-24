@@ -34,11 +34,7 @@ export const PARIS_LATITUDE = 48.8566;
 /** 2026-06-25, the workshop. Sun arc is seasonal, so the date is not cosmetic. */
 export const CONFERENCE_DAY_OF_YEAR = 176;
 
-/**
- * Eiffel Tower illumination follows the sun rather than a clock time: it
- * starts to appear during late golden hour and reaches full strength in dusk.
- * That keeps the behavior seasonal when the demo latitude/date are changed.
- */
+/** Maps solar elevation to the tower light level. */
 export function towerLightLevel({
   timeOfDay,
   latitude,
@@ -49,7 +45,7 @@ export function towerLightLevel({
   dayOfYear: number;
 }) {
   const { elevation } = solarPosition({ timeOfDay, latitude, dayOfYear });
-  // Start as the sun enters late golden hour; finish during civil twilight.
+  // Fade from late golden hour through civil twilight.
   const fade = THREE.MathUtils.clamp((6 - elevation) / 10, 0, 1);
   return fade * fade * (3 - 2 * fade);
 }
@@ -93,7 +89,6 @@ export interface TowerCanvasProps {
     | THREE.Vector3
     | { x?: number; y?: number; z?: number };
   mirrorBelowHorizon?: boolean;
-  // stars
   stars?: boolean;
   starCount?: number;
   starIntensity?: number;
@@ -244,7 +239,7 @@ export function TowerCanvas({
         ),
       )
       .toArray();
-    // White overhead, increasingly peach near the horizon like the reference.
+    // Warm the sunlight as it approaches the horizon.
     const warmth = THREE.MathUtils.clamp((24 - elevation) / 20, 0, 1);
     const color = new THREE.Color("#fff6e8").lerp(
       new THREE.Color("#ff9c63"),
@@ -276,11 +271,7 @@ export function TowerCanvas({
         onUiReveal={onUiReveal}
       />
 
-      {/* Outside the `worldScale` group: the dome sets its own radius and the
-          sprites are sized in raster pixels, so a metres conversion here would
-          only fight both. It reads the sun off `useSky()` for its twilight
-          ramp, which is why it lives inside `<Sky>`; with the sky off there is
-          no sun to track and it holds at full night. */}
+      {/* Stars use their own dome radius and render target pixel size. */}
       {stars && (
         <Stars
           count={starCount}

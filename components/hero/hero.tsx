@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -9,12 +10,12 @@ import {
   useRef,
   useState,
   type AnimationEvent as ReactAnimationEvent,
+  type ReactNode,
 } from "react";
 
-import { LogoFull } from "@/components/brand/logo";
-import { SectionGate } from "@/components/sections/section-gate";
-import { Button } from "@/components/ui/button";
+import { RevealGroup } from "@/components/motion/reveal";
 import { TimeDial } from "@/components/hero/time-dial";
+import { Instructors } from "@/components/sections/instructors";
 import { HERO, REGISTER_URL } from "@/lib/content";
 import { skyGradient, todAt } from "@/lib/time-of-day";
 
@@ -166,13 +167,16 @@ const HeroTimeDial = memo(function HeroTimeDial({
     <div
       data-hero-ui
       data-hero-ui-step="3"
-      className="absolute right-4 bottom-6 z-40 sm:right-8"
+      data-hero-dial
+      className="pointer-events-auto absolute right-4 bottom-6 sm:right-8"
     >
-      <TimeDial
-        value={value}
-        onValueChange={handleValueChange}
-        aria-label="Time of day"
-      />
+      <div className="hero-scroll-dial">
+        <TimeDial
+          value={value}
+          onValueChange={handleValueChange}
+          aria-label="Time of day"
+        />
+      </div>
     </div>
   );
 });
@@ -194,23 +198,78 @@ function TimeOfDayExperience({
 
   return (
     <>
-      {/* Covers the canvas while its shaders compile. */}
-      <div
-        className="absolute inset-0"
-        style={{ background: skyGradient(palette) }}
-      />
-
-      <div className="absolute inset-0 z-20">
-        <TowerHero
-          value={wrapTimeOfDay(tod)}
-          reducedMotion={reducedMotion}
-          paused={!onScreen}
-          onUiReveal={onUiReveal}
+      {/* The scene stays pinned while the second hero beat scrolls over it. */}
+      <div className="sticky top-0 col-start-1 row-start-1 h-svh min-h-[500px] self-start overflow-hidden">
+        {/* Covers the canvas while its shaders compile. */}
+        <div
+          className="absolute inset-0"
+          style={{ background: skyGradient(palette) }}
         />
+
+        <div className="absolute inset-0 z-20">
+          <TowerHero
+            value={wrapTimeOfDay(tod)}
+            reducedMotion={reducedMotion}
+            paused={!onScreen}
+            onUiReveal={onUiReveal}
+          />
+        </div>
+
+        {/* Grounds the poster copy without swallowing the city. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-[280px] bg-gradient-to-b from-transparent via-black/50 to-black/90" />
+
+        {/* Scroll adds a duskier, warmer grade as the copy takes over. */}
+        <div className="hero-scroll-grade pointer-events-none absolute inset-0 z-[25]" />
       </div>
 
-      <HeroTimeDial onValueChange={enqueue} />
+      {/* The dial alone stays pinned to the hero and fades on scroll. */}
+      <div className="hero-dial-layer pointer-events-none sticky top-0 z-40 col-start-1 row-start-1 h-svh min-h-[500px] self-start">
+        <HeroTimeDial onValueChange={enqueue} />
+      </div>
     </>
+  );
+}
+
+function DecoratedText({
+  text,
+  phrases,
+  decorate,
+}: {
+  text: string;
+  phrases: readonly string[];
+  decorate: (phrase: string) => ReactNode;
+}) {
+  if (phrases.length === 0) return text;
+
+  const escapedPhrases = phrases.map((phrase) =>
+    phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
+  const phrasePattern = new RegExp(`(${escapedPhrases.join("|")})`, "g");
+
+  return text.split(phrasePattern).map((segment, index) =>
+    phrases.includes(segment) ? (
+      <Fragment key={`${segment}-${index}`}>{decorate(segment)}</Fragment>
+    ) : (
+      segment
+    ),
+  );
+}
+
+function HighlightedText({
+  text,
+  phrases,
+}: {
+  text: string;
+  phrases: readonly string[];
+}) {
+  return (
+    <DecoratedText
+      text={text}
+      phrases={phrases}
+      decorate={(phrase) => (
+        <span className="font-medium text-white">{phrase}</span>
+      )}
+    />
   );
 }
 
@@ -224,6 +283,11 @@ export function Hero() {
     const root = sectionRef.current;
     if (root?.dataset.heroUiState === "out") {
       root.dataset.heroUiState = "in";
+    }
+
+    const header = document.querySelector<HTMLElement>("[data-site-header]");
+    if (header?.dataset.siteHeaderState === "out") {
+      header.dataset.siteHeaderState = "in";
     }
   }, []);
 
@@ -246,7 +310,7 @@ export function Hero() {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
     const sync = () => {
       setReducedMotion(query.matches);
-      // The canvas replays when motion is re-enabled; reset the DOM cue too.
+      // Reset the DOM cue when the canvas animation is enabled again.
       if (sectionRef.current) {
         const nextState = query.matches ? "settled" : "out";
         if (sectionRef.current.dataset.heroUiState !== nextState) {
@@ -258,6 +322,23 @@ export function Hero() {
     query.addEventListener("change", sync);
     return () => query.removeEventListener("change", sync);
   }, []);
+
+  // Scrolling is an explicit signal to move on from the scene entrance. If the
+  // canvas has not reached its UI cue yet, start the UI animation immediately.
+  // This also covers browsers restoring a non-zero scroll position on load.
+  useEffect(() => {
+    if (window.scrollY > 0) {
+      revealUi();
+      return;
+    }
+
+    const revealOnScroll = () => revealUi();
+    window.addEventListener("scroll", revealOnScroll, {
+      passive: true,
+      once: true,
+    });
+    return () => window.removeEventListener("scroll", revealOnScroll);
+  }, [revealUi]);
 
   // Stop driving the render loop once the hero scrolls away — there is no point
   // burning GPU on a canvas nobody can see.
@@ -278,76 +359,87 @@ export function Hero() {
       id="top"
       data-hero-ui-state="out"
       onAnimationEnd={settleUiLayers}
-      className="relative flex h-svh min-h-[700px] flex-col overflow-hidden bg-background"
+      className="relative bg-background"
     >
-      <TimeOfDayExperience
-        reducedMotion={reducedMotion}
-        onScreen={onScreen}
-        onUiReveal={revealUi}
-      />
+      <div className="grid">
+        <TimeOfDayExperience
+          reducedMotion={reducedMotion}
+          onScreen={onScreen}
+          onUiReveal={revealUi}
+        />
 
-      {/* z-30 — top bar */}
-      <div
-        data-hero-ui
-        data-hero-ui-step="0"
-        className="relative z-30 flex items-center justify-between gap-5 px-4 py-5 font-mono text-[11px] font-medium tracking-[0.11em] text-white uppercase sm:px-8"
-      >
-        <div className="flex min-w-0 items-center gap-4">
-          <LogoFull color="currentColor" className="h-4 w-auto shrink-0" />
-          <span className="hidden truncate opacity-50 sm:inline">
-            Advanced R3F Workshop
-          </span>
-        </div>
-        <a
-          href={REGISTER_URL}
-          className="rounded-md border border-white/30 px-3 py-1.5 whitespace-nowrap text-white transition-colors hover:border-white/60"
-        >
-          Register
-        </a>
-      </div>
-
-      {/* Grounds the copy against the city. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-[340px] bg-gradient-to-b from-transparent to-black to-66%" />
-
-      <div className="relative z-30 mt-auto px-4 pb-6 sm:px-8">
-        <div className="max-w-2xl">
-          <div
-            data-hero-ui
-            data-hero-ui-step="1"
-          >
-            <div className="mb-3.5 font-mono text-[11px] font-medium tracking-[0.13em] text-white/60 uppercase">
-              {HERO.kicker}
+        <div className="relative z-30 col-start-1 row-start-1">
+          <div className="relative z-10 flex h-svh min-h-[500px] flex-col">
+            <div className="mt-auto px-4 pb-6 sm:px-8">
+              <div
+                data-hero-ui
+                data-hero-ui-step="1"
+                className="max-w-2xl"
+              >
+                <div className="mb-3.5 font-mono text-[11px] font-medium tracking-[0.13em] text-white/60 uppercase">
+                  {HERO.kicker}
+                </div>
+                <h1
+                  className="font-bold tracking-[-0.035em] text-white"
+                  style={{
+                    fontSize: "clamp(34px, 5.4vw, 58px)",
+                    lineHeight: 1.02,
+                  }}
+                >
+                  {HERO.title[0]}
+                  <br />
+                  {HERO.title[1]}
+                </h1>
+              </div>
             </div>
-            <h1
-              className="font-semibold tracking-[-0.035em] text-white"
-              style={{
-                fontSize: "clamp(34px, 5.4vw, 58px)",
-                lineHeight: 1.02,
-              }}
-            >
-              {HERO.title[0]}
-              <br />
-              {HERO.title[1]}
-            </h1>
-            <p className="mt-4 max-w-[520px] text-[15px] leading-[1.55] text-white/70 lg:text-base">
-              {HERO.lede}
-            </p>
           </div>
-          <div
-            data-hero-ui
-            data-hero-ui-step="2"
-            className="mt-5 flex flex-wrap gap-2.5"
-          >
-            <Button asChild size="lg">
-              <a href={REGISTER_URL}>Register on threejs.paris</a>
-            </Button>
-            {/* Only when there is a two-days section to land on. The short
-                version ships it off, and the hero runs on Register alone. */}
-            <SectionGate id="two-days">
-              <Button asChild size="lg" variant="outline">
-                <a href="#two-days">See the two days</a>
-              </Button>
-            </SectionGate>
+
+          <div className="relative isolate px-4 pt-8 pb-8 sm:px-8 sm:pt-12 sm:pb-12 lg:pt-16">
+            <div className="pointer-events-none absolute inset-x-0 -top-40 bottom-0 z-0 bg-gradient-to-b from-transparent via-black/90 via-30% to-black" />
+
+            <RevealGroup className="relative z-10 mx-auto max-w-[1180px]">
+              <h2
+                className="max-w-[860px] text-[24px] leading-[1.25] font-medium tracking-[-0.025em] text-white sm:text-[30px] lg:text-[36px]"
+                data-reveal
+              >
+                <DecoratedText
+                  text={HERO.description}
+                  phrases={["three.js conf"]}
+                  decorate={(phrase) => (
+                    <a
+                      href={REGISTER_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline decoration-white/35 underline-offset-[0.16em] transition-colors hover:decoration-white/80 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                    >
+                      {phrase}
+                    </a>
+                  )}
+                />
+              </h2>
+
+              <div className="mt-14 border-t border-white/25 sm:mt-18">
+                {HERO.days.map((day) => (
+                  <article
+                    key={day.label}
+                    className="grid gap-4 border-b border-white/20 py-7 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-8 lg:py-9"
+                    data-reveal
+                  >
+                    <h3 className="font-mono text-[11px] font-medium tracking-[0.14em] text-white/50 uppercase">
+                      {day.label}
+                    </h3>
+                    <p className="max-w-[760px] text-base leading-[1.6] text-white/70 sm:text-lg">
+                      <HighlightedText
+                        text={day.body}
+                        phrases={day.highlights}
+                      />
+                    </p>
+                  </article>
+                ))}
+              </div>
+
+              <Instructors />
+            </RevealGroup>
           </div>
         </div>
       </div>

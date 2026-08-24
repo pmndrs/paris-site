@@ -200,7 +200,6 @@ const BEAM_FLARE = 36;
 const ANTENNA_REACH = 9;
 const ANTENNA_ROOT = 2;
 type AntennaPart = {
-  /** Top radius, bottom radius, and length. */
   kind: "mast" | "collar" | "arms";
   y: number;
   size: [number, number, number];
@@ -257,7 +256,7 @@ function Beacon({
     () => makeBeamNodes(lightLevel),
     [lightLevel],
   );
-  // Both beams share one graph and the live tower-light uniform.
+  // Both beams share one graph and light uniform.
   const beam = useLocalNodes(createBeamNodes);
 
   useFrame((_, delta) => {
@@ -293,7 +292,7 @@ export function Tower({
   onReady?: () => void;
   mode?: TowerMode;
   beacon?: boolean;
-  /** 0 in daylight, 1 at night, smoothly blended through twilight. */
+  /** Light level from 0 in daylight to 1 at night. */
   lightLevel?: number;
   /** Scene that receives the depth-only tower twin. */
   occluderScene?: THREE.Scene;
@@ -323,12 +322,10 @@ export function Tower({
     () => makeSparkleNodes(lightKnobs.lightLevel),
     [lightKnobs.lightLevel],
   );
-  // The shader graph stays stable as the dial moves; only its uniform changes.
+  // Update the light uniform without rebuilding the shader graph.
   const sparkle = useLocalNodes(createSparkleNodes);
 
-  // The real tower is painted bronze, not black metal. Its warm diffuse paint
-  // carries the subject in daylight; the darker night base returns as the
-  // architectural illumination takes over.
+  // Blend bronze daylight paint into a darker illuminated night base.
   const glowBaseColor = useMemo(
     () =>
       new THREE.Color("#a96843").lerp(
