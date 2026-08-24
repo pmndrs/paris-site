@@ -57,6 +57,18 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
 - [ ] **Scroll-away pause** — hero off-screen stops its render job (fans/GPU
       calm down); section canvases below still animate. (Now goes through
       `useFrame()`'s scheduler — same singleton, worth one re-check.)
+- [ ] **Stars** — the instanced celestial dome (`hero-demo/stars.tsx`) now has
+      real bright-star anchors, a field concentrated along the IAU galactic
+      plane, and a sparse two-draw-call Milky Way veil, all oriented for Paris
+      on the workshop date. Knobs live under `sky/stars`. Sweep `timeOfDay` and
+      watch stars arrive in magnitude order while the seasonal sky rises; the
+      shipping default (20.4h) should be a handful of pinpricks, not a bare sky,
+      and midnight should reveal a subtle diagonal veil rather than a pasted
+      galaxy photograph. Then check them **on a
+      non-retina screen** — sizing is pinned to raster pixels precisely
+      because a viewport-relative quad went sub-pixel and vanished at dpr 1,
+      and the fix makes stars physically chunkier there. Watch for crawling
+      while the camera orbits.
 
 ## 2 · Taste calls (say the word, I bake them in)
 
@@ -67,6 +79,12 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
       per-frame AP LUT update costs ~half the frame: 85 vs 165 fps measured).
 - [ ] Park: keep or drop (it was flagged "may suck" — it stayed).
 - [ ] Fog defaults: density 0.3 / height 300 / horizon clamp on.
+- [ ] Star defaults: count 4200 / intensity 2.8 / size 5.25 / twinkle 0.28.
+      Intensity was picked between "reads as dust" (2) and "asks to be looked
+      at" (4) on this display; it is the one number most likely to want your
+      eyes. The twilight ramp opens at sun elevation +1° rather than the real
+      −6°, which is the one place physics was bent to keep the shipping frame
+      from being empty — say the word and it goes back.
 
 ## 3 · Hardware & perf (needs machines I don't have)
 
