@@ -45,10 +45,15 @@ const MAX_FRAME_MS = 40;
 const wrapTimeOfDay = (value: number) =>
   ((value % DAY_CYCLE) + DAY_CYCLE) % DAY_CYCLE;
 
+/** Drops completed turns that cannot change the cyclic scene state. */
+const collapseCompletedTurns = (next: number, current: number) =>
+  next - Math.trunc((next - current) / DAY_CYCLE) * DAY_CYCLE;
+
 /**
  * Replays unwrapped dial input as an overdamped spring. Velocity survives
  * target changes, while the per-frame cap prevents a slow atmosphere frame
- * from becoming a visible jump.
+ * from becoming a visible jump. Completed turns are visually identical, so
+ * they are collapsed before they can build an unbounded replay backlog.
  */
 function useTimeOfDayReplay(initial: number, instant: boolean) {
   const [value, setValue] = useState(initial);
@@ -115,8 +120,9 @@ function useTimeOfDayReplay(initial: number, instant: boolean) {
         return;
       }
 
-      if (Math.abs(next - s.target) < Number.EPSILON) return;
-      s.target = next;
+      const target = collapseCompletedTurns(next, s.value);
+      if (Math.abs(target - s.target) < Number.EPSILON) return;
+      s.target = target;
 
       if (!s.frame) {
         s.lastFrame = performance.now();
