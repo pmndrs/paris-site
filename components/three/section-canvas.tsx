@@ -13,7 +13,6 @@ import {
 
 import { DepthAttachmentSync } from "./depth-attachment-sync";
 
-import { isMobileDevice } from "@/lib/device-profile";
 import { useWebGPU } from "@/lib/use-webgpu";
 
 /**
@@ -143,12 +142,6 @@ export function SectionCanvas({
 
   if (!mounted) return null;
 
-  // Phones trim the decoration budget: backdrop canvases compete with the
-  // hero for the same mobile GPU. Interactive canvases keep their requested
-  // rate so touch input remains responsive (the magic box requests 60fps).
-  const mobile = isMobileDevice();
-  const renderFps = mobile && !interactive ? Math.min(fps, 30) : fps;
-
   return (
     <Canvas
       ref={canvasRef}
@@ -156,7 +149,7 @@ export function SectionCanvas({
       className={className}
       orthographic={orthographic}
       camera={camera}
-      dpr={mobile ? [1, 1.5] : [1, 1.75]}
+      dpr={[1, 1.75]}
       // Sections are laid out on a fractional grid, so a bare
       // getBoundingClientRect flaps between e.g. 148.4 and 148.6 as the page
       // scrolls — each flip resizes the swap chain and desyncs the depth
@@ -171,9 +164,8 @@ export function SectionCanvas({
         alpha: true,
         antialias: true,
         primaryCanvas: PRIMARY,
-        // Draw after the hero. Mobile backdrops stay at 30fps or below;
-        // interactive canvases honor their requested rate (currently 60fps).
-        scheduler: { after: PRIMARY, fps: renderFps },
+        // Draw after the hero and honor each scene's explicit frame-rate cap.
+        scheduler: { after: PRIMARY, fps },
       }}
       // Backgrounds must never eat clicks or text selection. Where a scene
       // needs the cursor it reads it from the window instead. Interactive
