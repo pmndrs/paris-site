@@ -65,17 +65,16 @@ interface SkyWithBaker {
  * glyphs, so the poster type opts out: `Lettering` portals its content into
  * `scene`, and this component renders that scene as its own pass at display
  * resolution and composites it AFTER the resolver. Occlusion survives the
- * split analytically: the billboard plane is image-parallel, so every text
- * pixel shares one view-axis depth — `planeDepth`, written by `Lettering`
- * each frame — and a single compare against the scene depth puts the tower
- * back in front. `camera` is kept an unjittered twin of the scene camera
- * here (see the sync in `useFrame`). Created once by `TowerCanvas`.
+ * split per pixel: the letters write real depth in their pass (each carries
+ * its own authored z inside the billboard), and the composite compares that
+ * pass's depth texture against the scene's — so the tower members currently
+ * in front of each letter cut into it, and the weave animates with the spin.
+ * `camera` is kept an unjittered twin of the scene camera here (see the
+ * sync in `useFrame`). Created once by `TowerCanvas`.
  */
 export interface TextLayer {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  /** View-axis distance of the billboard plane, world units. */
-  planeDepth: THREE.UniformNode<"float", number>;
 }
 
 /**
@@ -437,33 +436,41 @@ export function FX({
       // `setResolutionScale`, so it never joins the reduced-res render the
       // resolver reconstructs. It is a stable, explicitly owned resource:
       // unrelated graph rebuilds reuse it, while disabling the feature frees
-      // it. The glyph material neither tests nor writes depth, so allocating a
-      // display-sized depth attachment here would only waste memory.
+      // it. The depth attachment is load-bearing: the glyph material writes
+      // real depth (each letter at its own authored z), and the composite's
+      // per-pixel occlusion and the letter fog read it back via `textDepth`.
       if (!textEnabled && textPassRef.current) {
         textPassRef.current.dispose();
         textPassRef.current = null;
       }
       if (textEnabled && !textPassRef.current) {
-        textPassRef.current = TSL.pass(textLayer.scene, textLayer.camera, {
-          depthBuffer: false,
-        });
+        textPassRef.current = TSL.pass(textLayer.scene, textLayer.camera);
       }
       const textTex = textPassRef.current?.getTextureNode("output");
+      // Per-pixel view depth of the letter quads — occlusion and fog read
+      // this instead of a single shared plane distance. Where no letter
+      // covers the pixel the depth is the clear value (far) — harmless,
+      // since every consumer is masked by `textTex.a` there.
+      const textDepth = textPassRef.current
+        ? TSL.abs(textPassRef.current.getViewZNode())
+        : null;
 
       /**
        * Composite the text pass over `base`. The pass accumulates standard
        * blending onto a transparent clear, so its RGB arrives premultiplied
        * by coverage — text adds as-is while `base` fades by the covered
-       * fraction. `vis` is the occlusion mask: one compare of the scene
-       * depth against the plane's constant view-axis depth (anything the
-       * scene rendered nearer — the tower, the odd near-ring roof — wins).
-       * That boundary resolves at scene res; it lands inside the tower's
-       * bloom halo, which is what hides the resolution seam. `glow` lays
-       * the already-composited bloom back over the letters, so the tower's
+       * fraction. `vis` is the occlusion mask: a per-pixel compare of the
+       * scene depth against the letter's own depth (anything the scene
+       * rendered nearer — the tower, the odd near-ring roof — wins), so
+       * each letter keeps its authored layer against the lattice and the
+       * cut pattern follows the tower's spin. That boundary resolves at
+       * scene res; on the thick ironwork it hides inside the tower's bloom
+       * halo, which is what masks the resolution seam. `glow` lays the
+       * already-composited bloom back over the letters, so the tower's
        * halo still bleeds across type it used to bleed across in-pass.
        * Alpha keeps the canvas's transparent boot window honest.
        */
-      const overlayText = textTex
+      const overlayText = textTex && textDepth
         ? (
             baseNode: unknown,
             textRgbNode: unknown,
@@ -471,7 +478,7 @@ export function FX({
           ) => {
             const base = baseNode as AnyVec4;
             const sceneDepth = TSL.abs(scenePass.getViewZNode());
-            const vis = TSL.step(textLayer.planeDepth, sceneDepth);
+            const vis = TSL.step(textDepth, sceneDepth);
             const covered = textTex.a.mul(vis);
             let rgb = base.rgb
               .mul(TSL.oneMinus(covered))
@@ -748,19 +755,19 @@ export function FX({
 
       // Full-res text over the resolved frame — the seam the whole text
       // pass exists for. Fog is applied to the type analytically: same
-      // formula, same live knobs, with the plane's constant depth standing
-      // in for the depth buffer, so the poster keeps its atmospheric seat
-      // even though it skipped the scene pass. The bloom re-add is in
-      // `overlayText` (glow argument) — pre-split, the tower's halo bled
-      // onto letter pixels in-pass; without it the sharp composite would
-      // cut a hard cream edge through the glow.
+      // formula, same live knobs, with the text pass's per-pixel depth
+      // standing in for the scene depth buffer, so the poster keeps its
+      // atmospheric seat even though it skipped the scene pass. The bloom
+      // re-add is in `overlayText` (glow argument) — pre-split, the tower's
+      // halo bled onto letter pixels in-pass; without it the sharp
+      // composite would cut a hard cream edge through the glow.
       if (overlayText && textTex) {
         const resolved = graph;
         graph = TSL.Fn(() => {
           let textRgb = textTex.rgb as unknown as AnyVec3;
           if (fogAlong) {
             const ray = reconstructRay();
-            const dist = (textLayer.planeDepth as unknown as AnyFloat).div(
+            const dist = (textDepth as unknown as AnyFloat).div(
               ray.cosFromAxis,
             );
             const fog = fogAlong(dist, ray.rayDirWorld);
