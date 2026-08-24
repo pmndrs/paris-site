@@ -3,12 +3,14 @@
 import {
   Suspense,
   useCallback,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
 import { Canvas } from "@react-three/fiber/webgpu";
+import { solarPosition } from "@pmndrs/sky";
 import { Sky } from "@pmndrs/sky/react";
 import * as THREE from "three/webgpu";
 
@@ -32,6 +34,33 @@ export const PARIS_LATITUDE = 48.8566;
 /** 2026-06-25, the workshop. Sun arc is seasonal, so the date is not cosmetic. */
 export const CONFERENCE_DAY_OF_YEAR = 176;
 
+/**
+ * Eiffel Tower illumination follows the sun rather than a clock time: it
+ * starts to appear during late golden hour and reaches full strength in dusk.
+ * That keeps the behavior seasonal when the demo latitude/date are changed.
+ */
+export function towerLightLevel({
+  timeOfDay,
+  latitude,
+  dayOfYear,
+}: {
+  timeOfDay: number;
+  latitude: number;
+  dayOfYear: number;
+}) {
+  const { elevation } = solarPosition({ timeOfDay, latitude, dayOfYear });
+  // Start as the sun enters late golden hour; finish during civil twilight.
+  const fade = THREE.MathUtils.clamp((6 - elevation) / 10, 0, 1);
+  return fade * fade * (3 - 2 * fade);
+}
+
+const NORTH_OFFSET: Record<string, number> = {
+  "+Z": 0,
+  "-Z": 180,
+  "+X": 90,
+  "-X": -90,
+};
+
 /** Configuration for the reusable tower scene. */
 export interface TowerCanvasProps {
   // city
@@ -48,6 +77,8 @@ export interface TowerCanvasProps {
   lettering?: boolean;
   letterSize?: number;
   letterSpread?: number;
+  /** How strongly the tower bloom lights the lettering. */
+  letterGlow?: number;
   // sky
   skyEnabled?: boolean;
   timeOfDay?: number;
@@ -137,6 +168,7 @@ export function TowerCanvas({
   lettering = true,
   letterSize = 5,
   letterSpread = 0.8,
+  letterGlow = 1,
   skyEnabled = PARIS_ATMOSPHERE_DEFAULTS.skyEnabled,
   timeOfDay = 20.5,
   latitude = PARIS_LATITUDE,
@@ -196,6 +228,35 @@ export function TowerCanvas({
 }: TowerCanvasProps) {
   const towerRef = useRef<THREE.Group>(null);
   const introClock = useRef(intro ? 0 : INTRO_COMPLETE);
+  const towerLights = towerLightLevel({ timeOfDay, latitude, dayOfYear });
+  const sunLight = useMemo(() => {
+    const { elevation, azimuth } = solarPosition({
+      timeOfDay,
+      latitude,
+      dayOfYear,
+    });
+    const position = new THREE.Vector3()
+      .setFromSphericalCoords(
+        50,
+        THREE.MathUtils.degToRad(90 - elevation),
+        THREE.MathUtils.degToRad(
+          azimuth + (NORTH_OFFSET[north] ?? NORTH_OFFSET["+Z"]),
+        ),
+      )
+      .toArray();
+    // White overhead, increasingly peach near the horizon like the reference.
+    const warmth = THREE.MathUtils.clamp((24 - elevation) / 20, 0, 1);
+    const color = new THREE.Color("#fff6e8").lerp(
+      new THREE.Color("#ff9c63"),
+      warmth,
+    );
+
+    return {
+      color,
+      intensity: 5.5 * (1 - towerLights),
+      position,
+    };
+  }, [dayOfYear, latitude, north, timeOfDay, towerLights]);
 
   // Refit the camera after the tower geometry becomes measurable.
   const [refitKey, setRefitKey] = useState(0);
@@ -214,6 +275,7 @@ export function TowerCanvas({
         enabled={intro}
         onUiReveal={onUiReveal}
       />
+
       {/* Outside the `worldScale` group: the dome sets its own radius and the
           sprites are sized in raster pixels, so a metres conversion here would
           only fight both. It reads the sun off `useSky()` for its twilight
@@ -271,6 +333,7 @@ export function TowerCanvas({
               onReady={onTowerReady}
               mode={towerMode}
               beacon={beacon}
+              lightLevel={towerLights}
               occluderScene={lettering ? textLayer.scene : undefined}
               worldScale={worldScale}
             />
@@ -286,6 +349,7 @@ export function TowerCanvas({
           worldScale={worldScale}
           textLayer={textLayer}
           introClock={introClock}
+          towerLightLevel={towerLights}
         />
       )}
 
@@ -293,6 +357,9 @@ export function TowerCanvas({
         environment={environment && !skyEnabled}
         shadowRadius={60 * worldScale}
         sunlight={!skyEnabled}
+        sunColor={sunLight.color}
+        sunIntensity={skyEnabled ? sunLight.intensity : 0}
+        sunPosition={sunLight.position}
       />
 
       <FX
@@ -316,6 +383,7 @@ export function TowerCanvas({
         ssgiRadius={ssgiRadius}
         textLayer={textLayer}
         textEnabled={lettering}
+        textGlow={letterGlow}
       />
     </>
   );

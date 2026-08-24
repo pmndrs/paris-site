@@ -53,7 +53,7 @@ export function HeroDemoScene({
     haussmann: PARIS_CITY_DEFAULTS.haussmann,
   });
 
-  const { towerMode, beacon, lettering, letterSize, letterSpread } =
+  const { towerMode, beacon, lettering, letterSize, letterSpread, letterGlow } =
     useControls("tower", {
       towerMode: {
         value: "glow" as TowerMode,
@@ -65,6 +65,8 @@ export function HeroDemoScene({
       // Size controls glyph em units and spread scales horizontal offsets.
       letterSize: { value: 6, min: 2.5, max: 12.5, step: 0.25 },
       letterSpread: { value: 0.8, min: 0.3, max: 1.6, step: 0.05 },
+      // How much of the tower's bloom lands on the glyphs as light.
+      letterGlow: { value: 1, min: 0, max: 3, step: 0.05 },
     });
 
   /**
@@ -271,6 +273,7 @@ export function HeroDemoScene({
       lettering={lettering}
       letterSize={letterSize}
       letterSpread={letterSpread}
+      letterGlow={letterGlow}
       skyEnabled={skyEnabled}
       timeOfDay={timeOfDay}
       latitude={latitude}
