@@ -39,10 +39,11 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
       in the display-res overlay, but the intersecting P deliberately rides
       the main resolver so it can share hardware depth/MRT with the tower;
       check its alpha-tested edge and disocclusion trail separately.
-- [ ] **P/tower intersection** — with bloom off, the antenna must exit above
-      the P and connected tower geometry must replace solid P pixels (counter
-      overlap alone does not pass). With bloom back on, P-front fragments stay
-      opaque while tower-front fragments and their emissive source remain.
+- [ ] **P/tower intersection** — freeze the camera and A/B the `tower` toggle:
+      tower-off must show a continuous white P; tower-on must replace pixels in
+      its solid top and lower return with connected tower geometry (counter-only
+      overlap does not pass). With bloom back on, P-front fragments stay opaque
+      while tower-front fragments and their emissive source remain.
 - [ ] **TOD sweep on `/`** — drag the slider 0→100; exposure curve through
       midday should never blow out or crush. (Curve: 40 at night → 12 at 13h.)
 - [ ] **Reduced motion** — with OS reduced-motion on: no auto-rotate, demand

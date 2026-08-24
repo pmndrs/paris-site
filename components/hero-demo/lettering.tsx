@@ -143,9 +143,13 @@ function createIntersectionLetterMaterial() {
  * multiplies the x offsets at render time, so the whole arrangement can be
  * pulled toward the tower (or pushed out) without re-authoring each letter.
  *
- * The z component is a view-axis offset inside the Billboard. The P stays at
- * z = 0, through the tower axis: front-half lattice fragments win hardware
- * depth while rear-half fragments disappear behind the same Glyph quad.
+ * The z component is a view-axis offset inside each letter's billboard. The
+ * P's billboard is anchored at its own `[x, y, 0]` point, so its inner z = 0
+ * really is a plane through the tower axis at y = 20. Its small positive z
+ * bias then seats the P between the summit's rear and near lattice fragments.
+ * Rotating one shared billboard at the city origin would instead put the P on
+ * a parallel plane through the tower base;
+ * at this height that plane sits entirely in front of the summit geometry.
  *
  * `center` is the letter's outline-bbox center in em units, measured with
  * opentype.js against the same TTF the GLB is baked from. The old
@@ -158,7 +162,7 @@ const LETTERS: {
   position: [number, number, number];
   center: [number, number];
 }[] = [
-  { char: "P", position: [0, 20, 0], center: [0.35, 0.355] },
+  { char: "P", position: [0, 20, 0.25], center: [0.35, 0.355] },
   { char: "M", position: [4, 16.5, 0], center: [0.451, 0.355] },
   { char: "N", position: [-6, 13, 0], center: [0.374, 0.355] },
   { char: "D", position: [4.5, 9.5, 0], center: [0.3745, 0.355] },
@@ -262,11 +266,31 @@ export function Lettering({
     ];
   };
 
+  const [intersectionX, intersectionY, intersectionZ] =
+    intersectionLetter.position;
+  const [intersectionCenterX, intersectionCenterY] =
+    intersectionLetter.center;
+  const intersectionOffset: [number, number, number] = [
+    -intersectionCenterX * size,
+    (baselineEm ?? 1) * size - intersectionCenterY * size,
+    intersectionZ,
+  ];
+
   return (
     <>
-      {/* The P shares the tower's scene pass, depth buffer and MRT. */}
+      {/*
+        The P shares the tower's scene pass, depth buffer and MRT. Its own
+        billboard pivot is essential: the cutout plane must pass through the
+        tower at the P's height, not through the world origin.
+      */}
       <group scale={worldScale}>
-        <Billboard>
+        <Billboard
+          position={[
+            intersectionX * spread,
+            intersectionY,
+            0,
+          ]}
+        >
           <TextGroup
             compositing="independent"
             material={intersectionMaterial}
@@ -277,10 +301,7 @@ export function Lettering({
               font={geist}
               style={style}
               paint={{ color: "#ffffff" }}
-              position={makePosition(
-                intersectionLetter.position,
-                intersectionLetter.center,
-              )}
+              position={intersectionOffset}
             >
               {intersectionLetter.char}
             </Text>
