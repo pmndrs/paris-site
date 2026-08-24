@@ -11,7 +11,7 @@ import {
 } from "react";
 import { Canvas } from "@react-three/fiber/webgpu";
 import { solarPosition } from "@pmndrs/sky";
-import { Sky, useSky } from "@pmndrs/sky/react";
+import { Sky } from "@pmndrs/sky/react";
 import * as THREE from "three/webgpu";
 
 import type { HeroGateController } from "@/lib/hero-gate";
@@ -58,15 +58,6 @@ const NORTH_OFFSET: Record<string, number> = {
   "+X": 90,
   "-X": -90,
 };
-
-/** TEMP PROFILING HOOK — remove before commit. */
-function __SkyDebugHook() {
-  const sky = useSky();
-  if (typeof window !== "undefined") {
-    (window as unknown as { __sky?: unknown }).__sky = sky;
-  }
-  return null;
-}
 
 /** Configuration for the reusable tower scene. */
 export interface TowerCanvasProps {
@@ -467,7 +458,6 @@ export function TowerCanvas({
             enableAerialPerspective={haze}
             apKmPerSlice={apKmPerSlice}
           >
-            <__SkyDebugHook />
             {contents}
           </Sky>
         ) : (
