@@ -57,6 +57,14 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
 - [ ] **Scroll-away pause** — hero off-screen stops its render job (fans/GPU
       calm down); section canvases below still animate. (Now goes through
       `useFrame()`'s scheduler — same singleton, worth one re-check.)
+- [ ] **Stars** — new: an instanced star dome (`hero-demo/stars.tsx`), knobs
+      under `sky/stars`. Sweep `timeOfDay` and watch them arrive in magnitude
+      order rather than fade in together; the shipping default (20.4h) should
+      be a handful of pinpricks, not a bare sky. Then check them **on a
+      non-retina screen** — sizing is pinned to raster pixels precisely
+      because a viewport-relative quad went sub-pixel and vanished at dpr 1,
+      and the fix makes stars physically chunkier there. Watch for crawling
+      while the camera orbits.
 
 ## 2 · Taste calls (say the word, I bake them in)
 
@@ -67,6 +75,12 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
       per-frame AP LUT update costs ~half the frame: 85 vs 165 fps measured).
 - [ ] Park: keep or drop (it was flagged "may suck" — it stayed).
 - [ ] Fog defaults: density 0.3 / height 300 / horizon clamp on.
+- [ ] Star defaults: count 2200 / intensity 2.6 / size 5.5 / twinkle 0.35.
+      Intensity was picked between "reads as dust" (2) and "asks to be looked
+      at" (4) on this display; it is the one number most likely to want your
+      eyes. The twilight ramp opens at sun elevation 0° rather than the real
+      −6°, which is the one place physics was bent to keep the shipping frame
+      from being empty — say the word and it goes back.
 
 ## 3 · Hardware & perf (needs machines I don't have)
 

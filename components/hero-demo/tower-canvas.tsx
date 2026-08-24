@@ -23,6 +23,7 @@ import {
   PARIS_CITY_DEFAULTS,
 } from "./paris-defaults";
 import { PerfProbe, type PerfSample } from "./perf-probe";
+import { Stars } from "./stars";
 import { Terrain } from "./terrain";
 import { Tower, type TowerMode } from "./tower";
 
@@ -61,6 +62,12 @@ export interface TowerCanvasProps {
     | THREE.Vector3
     | { x?: number; y?: number; z?: number };
   mirrorBelowHorizon?: boolean;
+  // stars
+  stars?: boolean;
+  starCount?: number;
+  starIntensity?: number;
+  starSize?: number;
+  starTwinkle?: number;
   preset?: string;
   quality?: string;
   cubeSize?: number;
@@ -140,6 +147,11 @@ export function TowerCanvas({
   turbidity = PARIS_ATMOSPHERE_DEFAULTS.turbidity,
   groundAlbedo,
   mirrorBelowHorizon = PARIS_ATMOSPHERE_DEFAULTS.mirrorBelowHorizon,
+  stars = true,
+  starCount = 2200,
+  starIntensity = 2.6,
+  starSize = 5.5,
+  starTwinkle = 0.35,
   preset = PARIS_ATMOSPHERE_DEFAULTS.preset,
   quality = PARIS_ATMOSPHERE_DEFAULTS.quality,
   cubeSize = PARIS_ATMOSPHERE_DEFAULTS.cubeSize,
@@ -202,6 +214,20 @@ export function TowerCanvas({
         enabled={intro}
         onUiReveal={onUiReveal}
       />
+      {/* Outside the `worldScale` group: the dome sets its own radius and the
+          sprites are sized in raster pixels, so a metres conversion here would
+          only fight both. It reads the sun off `useSky()` for its twilight
+          ramp, which is why it lives inside `<Sky>`; with the sky off there is
+          no sun to track and it holds at full night. */}
+      {stars && (
+        <Stars
+          count={starCount}
+          intensity={starIntensity}
+          size={starSize}
+          twinkle={starTwinkle}
+        />
+      )}
+
       <Camera
         targetRef={towerRef}
         padding={padding}
