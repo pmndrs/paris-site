@@ -184,6 +184,8 @@ export interface FXOptions {
   ssgiRadius?: number;
   /** The poster type's dedicated full-res pass (see `TextLayer`). */
   textLayer: TextLayer;
+  /** Whether the full-resolution text pass belongs in the render graph. */
+  textEnabled?: boolean;
 }
 
 export function FX({
@@ -206,6 +208,7 @@ export function FX({
   ssgiSteps = 8,
   ssgiRadius = 12,
   textLayer,
+  textEnabled = true,
 }: FXOptions) {
   // Null outside a `<Sky>` provider, which is exactly the sky-disabled case.
   const sky = useSky();
@@ -231,12 +234,21 @@ export function FX({
   const fsrNodeRef = useRef<FSRNodeLike | null>(null);
   const velocityBoundRef = useRef(false);
 
-  // Unmount (and StrictMode remount) would strand the last FSR node the same
-  // way a rebuild used to — see the dispose in the pipeline callback.
+  /**
+   * One owned pass for the lifetime of this FX instance. Pipeline rebuilds
+   * reuse it instead of allocating another display-sized render target; the
+   * feature-off path and unmount release it explicitly.
+   */
+  const textPassRef = useRef<ReturnType<typeof TSL.pass> | null>(null);
+
+  // Unmount (and StrictMode remount) would strand the owned GPU resources the
+  // same way a rebuild used to — see the FSR dispose in the pipeline callback.
   useEffect(() => {
     return () => {
       fsrNodeRef.current?.dispose();
       fsrNodeRef.current = null;
+      textPassRef.current?.dispose();
+      textPassRef.current = null;
     };
   }, []);
 
@@ -327,6 +339,7 @@ export function FX({
     useFsr,
     useFsr ? renderScale : 1,
     useSsgi,
+    textEnabled,
   ]);
 
   useEffect(() => {
@@ -422,10 +435,20 @@ export function FX({
 
       // The poster type's own pass, at full display resolution — no
       // `setResolutionScale`, so it never joins the reduced-res render the
-      // resolver reconstructs. Composited over the finished frame by
-      // `overlayText` below.
-      const textPass = TSL.pass(textLayer.scene, textLayer.camera);
-      const textTex = textPass.getTextureNode("output");
+      // resolver reconstructs. It is a stable, explicitly owned resource:
+      // unrelated graph rebuilds reuse it, while disabling the feature frees
+      // it. The glyph material neither tests nor writes depth, so allocating a
+      // display-sized depth attachment here would only waste memory.
+      if (!textEnabled && textPassRef.current) {
+        textPassRef.current.dispose();
+        textPassRef.current = null;
+      }
+      if (textEnabled && !textPassRef.current) {
+        textPassRef.current = TSL.pass(textLayer.scene, textLayer.camera, {
+          depthBuffer: false,
+        });
+      }
+      const textTex = textPassRef.current?.getTextureNode("output");
 
       /**
        * Composite the text pass over `base`. The pass accumulates standard
@@ -440,34 +463,36 @@ export function FX({
        * halo still bleeds across type it used to bleed across in-pass.
        * Alpha keeps the canvas's transparent boot window honest.
        */
-      const overlayText = (
-        baseNode: unknown,
-        textRgbNode: unknown,
-        glowNode?: unknown,
-      ) => {
-        const base = baseNode as AnyVec4;
-        const sceneDepth = TSL.abs(scenePass.getViewZNode());
-        const vis = TSL.step(textLayer.planeDepth, sceneDepth);
-        const covered = textTex.a.mul(vis);
-        let rgb = base.rgb
-          .mul(TSL.oneMinus(covered))
-          .add((textRgbNode as AnyVec3).mul(vis)) as unknown as AnyVec3;
-        if (glowNode) {
-          rgb = rgb.add(
-            (glowNode as AnyVec4).rgb.mul(covered),
-          ) as unknown as AnyVec3;
-        }
-        return TSL.vec4(rgb, TSL.max(base.a, covered));
-      };
+      const overlayText = textTex
+        ? (
+            baseNode: unknown,
+            textRgbNode: unknown,
+            glowNode?: unknown,
+          ) => {
+            const base = baseNode as AnyVec4;
+            const sceneDepth = TSL.abs(scenePass.getViewZNode());
+            const vis = TSL.step(textLayer.planeDepth, sceneDepth);
+            const covered = textTex.a.mul(vis);
+            let rgb = base.rgb
+              .mul(TSL.oneMinus(covered))
+              .add((textRgbNode as AnyVec3).mul(vis)) as unknown as AnyVec3;
+            if (glowNode) {
+              rgb = rgb.add(
+                (glowNode as AnyVec4).rgb.mul(covered),
+              ) as unknown as AnyVec3;
+            }
+            return TSL.vec4(rgb, TSL.max(base.a, covered));
+          }
+        : null;
 
       if (!enabled) {
         // Post off still owes the poster its type. The scene renders at
         // full res here so the pass buys no sharpness, but routing text
         // through the same seam keeps one code path and one look.
         const base = scenePass.getTextureNode("output");
-        renderPipeline.outputNode = TSL.Fn(() =>
-          overlayText(base, textTex.rgb),
-        )();
+        renderPipeline.outputNode = overlayText && textTex
+          ? TSL.Fn(() => overlayText(base, textTex.rgb))()
+          : base;
         // Upstream bug in `useRenderPipeline`: it assigns `outputNode` without
         // setting `needsUpdate`, and three's RenderPipeline only recompiles its
         // present-quad material when `needsUpdate` is true (three.webgpu.js
@@ -729,7 +754,7 @@ export function FX({
       // `overlayText` (glow argument) — pre-split, the tower's halo bled
       // onto letter pixels in-pass; without it the sharp composite would
       // cut a hard cream edge through the glow.
-      {
+      if (overlayText && textTex) {
         const resolved = graph;
         graph = TSL.Fn(() => {
           let textRgb = textTex.rgb as unknown as AnyVec3;

@@ -75,6 +75,7 @@ function createLetterMaterial(towerGlow: THREE.PointLight) {
       roughness: 0.85,
       metalness: 0,
       transparent: true,
+      depthTest: false,
       depthWrite: false,
     });
     material.positionNode = context.position;

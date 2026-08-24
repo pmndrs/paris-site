@@ -271,6 +271,7 @@ export function TowerCanvas({
         ssgiSteps={ssgiSteps}
         ssgiRadius={ssgiRadius}
         textLayer={textLayer}
+        textEnabled={lettering}
       />
     </>
   );
