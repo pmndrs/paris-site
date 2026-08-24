@@ -18,39 +18,46 @@ export function SiteHeader() {
 
   return (
     <header
-      className={cn(
-        "fixed inset-x-0 top-0 z-50 transition-[opacity,transform] duration-300",
-        shown
-          ? "translate-y-0 opacity-100"
-          : "pointer-events-none -translate-y-3 opacity-0",
-      )}
+      data-site-header
+      data-site-header-state="out"
+      className="fixed inset-x-0 top-0 z-50"
     >
-      <div className="relative overflow-hidden border-b border-border bg-black/70 backdrop-blur-xl">
-        <div className="relative flex min-h-[72px] flex-wrap items-center justify-between gap-x-6 gap-y-2.5 px-4 py-3.5 sm:px-6 lg:px-10">
+      <div
+        className={cn(
+          "relative overflow-hidden border-b transition-[background-color,border-color,backdrop-filter] duration-500",
+          shown
+            ? "border-border bg-black/70 backdrop-blur-xl"
+            : "border-transparent bg-transparent",
+        )}
+      >
+        <div className="relative flex min-h-[72px] items-center justify-between gap-5 px-4 py-3.5 sm:px-8">
           <a
-            href="#top"
-            aria-label="Poimandres — Back to top"
-            className="flex min-w-0 items-center gap-3.5"
+            href="https://pmnd.rs/"
+            aria-label="Visit pmnd.rs"
+            className="shrink-0 transition-opacity hover:opacity-70"
           >
             <Logo color="currentColor" className="size-6 shrink-0" />
-            <span className="h-4 w-px shrink-0 bg-ghost" />
-            <span className="min-w-0 shrink truncate font-mono text-[11px] font-medium tracking-[0.1em] text-muted-foreground uppercase">
-              Advanced R3F · Sep 8–9
-            </span>
           </a>
 
-          <div className="flex min-w-0 flex-1 basis-[260px] items-center justify-end gap-3 sm:gap-4 lg:gap-6">
+          <div className="flex min-w-0 items-center justify-end gap-3 sm:gap-4 lg:gap-6">
             <nav
               aria-label="Sections"
+              aria-hidden={!shown}
               // Scrolls horizontally when it runs out of room. The inline padding
               // matches the mask so the end links are never clipped at rest.
-              className="[&::-webkit-scrollbar]:hidden flex min-w-0 items-center gap-3 overflow-x-auto px-3.5 text-[13px] [-ms-overflow-style:none] [mask-image:linear-gradient(90deg,transparent,#000_14px,#000_calc(100%-14px),transparent)] [scrollbar-width:none] sm:gap-4 lg:gap-6"
+              className={cn(
+                "[&::-webkit-scrollbar]:hidden flex min-w-0 items-center gap-3 overflow-x-auto text-[13px] transition-[max-width,opacity,transform] duration-500 [-ms-overflow-style:none] [scrollbar-width:none] sm:gap-4 lg:gap-6",
+                shown
+                  ? "max-w-[70vw] translate-y-0 opacity-100"
+                  : "pointer-events-none max-w-0 -translate-y-2 opacity-0",
+              )}
             >
               {sections.map(({ id, label }) => (
                 <a
                   key={id}
                   href={`#${id}`}
                   aria-current={active === id}
+                  tabIndex={shown ? undefined : -1}
                   className={cn(
                     "whitespace-nowrap transition-colors hover:text-foreground",
                     active === id ? "text-foreground" : "text-muted-foreground",
@@ -61,14 +68,30 @@ export function SiteHeader() {
               ))}
             </nav>
 
-            <Button asChild size="sm">
+            <Button
+              asChild
+              size="sm"
+              className={cn(
+                "h-8 px-4 transition-shadow duration-500",
+                shown
+                  ? "shadow-none"
+                  : "shadow-[0_0_24px_rgba(255,255,255,0.2)]",
+              )}
+            >
               <a href={REGISTER_URL}>Register</a>
             </Button>
           </div>
         </div>
 
         {/* Progress rail with a tick per section. */}
-        <div className="relative h-0.5 bg-border">
+        <div
+          className={cn(
+            "relative h-0.5 bg-border transition-[opacity,transform] duration-500",
+            shown
+              ? "translate-y-0 opacity-100"
+              : "translate-y-0.5 opacity-0",
+          )}
+        >
           <div
             className="absolute inset-y-0 left-0 bg-foreground"
             style={{ width: `${(progress * 100).toFixed(2)}%` }}

@@ -21,6 +21,8 @@ export type SectionId = (typeof SECTIONS)[number]["id"];
 export const HERO = {
   kicker: "September 8 & 9, 2026 · Gobelins, Paris",
   title: ["Advanced React", "Three Fiber"],
+  description:
+    "Two focused days about buliding scalable R3F apps with a couple of pros. First learn how the pieces fit together then turn that knowledge into something of your own.",
   days: [
     {
       label: "Day 1",

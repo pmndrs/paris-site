@@ -11,10 +11,9 @@ import {
   type AnimationEvent as ReactAnimationEvent,
 } from "react";
 
-import { Logo } from "@/components/brand/logo";
-import { Button } from "@/components/ui/button";
+import { RevealGroup } from "@/components/motion/reveal";
 import { TimeDial } from "@/components/hero/time-dial";
-import { HERO, REGISTER_URL } from "@/lib/content";
+import { HERO } from "@/lib/content";
 import { skyGradient, todAt } from "@/lib/time-of-day";
 
 // WebGPU has no business running during SSR, and the scene is the heaviest
@@ -165,13 +164,16 @@ const HeroTimeDial = memo(function HeroTimeDial({
     <div
       data-hero-ui
       data-hero-ui-step="3"
-      className="absolute right-4 bottom-6 z-40 sm:right-8"
+      data-hero-dial
+      className="pointer-events-auto absolute right-4 bottom-6 sm:right-8"
     >
-      <TimeDial
-        value={value}
-        onValueChange={handleValueChange}
-        aria-label="Time of day"
-      />
+      <div className="hero-scroll-dial">
+        <TimeDial
+          value={value}
+          onValueChange={handleValueChange}
+          aria-label="Time of day"
+        />
+      </div>
     </div>
   );
 });
@@ -193,23 +195,60 @@ function TimeOfDayExperience({
 
   return (
     <>
-      {/* Covers the canvas while its shaders compile. */}
-      <div
-        className="absolute inset-0"
-        style={{ background: skyGradient(palette) }}
-      />
-
-      <div className="absolute inset-0 z-20">
-        <TowerHero
-          value={wrapTimeOfDay(tod)}
-          reducedMotion={reducedMotion}
-          paused={!onScreen}
-          onUiReveal={onUiReveal}
+      {/* The scene stays pinned while the second hero beat scrolls over it. */}
+      <div className="sticky top-0 col-start-1 row-start-1 h-svh min-h-[500px] self-start overflow-hidden">
+        {/* Covers the canvas while its shaders compile. */}
+        <div
+          className="absolute inset-0"
+          style={{ background: skyGradient(palette) }}
         />
+
+        <div className="absolute inset-0 z-20">
+          <TowerHero
+            value={wrapTimeOfDay(tod)}
+            reducedMotion={reducedMotion}
+            paused={!onScreen}
+            onUiReveal={onUiReveal}
+          />
+        </div>
+
+        {/* Grounds the poster copy without swallowing the city. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-[280px] bg-gradient-to-b from-transparent via-black/50 to-black/90" />
+
+        {/* Scroll adds a duskier, warmer grade as the copy takes over. */}
+        <div className="hero-scroll-grade pointer-events-none absolute inset-0 z-[25]" />
       </div>
 
-      <HeroTimeDial onValueChange={enqueue} />
+      {/* The dial alone stays pinned to the hero and fades on scroll. */}
+      <div className="hero-dial-layer pointer-events-none sticky top-0 z-40 col-start-1 row-start-1 h-svh min-h-[500px] self-start">
+        <HeroTimeDial onValueChange={enqueue} />
+      </div>
     </>
+  );
+}
+
+function HighlightedText({
+  text,
+  phrases,
+}: {
+  text: string;
+  phrases: readonly string[];
+}) {
+  if (phrases.length === 0) return text;
+
+  const escapedPhrases = phrases.map((phrase) =>
+    phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+  );
+  const phrasePattern = new RegExp(`(${escapedPhrases.join("|")})`, "g");
+
+  return text.split(phrasePattern).map((segment, index) =>
+    phrases.includes(segment) ? (
+      <span key={`${segment}-${index}`} className="font-medium text-white">
+        {segment}
+      </span>
+    ) : (
+      segment
+    ),
   );
 }
 
@@ -223,6 +262,11 @@ export function Hero() {
     const root = sectionRef.current;
     if (root?.dataset.heroUiState === "out") {
       root.dataset.heroUiState = "in";
+    }
+
+    const header = document.querySelector<HTMLElement>("[data-site-header]");
+    if (header?.dataset.siteHeaderState === "out") {
+      header.dataset.siteHeaderState = "in";
     }
   }, []);
 
@@ -258,6 +302,23 @@ export function Hero() {
     return () => query.removeEventListener("change", sync);
   }, []);
 
+  // Scrolling is an explicit signal to move on from the scene entrance. If the
+  // canvas has not reached its UI cue yet, start the UI animation immediately.
+  // This also covers browsers restoring a non-zero scroll position on load.
+  useEffect(() => {
+    if (window.scrollY > 0) {
+      revealUi();
+      return;
+    }
+
+    const revealOnScroll = () => revealUi();
+    window.addEventListener("scroll", revealOnScroll, {
+      passive: true,
+      once: true,
+    });
+    return () => window.removeEventListener("scroll", revealOnScroll);
+  }, [revealUi]);
+
   // Stop driving the render loop once the hero scrolls away — there is no point
   // burning GPU on a canvas nobody can see.
   useEffect(() => {
@@ -277,59 +338,72 @@ export function Hero() {
       id="top"
       data-hero-ui-state="out"
       onAnimationEnd={settleUiLayers}
-      className="relative flex h-svh min-h-[500px] flex-col overflow-hidden bg-background"
+      className="relative bg-background"
     >
-      <TimeOfDayExperience
-        reducedMotion={reducedMotion}
-        onScreen={onScreen}
-        onUiReveal={revealUi}
-      />
+      <div className="grid">
+        <TimeOfDayExperience
+          reducedMotion={reducedMotion}
+          onScreen={onScreen}
+          onUiReveal={revealUi}
+        />
 
-      {/* The masthead leads the scene-cued UI entrance. */}
-      <div
-        data-hero-ui
-        data-hero-ui-step="0"
-        className="relative z-30 flex items-center justify-between gap-5 px-4 py-5 font-mono text-[11px] font-medium tracking-[0.11em] text-white uppercase sm:px-8"
-      >
-        <a
-          href="https://pmnd.rs/"
-          aria-label="Visit pmnd.rs"
-          className="shrink-0 transition-opacity hover:opacity-70"
-        >
-          <Logo color="currentColor" className="size-6" />
-        </a>
-        <Button
-          asChild
-          size="sm"
-          className="h-8 px-4 font-sans text-sm normal-case tracking-normal shadow-[0_0_24px_rgba(255,255,255,0.2)]"
-        >
-          <a href={REGISTER_URL}>Register</a>
-        </Button>
-      </div>
-
-      {/* Grounds the copy against the city. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-[280px] bg-gradient-to-b from-transparent via-black/50 to-black/90" />
-
-      <div className="relative z-30 mt-auto px-4 pb-6 sm:px-8">
-        <div className="max-w-2xl">
-          <div
-            data-hero-ui
-            data-hero-ui-step="1"
-          >
-            <div className="mb-3.5 font-mono text-[11px] font-medium tracking-[0.13em] text-white/60 uppercase">
-              {HERO.kicker}
+        <div className="relative z-30 col-start-1 row-start-1">
+          <div className="relative z-10 flex h-svh min-h-[500px] flex-col">
+            <div className="mt-auto px-4 pb-6 sm:px-8">
+              <div
+                data-hero-ui
+                data-hero-ui-step="1"
+                className="max-w-2xl"
+              >
+                <div className="mb-3.5 font-mono text-[11px] font-medium tracking-[0.13em] text-white/60 uppercase">
+                  {HERO.kicker}
+                </div>
+                <h1
+                  className="font-bold tracking-[-0.035em] text-white"
+                  style={{
+                    fontSize: "clamp(34px, 5.4vw, 58px)",
+                    lineHeight: 1.02,
+                  }}
+                >
+                  {HERO.title[0]}
+                  <br />
+                  {HERO.title[1]}
+                </h1>
+              </div>
             </div>
-            <h1
-              className="font-bold tracking-[-0.035em] text-white"
-              style={{
-                fontSize: "clamp(34px, 5.4vw, 58px)",
-                lineHeight: 1.02,
-              }}
-            >
-              {HERO.title[0]}
-              <br />
-              {HERO.title[1]}
-            </h1>
+          </div>
+
+          <div className="relative isolate px-4 pt-8 pb-20 sm:px-8 sm:pt-12 sm:pb-28 lg:pt-16">
+            <div className="pointer-events-none absolute inset-x-0 -top-40 bottom-0 z-0 bg-gradient-to-b from-transparent via-black/90 via-30% to-black" />
+
+            <RevealGroup className="relative z-10 mx-auto max-w-[1180px]">
+              <h2
+                className="max-w-[860px] text-[24px] leading-[1.25] font-medium tracking-[-0.025em] text-white sm:text-[30px] lg:text-[36px]"
+                data-reveal
+              >
+                {HERO.description}
+              </h2>
+
+              <div className="mt-14 border-t border-white/25 sm:mt-18">
+                {HERO.days.map((day) => (
+                  <article
+                    key={day.label}
+                    className="grid gap-4 border-b border-white/20 py-7 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-8 lg:py-9"
+                    data-reveal
+                  >
+                    <h3 className="font-mono text-[11px] font-medium tracking-[0.14em] text-white/50 uppercase">
+                      {day.label}
+                    </h3>
+                    <p className="max-w-[760px] text-base leading-[1.6] text-white/70 sm:text-lg">
+                      <HighlightedText
+                        text={day.body}
+                        phrases={day.highlights}
+                      />
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </RevealGroup>
           </div>
         </div>
       </div>
