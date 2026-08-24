@@ -28,31 +28,87 @@ const clockLabel = (v: number) => {
   return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
 };
 
-/** Plays a noise click over a sine knock with pitch based on the dial value. */
-function playClick(ctx: AudioContext, noise: AudioBuffer, t01: number) {
-  const now = ctx.currentTime;
+type DialAudio = {
+  ctx: AudioContext;
+  noise: AudioBuffer;
+  output: GainNode;
+  lastClickAt: number;
+};
 
+/** A contact snap followed by the damped resonances of the dial body. */
+function playClick(
+  ctx: AudioContext,
+  noise: AudioBuffer,
+  output: AudioNode,
+  t01: number,
+  force: number,
+  speed: number,
+  variation: number,
+) {
+  const now = ctx.currentTime;
+  const contactLevel = force * (1 - speed * 0.68);
+  const resonanceLevel = force * (1 - speed * 0.5);
+  const bodyLevel = force * (1 - speed * 0.7);
+  const decayScale = 1 - speed * 0.48;
+
+  // The plastic-on-metal contact is bright, short, and nearly non-tonal.
   const burst = ctx.createBufferSource();
   burst.buffer = noise;
+  burst.playbackRate.value = (0.92 + force * 0.12) * variation;
   const band = ctx.createBiquadFilter();
   band.type = "bandpass";
-  band.frequency.value = 3200 + t01 * 1400;
-  band.Q.value = 1.2;
+  band.frequency.value =
+    (3900 + t01 * 180 + force * 700 - speed * 650) * variation;
+  band.Q.value = 1.7;
   const burstGain = ctx.createGain();
-  burstGain.gain.setValueAtTime(0.5, now);
-  burstGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
-  burst.connect(band).connect(burstGain).connect(ctx.destination);
+  burstGain.gain.setValueAtTime(0.0001, now);
+  burstGain.gain.linearRampToValueAtTime(
+    0.1 * contactLevel,
+    now + 0.0008,
+  );
+  burstGain.gain.exponentialRampToValueAtTime(
+    0.0001,
+    now + 0.018 * decayScale,
+  );
+  burst.connect(band).connect(burstGain).connect(output);
   burst.start(now);
+  burst.stop(now + 0.025);
 
-  const knock = ctx.createOscillator();
-  knock.type = "sine";
-  knock.frequency.value = 260 + t01 * 80;
-  const knockGain = ctx.createGain();
-  knockGain.gain.setValueAtTime(0.06, now);
-  knockGain.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
-  knock.connect(knockGain).connect(ctx.destination);
-  knock.start(now);
-  knock.stop(now + 0.04);
+  // Two differently damped modes make the detent feel like a small object
+  // with a hard shell and a heavier body instead of a synthesized beep.
+  const shell = ctx.createOscillator();
+  shell.type = "triangle";
+  shell.frequency.value = (680 + t01 * 36 + force * 70) * variation;
+  const shellGain = ctx.createGain();
+  shellGain.gain.setValueAtTime(0.0001, now);
+  shellGain.gain.linearRampToValueAtTime(
+    0.025 * resonanceLevel,
+    now + 0.001,
+  );
+  shellGain.gain.exponentialRampToValueAtTime(
+    0.0001,
+    now + 0.034 * decayScale,
+  );
+  shell.connect(shellGain).connect(output);
+  shell.start(now);
+  shell.stop(now + 0.04);
+
+  const body = ctx.createOscillator();
+  body.type = "sine";
+  body.frequency.value = (170 + t01 * 18 + force * 20) * variation;
+  const bodyGain = ctx.createGain();
+  bodyGain.gain.setValueAtTime(0.0001, now);
+  bodyGain.gain.linearRampToValueAtTime(
+    0.035 * bodyLevel,
+    now + 0.0015,
+  );
+  bodyGain.gain.exponentialRampToValueAtTime(
+    0.0001,
+    now + 0.052 * decayScale,
+  );
+  body.connect(bodyGain).connect(output);
+  body.start(now);
+  body.stop(now + 0.06);
 }
 
 export function TimeDial({
@@ -69,9 +125,7 @@ export function TimeDial({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const valueRef = useRef(value);
-  const audioRef = useRef<{ ctx: AudioContext; noise: AudioBuffer } | null>(
-    null,
-  );
+  const audioRef = useRef<DialAudio | null>(null);
   const dragRef = useRef<{
     x: number;
     y: number;
@@ -98,14 +152,41 @@ export function TimeDial({
           .webkitAudioContext;
       if (!Ctor) return;
       const ctx = new Ctor();
-      const noise = ctx.createBuffer(1, ctx.sampleRate * 0.02, ctx.sampleRate);
+      const noise = ctx.createBuffer(1, ctx.sampleRate * 0.04, ctx.sampleRate);
       const data = noise.getChannelData(0);
       for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-      audioRef.current = { ctx, noise };
+
+      const output = ctx.createGain();
+      output.gain.value = 0.62;
+      const compressor = ctx.createDynamicsCompressor();
+      compressor.threshold.value = -18;
+      compressor.knee.value = 12;
+      compressor.ratio.value = 6;
+      compressor.attack.value = 0.002;
+      compressor.release.value = 0.08;
+      output.connect(compressor).connect(ctx.destination);
+
+      audioRef.current = {
+        ctx,
+        noise,
+        output,
+        lastClickAt: Number.NEGATIVE_INFINITY,
+      };
     }
-    const { ctx, noise } = audioRef.current;
+    const audio = audioRef.current;
+    const { ctx, noise, output } = audio;
     if (ctx.state === "suspended") void ctx.resume();
-    playClick(ctx, noise, v / 100);
+
+    // At speed, physical detents blur into a ratchet. Discard intervals too
+    // dense to resolve, then soften and vary the remaining impacts so they do
+    // not become a rigid machine-gun sequence.
+    const interval = ctx.currentTime - audio.lastClickAt;
+    if (interval < 0.032) return;
+    const speed = Math.max(0, Math.min(1, (0.18 - interval) / 0.14));
+    const force = 0.68 + speed * 0.1;
+    const variation = 0.94 + Math.random() * 0.12;
+    audio.lastClickAt = ctx.currentTime;
+    playClick(ctx, noise, output, v / 100, force, speed, variation);
   }, []);
 
   const setValue = useCallback(

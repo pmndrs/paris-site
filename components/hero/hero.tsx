@@ -33,59 +33,69 @@ const TowerHero = dynamic(
 
 const DAY_CYCLE = 100;
 const INITIAL_TIME_OF_DAY = 85;
-/** Maximum replay speed in dial units per second. */
-const REPLAY_UNITS_PER_SECOND = 70;
-/** Distance used to brake into the final value. */
-const REPLAY_EASE_OUT_UNITS = 12;
-const MAX_FRAME_MS = 64;
+/** Replay limits keep expensive atmosphere updates smooth on missed frames. */
+const REPLAY_UNITS_PER_SECOND = 42;
+const REPLAY_SPRING_STIFFNESS = 144;
+const REPLAY_SPRING_DAMPING = 28;
+const REPLAY_MAX_UNITS_PER_FRAME = 0.7;
+const REPLAY_POSITION_EPSILON = 0.005;
+const REPLAY_VELOCITY_EPSILON = 0.02;
+const MAX_FRAME_MS = 40;
 
 const wrapTimeOfDay = (value: number) =>
   ((value % DAY_CYCLE) + DAY_CYCLE) % DAY_CYCLE;
 
 /**
- * Replays unwrapped dial input at a bounded speed.
- * Same-direction samples share one endpoint. Direction changes remain queued.
+ * Replays unwrapped dial input as an overdamped spring. Velocity survives
+ * target changes, while the per-frame cap prevents a slow atmosphere frame
+ * from becoming a visible jump.
  */
 function useTimeOfDayReplay(initial: number, instant: boolean) {
   const [value, setValue] = useState(initial);
   const state = useRef({
     value: initial,
-    queue: [] as number[],
+    target: initial,
+    velocity: 0,
     lastFrame: 0,
     frame: 0,
   });
 
   const step = useCallback(function replayFrame(now: number) {
     const s = state.current;
-    let secondsLeft = Math.min(now - s.lastFrame, MAX_FRAME_MS) / 1000;
+    const seconds = Math.min(now - s.lastFrame, MAX_FRAME_MS) / 1000;
     s.lastFrame = now;
+    const distance = s.target - s.value;
 
-    while (secondsLeft > 0 && s.queue.length) {
-      const target = s.queue[0];
-      const distance = target - s.value;
-      // Square root scaling models constant braking to zero.
-      const speed =
-        s.queue.length === 1
-          ? REPLAY_UNITS_PER_SECOND *
-            Math.min(
-              1,
-              Math.sqrt(Math.abs(distance) / REPLAY_EASE_OUT_UNITS),
-            )
-          : REPLAY_UNITS_PER_SECOND;
-      const travel = speed * secondsLeft;
+    if (
+      Math.abs(distance) <= REPLAY_POSITION_EPSILON &&
+      Math.abs(s.velocity) <= REPLAY_VELOCITY_EPSILON
+    ) {
+      s.value = s.target;
+      s.velocity = 0;
+    } else if (seconds > 0) {
+      const acceleration =
+        REPLAY_SPRING_STIFFNESS * distance -
+        REPLAY_SPRING_DAMPING * s.velocity;
+      s.velocity += acceleration * seconds;
 
-      if (Math.abs(distance) <= travel) {
-        s.value = target;
-        s.queue.shift();
-        secondsLeft -= speed ? Math.abs(distance) / speed : secondsLeft;
-      } else {
-        s.value += Math.sign(distance) * travel;
-        secondsLeft = 0;
-      }
+      // At lower render rates the frame-distance limit also lowers velocity,
+      // keeping the spring continuous instead of clamping its position later.
+      const frameSpeedLimit = Math.min(
+        REPLAY_UNITS_PER_SECOND,
+        REPLAY_MAX_UNITS_PER_FRAME / seconds,
+      );
+      s.velocity = Math.max(
+        -frameSpeedLimit,
+        Math.min(frameSpeedLimit, s.velocity),
+      );
+      s.value += s.velocity * seconds;
     }
 
     setValue(s.value);
-    if (s.queue.length) {
+    if (
+      Math.abs(s.target - s.value) > REPLAY_POSITION_EPSILON ||
+      Math.abs(s.velocity) > REPLAY_VELOCITY_EPSILON
+    ) {
       s.frame = requestAnimationFrame(replayFrame);
     } else {
       s.frame = 0;
@@ -98,26 +108,15 @@ function useTimeOfDayReplay(initial: number, instant: boolean) {
       if (instant) {
         cancelAnimationFrame(s.frame);
         s.frame = 0;
-        s.queue.length = 0;
+        s.target = next;
         s.value = next;
+        s.velocity = 0;
         setValue(next);
         return;
       }
 
-      const last = s.queue.at(-1) ?? s.value;
-      if (Math.abs(next - last) < Number.EPSILON) return;
-
-      const previous =
-        s.queue.length > 1 ? s.queue[s.queue.length - 2] : s.value;
-      const previousDirection = Math.sign(last - previous);
-      const nextDirection = Math.sign(next - last);
-
-      if (s.queue.length && previousDirection === nextDirection) {
-        // Same-direction samples share one endpoint.
-        s.queue[s.queue.length - 1] = next;
-      } else {
-        s.queue.push(next);
-      }
+      if (Math.abs(next - s.target) < Number.EPSILON) return;
+      s.target = next;
 
       if (!s.frame) {
         s.lastFrame = performance.now();
@@ -130,12 +129,11 @@ function useTimeOfDayReplay(initial: number, instant: boolean) {
   useEffect(() => {
     if (!instant) return;
     const s = state.current;
-    const finalValue = s.queue.at(-1) ?? s.value;
     cancelAnimationFrame(s.frame);
     s.frame = 0;
-    s.queue.length = 0;
-    s.value = finalValue;
-    setValue(finalValue);
+    s.value = s.target;
+    s.velocity = 0;
+    setValue(s.target);
   }, [instant]);
 
   useEffect(() => {
