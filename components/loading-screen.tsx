@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Logo } from "@/components/brand/logo";
-import { heroIsReady, onHeroReady } from "@/lib/hero-ready";
+import {
+  heroGate,
+  heroGateCanRevealOverlay,
+  heroGateOverlayHasExited,
+} from "@/lib/hero-gate";
 
 /** One flip beat — dismissing mid-flip on a warm load reads as a glitch. */
 const MIN_SHOW_MS = 800;
@@ -11,6 +15,10 @@ const MIN_SHOW_MS = 800;
 const MAX_WAIT_MS = 15_000;
 /** Keep the counter responsive without re-rendering on every animation frame. */
 const PROGRESS_TICK_MS = 100;
+/** Hold the completed loading screen for one beat before its exit begins. */
+const EXIT_BEAT_MS = 300;
+/** Transition-end backstop for browsers that drop the event. */
+const FADE_FALLBACK_MS = 750;
 
 /**
  * First-load gate over the whole page.
@@ -23,15 +31,15 @@ const PROGRESS_TICK_MS = 100;
  * spent behind the gate. Then it fades out, unmounts, and the entrance
  * plays from the top.
  *
- * Scrolling dismisses it early: like the hero's own UI cue, a scroll is an
- * explicit signal to move on — and it covers restored scroll positions,
- * where the hero render job is paused off-screen and the ready cue would
- * never come.
+ * The document remains scroll-locked until the overlay has fully exited, so
+ * the hero cannot be paused or bypassed halfway through this handshake.
  */
 export function LoadingScreen() {
-  // A client-side return to the page skips the gate entirely: the ready
-  // latch is module-level and the pipelines it waited on stay warm.
-  const [gone, setGone] = useState(() => heroIsReady());
+  // A client-side return skips the gate: the module-level machine has already
+  // reached playing/settled and the pipelines it waited on remain warm.
+  const [gone, setGone] = useState(() =>
+    heroGateOverlayHasExited(heroGate.getState()),
+  );
   const [progress, setProgress] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -41,6 +49,8 @@ export function LoadingScreen() {
 
     const shownAt = performance.now();
     let fadeTimer: number | undefined;
+    let exitBeatTimer: number | undefined;
+    let fadeFallback: number | undefined;
     const progressTimer = window.setInterval(() => {
       const elapsed = performance.now() - shownAt;
       setProgress(Math.min(99, Math.floor((elapsed / MAX_WAIT_MS) * 100)));
@@ -52,23 +62,37 @@ export function LoadingScreen() {
       setProgress(100);
       fadeTimer = window.setTimeout(
         () => {
-          root.dataset.state = "done";
+          // Hold at full opacity, then restore the scrollbar at the exact
+          // moment the loading screen begins fading.
+          exitBeatTimer = window.setTimeout(() => {
+            root.dataset.state = "done";
+            fadeFallback = window.setTimeout(() => {
+              heroGate.overlayExited();
+              setGone(true);
+            }, FADE_FALLBACK_MS);
+          }, EXIT_BEAT_MS);
         },
         Math.max(0, MIN_SHOW_MS - (performance.now() - shownAt)),
       );
     };
 
-    const stopWaiting = onHeroReady(dismiss);
-    const backstop = window.setTimeout(dismiss, MAX_WAIT_MS);
-    window.addEventListener("scroll", dismiss, { passive: true });
-    if (window.scrollY > 0) dismiss();
+    const syncGate = () => {
+      const state = heroGate.getState();
+      if (heroGateOverlayHasExited(state)) setGone(true);
+      else if (heroGateCanRevealOverlay(state)) dismiss();
+    };
+    const stopWaiting = heroGate.subscribe(syncGate);
+    syncGate();
+
+    const backstop = window.setTimeout(() => heroGate.bypass(), MAX_WAIT_MS);
 
     return () => {
       stopWaiting();
       window.clearTimeout(backstop);
       window.clearTimeout(fadeTimer);
+      window.clearTimeout(exitBeatTimer);
+      window.clearTimeout(fadeFallback);
       window.clearInterval(progressTimer);
-      window.removeEventListener("scroll", dismiss);
     };
   }, []);
 
@@ -85,9 +109,14 @@ export function LoadingScreen() {
       aria-valuemax={100}
       aria-valuenow={progress}
       onTransitionEnd={(event) => {
-        // Invisible once its own opacity transition lands; removing it from
-        // the tree afterwards is just cleanup.
-        if (event.target === event.currentTarget) setGone(true);
+        if (
+          event.target === event.currentTarget &&
+          event.propertyName === "opacity"
+        ) {
+          // Playback is hard-gated on the overlay reaching zero opacity.
+          heroGate.overlayExited();
+          setGone(true);
+        }
       }}
     >
       <div className="flex flex-col items-center gap-7 text-foreground">

@@ -9,7 +9,8 @@ import {
   PARIS_HOMEPAGE_CITY_DEFAULTS,
 } from "@/components/hero-demo/paris-defaults";
 import { TowerCanvas } from "@/components/hero-demo/tower-canvas";
-import { markHeroReady } from "@/lib/hero-ready";
+import { heroGate } from "@/lib/hero-gate";
+import { useWebGPU } from "@/lib/use-webgpu";
 
 /** This canvas's id, which is also the id of the render job r3f registers. */
 const PRIMARY = "main";
@@ -50,9 +51,6 @@ function useIdleWhenHidden(paused: boolean) {
 
 /** The design doc's tower plate, shown when WebGPU is unavailable. */
 function FallbackPoster() {
-  // No canvas means no frames — release the loading screen at once.
-  useEffect(() => markHeroReady(), []);
-
   return (
     <div
       className="absolute left-1/2 -translate-x-1/2"
@@ -95,6 +93,30 @@ export function TowerHero({
   onUiReveal?: () => void;
 }) {
   useIdleWhenHidden(paused);
+  const support = useWebGPU();
+
+  useEffect(() => {
+    if (support !== "no") return;
+    // Capability detection, rather than Canvas's fallback child, owns this
+    // transition. Canvas mounts that child invisibly even on successful boots.
+    heroGate.bypass();
+  }, [support]);
+
+  useEffect(() => {
+    const syncUi = () => {
+      const state = heroGate.getState();
+      if (state === "revealing-final" || state === "settled") {
+        onUiReveal?.();
+      }
+    };
+
+    const unsubscribe = heroGate.subscribe(syncUi);
+    syncUi();
+    return unsubscribe;
+  }, [onUiReveal]);
+
+  if (support === "checking") return null;
+  if (support === "no") return <FallbackPoster />;
 
   // Slider fraction → solar hours for the sky.
   const hours = (value / 100) * 24;
@@ -118,12 +140,12 @@ export function TowerHero({
       frameloop={reducedMotion ? "demand" : "always"}
       intro={!reducedMotion}
       onUiReveal={onUiReveal}
-      // Frees the site-wide loading screen once the rehearsed scene renders
-      // smoothly — the entrance then replays from the top, jank-free.
-      onWarmedUp={markHeroReady}
+      gate={heroGate}
       canvasStyle={{ pointerEvents: "none" }}
       // No WebGPU: the design doc's original tower plate, placed to match the
       // 3D framing, so the hero still shows a tower.
+      // Canvas always mounts this child inside its DOM <canvas>; it must stay
+      // pure. The capability effect above is the only fallback readiness cue.
       fallback={<FallbackPoster />}
     >
       <DepthAttachmentSync />

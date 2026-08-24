@@ -14,6 +14,7 @@ import { solarPosition } from "@pmndrs/sky";
 import { Sky } from "@pmndrs/sky/react";
 import * as THREE from "three/webgpu";
 
+import type { HeroGateController } from "@/lib/hero-gate";
 import { Buildings } from "./buildings";
 import { Camera, FramingTools } from "./camera";
 import { FX, type TextLayer } from "./fx";
@@ -150,12 +151,10 @@ export interface TowerCanvasProps {
   /** Fires when the in-scene lettering is far enough along to reveal the UI. */
   onUiReveal?: () => void;
   /**
-   * Fires once the scene can be shown without jank: assets resolved,
-   * pipelines compiled, frame pacing settled. With `intro`, the entrance is
-   * rehearsed at its final pose while this warms up, then replayed from the
-   * top — so the reveal that follows plays it clean.
+   * Optional first-load controller. When present, warmup, pose confirmation,
+   * overlay exit, and intro playback are hard-gated by its state machine.
    */
-  onWarmedUp?: () => void;
+  gate?: HeroGateController;
 }
 
 export function TowerCanvas({
@@ -228,13 +227,11 @@ export function TowerCanvas({
   children,
   intro = false,
   onUiReveal,
-  onWarmedUp,
+  gate,
 }: TowerCanvasProps) {
   const towerRef = useRef<THREE.Group>(null);
-  // With a warmup consumer attached, the intro opens parked at its final
-  // pose — the dress rehearsal — and `WarmupProbe` rewinds it on reveal.
-  const introHold = useRef(intro && onWarmedUp !== undefined);
-  const introClock = useRef(intro && !introHold.current ? 0 : INTRO_COMPLETE);
+  // A gated scene opens at the final pose for its hidden dress rehearsal.
+  const introClock = useRef(intro && !gate ? 0 : INTRO_COMPLETE);
   const towerLights = towerLightLevel({ timeOfDay, latitude, dayOfYear });
   const sunLight = useMemo(() => {
     const { elevation, azimuth } = solarPosition({
@@ -280,13 +277,11 @@ export function TowerCanvas({
       <IntroClock
         clock={introClock}
         enabled={intro}
-        hold={introHold}
+        gate={gate}
         onUiReveal={onUiReveal}
       />
 
-      {onWarmedUp && (
-        <WarmupProbe clock={introClock} hold={introHold} onReady={onWarmedUp} />
-      )}
+      {gate && <WarmupProbe gate={gate} replayIntro={intro} />}
 
       {/* Stars use their own dome radius and render target pixel size. */}
       {stars && (

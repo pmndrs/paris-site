@@ -88,6 +88,9 @@
   html {
     @apply font-sans;
     scroll-behavior: smooth;
+    /* Reserve the vertical scrollbar track while the loading gate locks
+       scrolling, so restoring overflow cannot change the layout width. */
+    scrollbar-gutter: stable;
   }
   body {
     @apply bg-background text-foreground antialiased;
@@ -216,6 +219,12 @@
 }
 
 @media (scripting: enabled) {
+  html:has([data-loading-screen][data-state="loading"]),
+  html:has([data-loading-screen][data-state="loading"]) body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   [data-loading-screen] {
     position: fixed;
     inset: 0;
@@ -223,10 +232,15 @@
     display: grid;
     place-items: center;
     background: var(--background);
-    transition: opacity 500ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform: translate3d(0, 0, 0);
+    transition:
+      opacity 500ms cubic-bezier(0.42, 0, 1, 1),
+      transform 500ms cubic-bezier(0.55, 0, 1, 0.45);
+    will-change: opacity, transform;
   }
   [data-loading-screen][data-state="done"] {
     opacity: 0;
+    transform: translate3d(0, 18px, 0);
     pointer-events: none;
   }
 }
@@ -282,6 +296,10 @@
   .loading-logo {
     animation: loading-logo-pulse 2s ease-in-out infinite;
     will-change: opacity;
+  }
+  [data-loading-screen],
+  [data-loading-screen][data-state="done"] {
+    transform: none;
   }
   [data-reveal],
   [data-reveal="in"] {
