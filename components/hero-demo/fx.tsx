@@ -323,10 +323,7 @@ export function FX({
         graph = graph.add(bloom(emissive, 0.5, 0.5));
       }
 
-      // Normals are packed into a byte texture, so they come back as colour
-      // and have to be unpacked per sample rather than read directly. Both
-      // GTAO and SSGI `.sample()` whatever node they're handed, so the same
-      // wrapper serves either consumer.
+      // Unpack byte-encoded normals through a shared sampling node.
       const sceneNormal =
         useGtao || useSsgi
           ? TSL.sample((uv: unknown) =>
@@ -337,12 +334,7 @@ export function FX({
           : null;
 
       if (useSsgi && sceneNormal) {
-        // Stage 3. SSGI replaces GTAO: it computes AO as a byproduct, so the
-        // composite is `beauty·AO + albedo·GI` (the fsr3 examples' shape),
-        // applied over the bloom-composited graph the same way the GTAO
-        // multiply was. GI is denoised spatially; temporal filtering stays
-        // off (see FXOptions.ssgi). All of it runs at render res — under FSR
-        // that's `1/renderScale`, which is where SSGI gets cheap.
+        // Composite spatially denoised GI and AO at scene render resolution.
         const giPass = ssgi(
           color,
           depth,
@@ -377,11 +369,7 @@ export function FX({
           depth,
           sceneNormal,
           camera as THREE.PerspectiveCamera,
-          // `alphaNode` must be the *texture node*, not its alpha channel: the
-          // node does `alphaNode.sample(uv).a` internally (ssao-node.js:399), so
-          // handing it a swizzle throws "sample is not a function". Passing the
-          // colour attachment gives it the scene alpha it wants, and is what the
-          // original's separate `alpha` MRT attachment was standing in for.
+          // SSAO samples alpha from the full color texture node.
           color,
         ) as unknown as SSAOPass;
         aoPass.radius.value = 4;
@@ -396,15 +384,7 @@ export function FX({
       }
 
       if (haze && sky) {
-        // Before the temporal resolve, after the scene-space effects: haze is
-        // part of the image TRAA/FSR3 should be stabilising, not something
-        // painted over an already-resolved frame.
-        //
-        // Note this is the `useSky()` + `applyHaze` path rather than
-        // `<AutoHaze/>`, and deliberately: AutoHaze assigns
-        // `renderPipeline.outputNode` itself, which would race this callback for
-        // ownership of the same graph. Its own docs call the two mutually
-        // exclusive. Stage 2 needs this seam anyway, to slot FSR3 in last.
+        // Apply haze before temporal resolution so the resolver stabilizes it.
         graph = sky.applyHaze(graph, { scenePass, policy: hazePolicy });
       }
 
@@ -412,18 +392,7 @@ export function FX({
         ? (sky as SkyWithBaker | null)?.baker?.texture
         : undefined;
 
-      /**
-       * Sky-colored exponential height fog (see FXOptions.skyFog), split
-       * into two helpers for its two consumers: the scene fog below, which
-       * takes distance from the depth buffer, and the text composite at the
-       * end, which takes it from the text pass's depth. Ray reconstruction
-       * follows the sky's own haze node: hand-built NDC with WebGPU's
-       * flipped Y, inverse projection to a view ray, and
-       * distance = axial depth / |rayDir.z| so oblique pixels are not
-       * underfogged. The fog color is the baked sky cube sampled along the
-       * world ray. That cube is already in scene-luminance units, since the
-       * background renders it directly, so it needs no scaling.
-       */
+      /** Reconstructs a world ray and its axial depth correction. */
       const reconstructRay = () => {
         const u = TSL.uv();
         const ndc = TSL.vec2(
@@ -444,11 +413,9 @@ export function FX({
             const dist = distNode as AnyFloat;
             const rayDirWorld = rayDirWorldNode as AnyVec3;
 
-            // Analytic optical depth through σ(h) = σ₀·e^(−h/H) along the ray:
-            //   OD = σ₀ · e^(−camY/H) · dist · (1 − e^(−x)) / x,  x = dist·rayY/H
-            // with the x→0 limit handled explicitly (level rays).
+            // Integrate exponential density with a stable limit for level rays.
             const H = fogKnobs.heightFalloff;
-            const sigma = fogKnobs.density.div(1000.0); // per-km to per-world-unit
+            const sigma = fogKnobs.density.div(1000.0);
             const rayY = rayDirWorld.y;
             const x = dist.mul(rayY).div(H);
             const term = TSL.abs(x)
@@ -467,13 +434,7 @@ export function FX({
               1.0,
             );
 
-            // The baked cube is black below the horizon, so downward rays
-            // must not sample it directly or ground fog fades toward black
-            // and reads as no fog. Clamp the color lookup to just above the
-            // horizon. Near-ground inscatter is horizon light in real aerial
-            // perspective anyway, and the density math above keeps the true
-            // ray. Toggleable via the uniform for A/B against the raw sample
-            // (see FXOptions.skyFogHorizonClamp).
+            // Clamp downward color samples to the illuminated horizon.
             const sampleDir = TSL.normalize(
               TSL.vec3(
                 rayDirWorld.x,
@@ -497,8 +458,7 @@ export function FX({
           const ray = reconstructRay();
           const dist = TSL.abs(viewZ).div(ray.cosFromAxis);
           const fog = fogAlong(dist, ray.rayDirWorld);
-          // The sky renders at "infinity" and fogging it double-counts the
-          // atmosphere the bake already integrated.
+          // Exclude the sky because its baked texture already includes haze.
           const isSky = scenePass.getLinearDepthNode().greaterThan(0.999);
           const amount = isSky.select(TSL.float(0.0), fog.fogAmount);
           return TSL.vec4(TSL.mix(input.rgb, fog.skyColor, amount), input.a);
@@ -506,23 +466,7 @@ export function FX({
       }
 
       if (useFsr) {
-        // Stage 2. FSR3 is the sole temporal resolver — TRAA never stacks on
-        // top (two temporal resolvers ghost). The composited graph is pinned
-        // to the reduced render resolution with an explicit convertToTexture:
-        // upscale() would wrap it anyway, but unpinned at *full* res, and the
-        // input size is what configures the upscaler, so the pin is the
-        // authority.
-        //
-        // Pinned by **resolution scale**, not fixed pixels. This callback
-        // runs once (rebuilds only on option changes), so a fixed-size RTT
-        // goes stale the moment the window resizes — the upscaler then
-        // reconstructs an old-aspect input into the new display size and the
-        // whole frame smears. With autoResize + setResolutionScale the RTT
-        // tracks the drawing buffer every frame using the same floor()
-        // PassNode applies for setResolutionScale (so the sizes agree), and
-        // UpscalerNode.updateBefore re-configures itself whenever its input
-        // or the display size changes. Resize heals in one frame, no
-        // recompile.
+        // Scale the FSR3 input with the drawing buffer so resizing stays valid.
         const pinned = TSL.convertToTexture(graph);
         pinned.setResolutionScale(1 / renderScale);
         const fsrNode = upscale(
@@ -537,7 +481,7 @@ export function FX({
         graph = fsrNode;
       } else {
         fsrNodeRef.current = null;
-        // TRAA is the temporal resolver on the non-FSR path.
+        // Use TRAA as the temporal resolver when FSR3 is disabled.
         const traaPass = traa(
           graph,
           depth,
@@ -548,13 +492,7 @@ export function FX({
         graph = traaPass;
       }
 
-      // Full-res text over the resolved frame, the seam the whole text pass
-      // exists for. Fog is applied to the type analytically, with the same
-      // formula and the same live knobs, using the text pass's per-pixel
-      // depth in place of the scene depth buffer. That keeps the poster in
-      // the same atmosphere even though it skipped the scene pass. Bloom is
-      // part of `resolved`, and letters occlude it like everything else.
-      // See the no-glow-through-type note on `overlayText`.
+      // Apply matching fog to lettering before the final composite.
       if (overlayText && textTex) {
         const resolved = graph;
         graph = TSL.Fn(() => {
@@ -565,8 +503,7 @@ export function FX({
               ray.cosFromAxis,
             );
             const fog = fogAlong(dist, ray.rayDirWorld);
-            // Premultiplied input, so the inscatter is weighted by
-            // coverage before it replaces the letter color.
+            // Weight fog color by premultiplied glyph coverage.
             textRgb = TSL.mix(
               textRgb,
               fog.skyColor.mul(textTex.a),
@@ -578,19 +515,17 @@ export function FX({
       }
 
       renderPipeline.outputNode = graph;
-      // See the `!enabled` branch: without this, only the first-ever graph
-      // compiles and every rebuild is a silent no-op.
+      // Mark the presentation material dirty after replacing its output node.
       renderPipeline.needsUpdate = true;
       builtKeyRef.current = wantedKey;
       builtSkyRef.current = sky;
     },
-    // Setup: one MRT, every attachment the graph above needs.
+    // Configure one render pass with all required attachments.
     ({ passes }) => {
       const scenePass = passes?.scenePass;
       if (!scenePass) return;
 
-      // Under FSR the scene renders small and the resolver reconstructs to
-      // display res; that reduction is where the whole pipeline gets cheap.
+      // Render below display resolution only when FSR3 will reconstruct it.
       scenePass.setResolutionScale(useFsr ? 1 / renderScale : 1);
 
       const needsNormal = useGtao || useSsgi;
@@ -601,20 +536,14 @@ export function FX({
           ...(needsNormal
             ? { normal: TSL.packNormalToRGB(TSL.normalView) }
             : {}),
-          // Always present: every config ends in a temporal resolver (FSR3
-          // or TRAA), and both consume motion vectors.
+          // Both temporal resolvers require motion vectors.
           velocity: TSL.velocity,
-          // SSGI's composite needs unlit albedo (`albedo · GI`).
+          // SSGI requires unlit albedo for indirect lighting.
           ...(useSsgi ? { diffuse: TSL.diffuseColor } : {}),
         }),
       );
 
-      // Byte textures where float precision buys nothing: packed normals and
-      // LDR albedo. This halves memory bandwidth but does NOT reduce the
-      // maxColorAttachmentBytesPerSample cost — the WebGPU spec charges
-      // rgba8unorm attachments 8 bytes/sample, same as rgba16float, so the
-      // 5-attachment SSGI MRT costs 40 and relies on the raised
-      // `requiredLimits` on the Canvas renderer (scene.tsx).
+      // Store packed normals and low dynamic range albedo as byte textures.
       if (needsNormal) {
         scenePass.getTexture("normal").type = THREE.UnsignedByteType;
       }
@@ -624,36 +553,9 @@ export function FX({
     },
   );
 
-  /**
-   * `useRenderPipeline` runs its callbacks exactly **once**.
-   *
-   * Its layout effect gates on `callbacksRanRef`, which latches true after the
-   * first run (`@react-three/fiber/dist/webgpu/index.mjs:16020`), and only a
-   * scene/camera swap clears it. So the graph is frozen at first mount: every
-   * option below was inert after that, and if the first run bailed early —
-   * before `sky` or `scenePass` existed — `outputNode` stays the raw scene pass
-   * and there is no bloom, no AO and no haze, permanently.
-   *
-   * `rebuild()` clears the latch and re-runs. The callbacks themselves are read
-   * from refs that update every render, so the re-run picks up current props.
-   *
-   * (Each rebuild constructs fresh bloom/ssao/traa nodes and drops the previous
-   * ones without disposing — and fiber leaks the replaced scenePass too, filed
-   * upstream as react-three-fiber#3854. Acceptable for a lab panel driven by
-   * hand; it would need `dispose()` on the old graph before this pattern went
-   * anywhere near the real hero.)
-   *
-   * Guarded by `builtKeyRef` because a rebuild costs a full megashader
-   * recompile (seconds of frozen main thread) — see the ref's doc comment.
-   * On mount the layout-effect build has already run with current props, so
-   * the keys match and this is a no-op; it fires only when an option really
-   * changed, or when the initial build bailed before `sky`/`scenePass`
-   * existed (key still null).
-   */
+  /** Rebuilds the graph when structural options or sky resources change. */
   useEffect(() => {
-    // Both haze and sky fog bind resources owned by a specific Sky instance
-    // (the AP LUT and the baked cube respectively), so an instance swap
-    // invalidates either graph.
+    // Haze and fog resources are owned by a specific Sky instance.
     const skyChanged =
       (haze || skyFog) && Boolean(sky) && builtSkyRef.current !== sky;
     if (builtKeyRef.current !== wantedKey || skyChanged) rebuild();
