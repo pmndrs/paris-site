@@ -13,6 +13,10 @@ import { TowerCanvas } from "@/components/hero-demo/tower-canvas";
 /** This canvas's id, which is also the id of the render job r3f registers. */
 const PRIMARY = "main";
 
+// Dark blue ground reflectance keeps the horizon saturated.
+// Stable identity prevents unnecessary sky rebakes.
+const HERO_GROUND_ALBEDO = { x: 0.025, y: 0.075, z: 0.18 } as const;
+
 /**
  * Idle this canvas without touching the frame loop.
  *
@@ -85,6 +89,9 @@ export function TowerHero({
       canvasId={PRIMARY}
       timeOfDay={hours}
       exposure={exposure}
+      // A clear, saturated "bleu nuit" horizon lets the stars stay crisp.
+      turbidity={0}
+      groundAlbedo={HERO_GROUND_ALBEDO}
       autoRotateSpeed={reducedMotion ? 0 : 1}
       frameloop={reducedMotion ? "demand" : "always"}
       intro={!reducedMotion}
