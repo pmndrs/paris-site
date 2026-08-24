@@ -37,24 +37,18 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
 - [ ] **FSR ghosting** — orbit at renderScale 1.5; watch tower edges for
       smearing. Compare renderScale 1 (TRAA path, fsr off). The lettering
       no longer rides the resolver: it renders in its own display-res pass
-      composited afterwards (occlusion is a per-pixel depth compare — each
-      letter carries its own authored z; the tower's bloom is laid back over
-      them) — judge the glyph edges and the occlusion boundary through the
-      ironwork instead.
-- [ ] **Letter layering** (`letter-intersect`) — every letter is fully
-      behind the tower or fully in front, never half-woven (z authored
-      outside the sweep envelope): P rings the tip — dome pavilion in its
-      counter, finial out the top, shaft cutting the bowl; N threads
-      behind mid-tower; M/D/R/S float in front like the reference's lower
-      letters. Watch a full spin: the two "behind" letters should stay
-      readable in every pose, and no letter should flicker between layers
-      (that would mean its z is inside the envelope for some pose). The
-      taste calls are each letter's z and the P's exact hang; all in
-      `LETTERS` (lettering.tsx).
-- [ ] **Mast-through-P cut edge** — the occlusion boundary resolves at scene
-      res and the mast is thin against open sky: orbit slowly and watch the
-      cut for stair-stepping or crawl. If it shimmers, the fix is a
-      neighborhood min/max on the scene-depth sample in `overlayText`.
+      composited afterwards, and the tower portals a depth-only twin into
+      that pass so the interleave is one depth test at display resolution —
+      judge the glyph edges and the cut through the ironwork instead.
+- [ ] **Letter layering** (`letter-intersect`) — every quad sits on the
+      tower's axis plane (so all six are the same size) and layering is
+      authored per band in `layer` (`LETTERS`, lettering.tsx): the antenna
+      threads the P, M behind, N in front, D behind, the R's bowl behind
+      with its leg in front, the S's upper curve in front with its lower
+      bowl behind. Watch a full spin: the woven letters should keep the same
+      relationship in every pose (their bands clear the sweep envelope), and
+      no letter should flicker between layers. The taste calls are each
+      letter's `layer` z's and the band positions.
 - [ ] **TOD sweep on `/`** — drag the slider 0→100; exposure curve through
       midday should never blow out or crush. (Curve: 40 at night → 12 at 13h.)
 - [ ] **Reduced motion** — with OS reduced-motion on: no auto-rotate, demand

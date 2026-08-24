@@ -1,6 +1,13 @@
 "use client";
 
-import { Suspense, useCallback, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  Suspense,
+  useCallback,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { Canvas } from "@react-three/fiber/webgpu";
 import { Sky } from "@pmndrs/sky/react";
 import * as THREE from "three/webgpu";
@@ -177,11 +184,12 @@ export function TowerCanvas({
   const onTowerReady = useCallback(() => setRefitKey((v) => v + 1), []);
 
   /**
-   * The lettering's full-resolution layer (see `TextLayer` in fx.tsx):
-   * `Lettering` portals the letters into `scene`; `FX` renders the scene as
-   * its own display-res pass after the resolver and composites it — sharp
-   * glyphs over a 1/renderScale world, with the ironwork interleave
-   * restored per pixel from the pass's own depth texture.
+   * The lettering's full-resolution layer (see `TextLayer` in fx.tsx).
+   * `Lettering` portals the letters into `scene` and `Tower` portals a
+   * depth-only twin of itself in beside them. `FX` renders that scene as its
+   * own display-res pass after the resolver and composites it, so the glyphs
+   * stay sharp over a 1/renderScale world and the ironwork interleave is
+   * decided by the depth test at display resolution.
    */
   const [textLayer] = useState<TextLayer>(() => ({
     scene: new THREE.Scene(),
@@ -224,15 +232,20 @@ export function TowerCanvas({
             until `onReady` fires. */}
         <group ref={towerRef}>
           {tower && (
-            <Tower onReady={onTowerReady} mode={towerMode} beacon={beacon} />
+            <Tower
+              onReady={onTowerReady}
+              mode={towerMode}
+              beacon={beacon}
+              occluderScene={lettering ? textLayer.scene : undefined}
+              worldScale={worldScale}
+            />
           )}
         </group>
-
       </group>
 
-      {/* Outside the worldScale group on purpose: the component portals its
-          content into the text layer's own scene (where it wraps itself in
-          the same scale), so its mount point here is only a hook site. */}
+      {/* Outside the worldScale group on purpose. The component portals its
+          content into the text layer's own scene, where it wraps itself in
+          the same scale, so its mount point here is only a hook site. */}
       {lettering && (
         <Lettering
           size={letterSize}
