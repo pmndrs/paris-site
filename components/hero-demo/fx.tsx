@@ -62,17 +62,18 @@ interface SkyWithBaker {
  *
  * The scene pass renders at `1/renderScale` and a temporal resolver
  * reconstructs it — the worst possible treatment for static, high-contrast
- * glyphs, so the poster type opts out: `Lettering` portals its content into
- * `scene`, and this component renders that scene as its own pass at display
- * resolution and composites it AFTER the resolver. Occlusion survives the
- * split per pixel: the text pass records the real depth of each Glyph quad,
- * and the composite compares it against scene depth so nearer tower members
- * cut in front. `camera` is kept an unjittered twin of the scene camera here
- * (see the sync in `useFrame`). Created once by `TowerCanvas`.
+ * glyphs, so the non-intersecting poster type opts out: `Lettering` portals
+ * M/N/D/R/S into `scene`, and this component renders that scene as its own
+ * pass at display resolution and composites it AFTER the resolver. The POC P
+ * stays in the main scene instead, where it can share hardware depth and MRT
+ * writes with the tower. `camera` is kept an unjittered twin of the scene
+ * camera here (see the sync in `useFrame`). Created once by `TowerCanvas`.
  */
 export interface TextLayer {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
+  /** View-axis distance of the billboard plane, world units. */
+  planeDepth: THREE.UniformNode<"float", number>;
 }
 
 /**
@@ -434,45 +435,49 @@ export function FX({
       // `setResolutionScale`, so it never joins the reduced-res render the
       // resolver reconstructs. It is a stable, explicitly owned resource:
       // unrelated graph rebuilds reuse it, while disabling the feature frees
-      // it. Its depth attachment is sampled below to restore the tower/type
-      // interleave after the temporal resolver.
+      // it. The overlay glyph material neither tests nor writes depth, so a
+      // display-sized depth attachment here would only waste memory. (The P
+      // is not in this pass; it writes real depth in the main scene.)
       if (!textEnabled && textPassRef.current) {
         textPassRef.current.dispose();
         textPassRef.current = null;
       }
       if (textEnabled && !textPassRef.current) {
-        textPassRef.current = TSL.pass(textLayer.scene, textLayer.camera);
+        textPassRef.current = TSL.pass(textLayer.scene, textLayer.camera, {
+          depthBuffer: false,
+        });
       }
       const textTex = textPassRef.current?.getTextureNode("output");
-      const textDepth = textPassRef.current
-        ? TSL.abs(textPassRef.current.getViewZNode())
-        : null;
 
       /**
        * Composite the text pass over `base`. The pass accumulates standard
        * blending onto a transparent clear, so its RGB arrives premultiplied
        * by coverage — text adds as-is while `base` fades by the covered
-       * fraction. `vis` is the occlusion mask: a per-pixel comparison of scene
-       * depth against the Glyph quad depth (anything the scene rendered nearer
-       * — the tower, the odd near-ring roof — wins).
-       * The text is composited after bloom on purpose: wherever the glyph wins
-       * the depth comparison it occludes both the tower and its halo. Wherever
-       * the tower is nearer, `vis` is zero and the resolved tower—including
-       * bloom—passes through untouched. Alpha keeps the canvas's transparent
-       * boot window honest.
+       * fraction. `vis` is the overlay occlusion mask: the remaining five
+       * letters share one image-parallel axis plane, so anything the scene
+       * rendered nearer wins. `glow` restores the already-composited tower
+       * bloom over those overlay letters. The intersection P never reaches
+       * this helper; it has already resolved through main-scene depth/MRT.
+       * Alpha keeps the canvas's transparent boot window honest.
        */
-      const overlayText = textTex && textDepth
-          ? (
+      const overlayText = textTex
+        ? (
             baseNode: unknown,
             textRgbNode: unknown,
+            glowNode?: unknown,
           ) => {
             const base = baseNode as AnyVec4;
             const sceneDepth = TSL.abs(scenePass.getViewZNode());
-            const vis = TSL.step(textDepth, sceneDepth);
+            const vis = TSL.step(textLayer.planeDepth, sceneDepth);
             const covered = textTex.a.mul(vis);
-            const rgb = base.rgb
+            let rgb = base.rgb
               .mul(TSL.oneMinus(covered))
               .add((textRgbNode as AnyVec3).mul(vis)) as unknown as AnyVec3;
+            if (glowNode) {
+              rgb = rgb.add(
+                (glowNode as AnyVec4).rgb.mul(covered),
+              ) as unknown as AnyVec3;
+            }
             return TSL.vec4(rgb, TSL.max(base.a, covered));
           }
         : null;
@@ -482,9 +487,13 @@ export function FX({
         // full res here so the pass buys no sharpness, but routing text
         // through the same seam keeps one code path and one look.
         const base = scenePass.getTextureNode("output");
-        renderPipeline.outputNode = overlayText && textTex
+        const composited = overlayText && textTex
           ? TSL.Fn(() => overlayText(base, textTex.rgb))()
           : base;
+        // The P temporarily owns output alpha as a scene-pass mask. It has
+        // served that purpose once the pass is sampled, so never present its
+        // zero marker as canvas transparency when post processing is off.
+        renderPipeline.outputNode = TSL.vec4(composited.rgb, 1);
         // Upstream bug in `useRenderPipeline`: it assigns `outputNode` without
         // setting `needsUpdate`, and three's RenderPipeline only recompiles its
         // present-quad material when `needsUpdate` is true (three.webgpu.js
@@ -501,10 +510,22 @@ export function FX({
 
       let graph = color;
 
+      // Held, not just added: the text composite at the end re-samples the
+      // same bloom RT to lay the tower's halo back over the overlay letters.
+      let bloomNode: ReturnType<typeof bloom> | null = null;
       if (withBloom) {
         const emissive = scenePass.getTextureNode("emissive");
-        const bloomNode = bloom(emissive, 0.5, 0.5);
-        graph = graph.add(bloomNode);
+        bloomNode = bloom(emissive, 0.5, 0.5);
+        // BloomNode has no depth input: its five blur levels will otherwise
+        // spread tower light back over a foreground P even though depth kept
+        // that tower fragment out of `emissive`. The P writes output.a = 0,
+        // while ordinary scene/tower winners write 1, so mask the *blurred*
+        // result at the same winning fragment. This preserves tower bloom in
+        // the P's counter and wherever the tower is actually in front.
+        graph = TSL.vec4(
+          graph.rgb.add(bloomNode.rgb.mul(color.a)),
+          graph.a,
+        );
       }
 
       // Normals are packed into a byte texture, so they come back as colour
@@ -548,12 +569,12 @@ export function FX({
           camera as THREE.PerspectiveCamera,
         ) as unknown as { rgb: unknown };
         const albedo = scenePass.getTextureNode("diffuse");
-        graph = TSL.vec4(
-          graph.rgb
-            .mul(giPass.getAONode().r)
-            .add(albedo.rgb.mul(gi.rgb)),
-          graph.a,
-        );
+        const lit = graph.rgb
+          .mul(giPass.getAONode().r)
+          .add(albedo.rgb.mul(gi.rgb));
+        // Match GTAO's alpha opt-out: the flat P is a poster cutout, not a
+        // surface for SSGI to relight. `color.a` is its scene-pass marker.
+        graph = TSL.vec4(TSL.mix(graph.rgb, lit, color.a), graph.a);
       }
 
       if (!useSsgi) ssgiPassRef.current = null;
@@ -735,20 +756,24 @@ export function FX({
         graph = traaPass;
       }
 
+      // output.a was a render-pipeline mask for the main-scene P, not final
+      // transparency. Restore an opaque frame after all consumers have read
+      // it; this also makes the non-FSR TRAA path match FSR's opaque blit.
+      graph = TSL.vec4(graph.rgb, 1);
+
       // Full-res text over the resolved frame — the seam the whole text
       // pass exists for. Fog is applied to the type analytically: same
-      // formula, same live knobs, with the text pass depth standing in for
-      // the scene depth buffer, so the poster keeps its atmospheric seat
-      // even though it skipped the scene pass. Because this composite runs
-      // after bloom, visible glyph pixels occlude the tower's halo instead of
-      // allowing the blur to leak over foreground type.
+      // formula, same live knobs, with the overlay plane's constant depth
+      // standing in for the scene depth buffer, so the poster keeps its
+      // atmospheric seat even though it skipped the scene pass. The P is
+      // already in `graph`; this block is only M/N/D/R/S.
       if (overlayText && textTex) {
         const resolved = graph;
         graph = TSL.Fn(() => {
           let textRgb = textTex.rgb as unknown as AnyVec3;
           if (fogAlong) {
             const ray = reconstructRay();
-            const dist = (textDepth as unknown as AnyFloat).div(
+            const dist = (textLayer.planeDepth as unknown as AnyFloat).div(
               ray.cosFromAxis,
             );
             const fog = fogAlong(dist, ray.rayDirWorld);
@@ -760,7 +785,7 @@ export function FX({
               fog.fogAmount,
             ) as unknown as AnyVec3;
           }
-          return overlayText(resolved, textRgb);
+          return overlayText(resolved, textRgb, bloomNode);
         })();
       }
 

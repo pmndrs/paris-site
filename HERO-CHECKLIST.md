@@ -35,12 +35,14 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
       know" (main's retitle, merged). Confirm it reads right over the flip
       grid.
 - [ ] **FSR ghosting** — orbit at renderScale 1.5; watch tower edges for
-      smearing. Compare renderScale 1 (TRAA path, fsr off). The lettering
-      no longer rides the resolver: it renders in its own display-res pass
-      composited afterwards (occlusion compares the text pass depth against
-      the scene per pixel; the post-bloom text composite blocks the tower
-      halo wherever a letter is in front) — judge the glyph edges and the
-      occlusion boundary through the ironwork instead.
+      smearing. Compare renderScale 1 (TRAA path, fsr off). M/N/D/R/S render
+      in the display-res overlay, but the intersecting P deliberately rides
+      the main resolver so it can share hardware depth/MRT with the tower;
+      check its alpha-tested edge and disocclusion trail separately.
+- [ ] **P/tower intersection** — with bloom off, the antenna must exit above
+      the P and connected tower geometry must replace solid P pixels (counter
+      overlap alone does not pass). With bloom back on, P-front fragments stay
+      opaque while tower-front fragments and their emissive source remain.
 - [ ] **TOD sweep on `/`** — drag the slider 0→100; exposure curve through
       midday should never blow out or crush. (Curve: 40 at night → 12 at 13h.)
 - [ ] **Reduced motion** — with OS reduced-motion on: no auto-rotate, demand
