@@ -17,12 +17,7 @@ import * as THREE from "three/webgpu";
 
 import { ssao } from "./ssao-node.js";
 
-/**
- * `ssao-node.js` is vendored JS, and three's TSL types describe `uniform().value`
- * as a callable node rather than the plain number you assign to it — so the
- * documented way to configure the node doesn't typecheck against its own types.
- * Narrow it to the surface we actually touch instead of scattering `any`.
- */
+/** Runtime controls exposed by the vendored SSAO node. */
 interface SSAOPass {
   radius: { value: number };
   sliceCount: { value: number };
@@ -34,7 +29,7 @@ interface SSAOPass {
   getAONode(): { r: unknown };
 }
 
-/** Same story for three's untyped addon SSGINode. */
+/** Runtime controls exposed by the SSGI node. */
 interface SSGIPass {
   sliceCount: { value: number };
   stepCount: { value: number };
@@ -46,48 +41,27 @@ interface SSGIPass {
   getGINode(): unknown;
 }
 
-/** The slice of the FSR3 node we touch imperatively from useFrame. */
+/** FSR3 fields used for motion vectors and cleanup. */
 interface FSRNodeLike {
   upscaler: { unjitteredProjectionMatrix: THREE.Matrix4 } | null;
   dispose(): void;
 }
 
-/** The slice of the `Sky` instance the sky-fog node reads. */
+/** Sky texture used to color the fog. */
 interface SkyWithBaker {
   baker?: { texture?: THREE.CubeTexture };
 }
 
 /**
- * The full-resolution text layer.
- *
- * The scene pass renders at `1/renderScale` and a temporal resolver
- * reconstructs it, which is the worst possible treatment for static,
- * high-contrast glyphs. The poster type opts out. `Lettering` portals its
- * content into `scene`, and this component renders that scene as its own
- * pass at display resolution and composites it AFTER the resolver.
- *
- * This scene owns the poster's occlusion. `Tower` portals a depth-only twin
- * of its ironwork in beside the letters, so the interleave is settled the
- * ordinary way, by one depth test inside the pass at display resolution, and
- * the composite is a plain over. Anything expected to cross the type has to
- * be in here. The twin covers the tower and its antenna, which is everything
- * the locked composition puts the letters against. Scene geometry that is
- * not twinned, such as rooftops and trees, cannot cut a letter, so the
- * layout keeps the type above the skyline (see `LETTERS` in lettering.tsx).
- *
- * `camera` is kept an unjittered twin of the scene camera here (see the sync
- * in `useFrame`). Created once by `TowerCanvas`.
+ * Full-resolution lettering pass. Glyphs and tower depth share the scene,
+ * while the camera mirrors the main camera without temporal jitter.
  */
 export interface TextLayer {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
 }
 
-/**
- * Loose handles for TSL expressions handed between graph helpers. The
- * precise node generics vary per operator and buy nothing at this seam.
- * Only the component arity matters for the swizzles each helper touches.
- */
+/** TSL node shapes used at graph helper boundaries. */
 type AnyFloat = ReturnType<typeof TSL.float>;
 type AnyVec3 = ReturnType<typeof TSL.vec3>;
 type AnyVec4 = ReturnType<typeof TSL.vec4>;
@@ -100,96 +74,43 @@ function makeFogCameraUniforms() {
   };
 }
 
-/** The fog knob uniforms as the graph consumes them (see `useUniforms` below). */
+/** Fog uniforms consumed by the render graph. */
 type FogKnobs = Record<
   "density" | "heightFalloff" | "horizonClamp",
   THREE.UniformNode<"float", number>
 >;
 
-/**
- * Faraz's post graph, ported from `threejs-conf-pmndrs/src/FX/FX.tsx`.
- *
- * **The important change.** The original built its own `THREE.RenderPipeline`
- * and called `pass(scene, camera)` *twice* — once for an MRT of
- * output/normal/velocity, and again for an MRT of output/emissive/alpha —
- * because it needed emissive on its own attachment. Two passes over the same
- * scene means the entire city, tower and all, was rasterised twice per frame on
- * top of the shadow pass. With 10k blocks and 20k trees that was the single
- * largest cost in the demo.
- *
- * MRT exists precisely so you don't have to do that. There is now one pass with
- * one MRT carrying output + emissive + normal + velocity, and alpha read off
- * `output.a`. Identical inputs, half the geometry work.
- *
- * Structurally this also moves off a hand-rolled pipeline onto v10's
- * `useRenderPipeline`, which owns the scenePass and its sizing (so the manual
- * resize listener is gone too). That matters beyond tidiness: it is the seam
- * where `@pmndrs/sky`'s haze and the FSR3 upscale node compose into the same
- * graph at Stages 1 and 2, instead of three libraries fighting over
- * `outputNode`.
- */
+/** Post-processing options for the tower scene render graph. */
 export interface FXOptions {
   enabled?: boolean;
   ao?: boolean;
   bloom?: boolean;
-  /** Composite `@pmndrs/sky`'s aerial-perspective haze into this graph. */
+  /** Adds sky aerial perspective to the graph. */
   haze?: boolean;
   hazeStrength?: number;
   hazePolicy?: string;
-  /**
-   * Sky-colored exponential height fog — the cheap stand-in for aerial
-   * perspective. Same density math as classic height fog (analytic
-   * exponential falloff with distance and altitude), but the inscatter color
-   * is the **baked sky cube sampled along the view ray** instead of a
-   * constant — so distant geometry fades toward whatever the sky actually
-   * looks like behind it (sun-side glow, horizon gradient), not a single
-   * hue. Costs one cube sample + a few ALU per pixel and, unlike real haze,
-   * needs **no per-frame AP LUT update**: the cube is already re-baked only
-   * when the sun/turbidity change. What it can't do vs. AP: per-channel
-   * transmittance (distant objects veil but never color-shift through the
-   * atmosphere). Density/height are live uniforms; the toggle rebuilds.
-   */
+  /** Adds exponential height fog colored by the baked sky cube. */
   skyFog?: boolean;
-  /** Fog extinction per km of world units (world units ≈ metres at worldScale 5). */
+  /** Fog extinction per kilometer of world units. */
   skyFogDensity?: number;
-  /** Altitude falloff scale of the fog layer, in world units (~metres). */
+  /** Altitude falloff scale in world units. */
   skyFogHeight?: number;
-  /**
-   * Clamp the cube-color lookup to just above the horizon for downward
-   * rays. The baked cube is black below the horizon, so without this,
-   * ground fog fades geometry toward black and reads as no fog. Off shows
-   * the raw cube sample — useful with `mirrorBelowHorizon`, or for
-   * comparing against the upstream haze behavior.
-   */
+  /** Clamps downward sky samples to the illuminated horizon. */
   skyFogHorizonClamp?: boolean;
-  /**
-   * Stage 2: FSR3 (`@pmndrs/upscaler`) as the **sole** temporal resolver.
-   * Replaces TRAA — two temporal resolvers ghost, so they never stack; TRAA
-   * runs only when `!fsr`. The scene pass renders at `1/renderScale`
-   * resolution and FSR3 reconstructs to display res (jitter on: the pass
-   * renders in-graph under the node, so the sub-pixel offsets land on it
-   * for free).
-   */
+  /** Uses FSR3 as the temporal resolver. TRAA runs when disabled. */
   fsr?: boolean;
   /** FSR3 upscale ratio (1 = native AA, 1.5 = Quality, 1.7 = Balanced). */
   renderScale?: number;
-  /**
-   * Stage 3: three's SSGINode for GI + AO, replacing the vendored GTAO
-   * (which becomes redundant — SSGI computes AO as a byproduct). Per the
-   * fsr3 repo's GPU-verified examples (06/09): `useTemporalFiltering` stays
-   * **off** — its per-frame pattern rotation defeats FSR3's variance clip and
-   * ghost-streaks off moving silhouettes — and the GI term goes through
-   * `DenoiseNode`, with FSR3 converging the residual noise.
-   */
+  /** Uses spatially denoised SSGI for indirect light and ambient occlusion. */
   ssgi?: boolean;
   ssgiIntensity?: number;
   ssgiAoIntensity?: number;
   ssgiSlices?: number;
   ssgiSteps?: number;
   ssgiRadius?: number;
-  /** The poster type's dedicated full-res pass (see `TextLayer`). */
+  /** Full-resolution lettering pass. */
   textLayer: TextLayer;
-  /** Whether the full-resolution text pass belongs in the render graph. */
+  /** Includes the lettering pass in the graph. */
   textEnabled?: boolean;
 }
 
@@ -215,39 +136,23 @@ export function FX({
   textLayer,
   textEnabled = true,
 }: FXOptions) {
-  // Null outside a `<Sky>` provider, which is exactly the sky-disabled case.
+  // The sky is null when no Sky provider is mounted.
   const sky = useSky();
 
   const useFsr = fsr;
   const useSsgi = withSSGI;
-  // SSGI computes AO as a byproduct, so the standalone GTAO is redundant
-  // under it and drops out.
+  // SSGI provides its own ambient occlusion.
   const useGtao = ao && !useSsgi;
   const useSkyFog = skyFog && Boolean(sky);
 
-  /**
-   * Latch for `velocity.setProjectionMatrix(unjitteredProjectionMatrix)`.
-   *
-   * FSR3 jitters the camera projection before the pipeline renders, but motion
-   * vectors must be computed **without** jitter or the sub-pixel offset reads
-   * as motion and the resolver smears. The upscaler exposes its unjittered
-   * matrix for exactly this; three's `velocity` is a module-level singleton, so
-   * this is bound once when the node's internal upscaler exists (it is null
-   * until first `setup`), and unbound when FSR turns off so TRAA's velocities
-   * go back to matching the actual (unjittered) projection.
-   */
+  /** Tracks the unjittered projection used for FSR3 motion vectors. */
   const fsrNodeRef = useRef<FSRNodeLike | null>(null);
   const velocityBoundRef = useRef(false);
 
-  /**
-   * One owned pass for the lifetime of this FX instance. Pipeline rebuilds
-   * reuse it instead of allocating another display-sized render target. The
-   * feature-off path and unmount release it explicitly.
-   */
+  /** Lettering pass reused across render graph rebuilds. */
   const textPassRef = useRef<ReturnType<typeof TSL.pass> | null>(null);
 
-  // Unmount, and StrictMode remount, would otherwise strand the owned GPU
-  // resources. See the FSR dispose in the pipeline callback.
+  // Release GPU resources owned by this effect.
   useEffect(() => {
     return () => {
       fsrNodeRef.current?.dispose();
@@ -257,49 +162,21 @@ export function FX({
     };
   }, []);
 
-  /**
-   * The built SSGI pass, held so the Leva sliders write straight into its
-   * uniforms — sliceCount/stepCount/radius/intensities are all runtime
-   * uniforms in SSGINode (read via `.toConst()`, which is a shader-side
-   * `let`, not a bake), so tuning them costs nothing. Only the on/off
-   * toggle changes the graph shape and pays a rebuild.
-   */
+  /** Active SSGI pass whose tuning values are runtime uniforms. */
   const ssgiPassRef = useRef<SSGIPass | null>(null);
 
-  /**
-   * Sky-fog uniforms, both kinds registered in fiber's global uniform store —
-   * scoped, because the store resolves against the *primary* canvas and the
-   * hero shares that store with the section canvases (flip-grid scopes for
-   * the same reason).
-   *
-   * The knobs go in as **raw values**: `useUniforms` creates the uniform
-   * nodes, keeps their identity stable across renders (so the graph below
-   * can close over them once), and reconciles `.value` in place whenever the
-   * props change — the manual "live knobs" effect this replaces is exactly
-   * the plumbing the hook exists to own.
-   */
+  /** Stable fog uniforms shared with the render graph. */
   const fogKnobs = useUniforms(
     {
       density: skyFogDensity,
       heightFalloff: skyFogHeight,
-      // 0/1 switch for the horizon clamp on the cube-color lookup — a
-      // uniform, not a graph branch, so the A/B toggle is free (no rebuild).
+      // Use a uniform so this toggle does not rebuild the graph.
       horizonClamp: skyFogHorizonClamp ? 1 : 0,
     },
     "heroFog",
   ) as unknown as FogKnobs;
 
-  /**
-   * The camera trio exists because TSL's `cameraWorldMatrix` etc. resolve to
-   * the camera *rendering the current pass* — in an output-node context
-   * that's the present quad's orthographic camera, not the scene camera
-   * (the same reason the sky's own haze node takes explicit camera
-   * uniforms). Refreshed per frame in `useFrame` — which is why these are
-   * built imperatively and registered **as existing nodes** (`useUniforms`
-   * adopts them as-is) instead of as raw values: per-frame data isn't the
-   * hook's to reconcile, but registering keeps them visible to HMR and to
-   * anything reading the store.
-   */
+  /** Main camera uniforms for ray reconstruction in the output pass. */
   const fogCamRef = useRef<ReturnType<typeof makeFogCameraUniforms> | null>(
     null,
   );
@@ -309,29 +186,7 @@ export function FX({
   const fogCam = fogCamRef.current;
   useUniforms(() => fogCam, "heroFogCamera");
 
-  /**
-   * Options the last *completed* pipeline build used, as a comparable key.
-   * Null until a build has run to completion.
-   *
-   * Exists because the post megashader (bloom + GTAO + haze raymarch + TRAA)
-   * takes seconds of synchronous main-thread time to compile, and every
-   * `rebuild()` now really recompiles it (see the `needsUpdate` note below).
-   * The mount-time `rebuild()` this replaced fired unconditionally — and twice
-   * under Strict Mode — so a page load paid for the compile three or four
-   * times over and froze the tab for minutes. Rebuilding only when the wanted
-   * options differ from the built ones makes mount a no-op and still covers
-   * the case the mount rebuild existed for: a first build that ran before
-   * `sky`/`scenePass` existed and bailed early (key stays null → mismatch).
-   */
-  /**
-   * The `Sky` **instance** the last build's haze node was wired to. The key
-   * below only tracks sky *truthiness* — but `<Sky>` tears down and rebuilds
-   * its instance whenever a construction-time option changes (preset,
-   * quality, cubeSize, enableAerialPerspective, apKmPerSlice), and a haze
-   * graph built against the old instance keeps sampling the old baker's
-   * disposed AP LUT: haze silently dies until something else forces a
-   * rebuild. Tracking identity closes that hole.
-   */
+  /** Sky instance and option key used by the active render graph. */
   const builtSkyRef = useRef<unknown>(null);
   const builtKeyRef = useRef<string | null>(null);
   const wantedKey = JSON.stringify([
@@ -363,26 +218,15 @@ export function FX({
     pass.aoIntensity.value = ssgiAoIntensity;
   }, [ssgiSlices, ssgiSteps, ssgiRadius, ssgiIntensity, ssgiAoIntensity]);
 
-  // Per-frame AP LUT refresh is upstream's job now: the react binding's
-  // useFrame calls `sky.updateAerialPerspective()` when `applyHaze` has been
-  // wired (`sky._hazeApplied`), which was our flagged fix — driving it here
-  // too would just pay the ~half-frame AP cost twice.
   useFrame(({ camera }) => {
-    // Sky fog reconstructs rays from the *scene* camera, which output-node
-    // TSL can't reach implicitly (see makeFogCameraUniforms).
+    // Output nodes need explicit main camera uniforms for fog rays.
     if (useSkyFog) {
       fogCam.invProj.value.copy(camera.projectionMatrixInverse);
       fogCam.camWorld.value.copy(camera.matrixWorld);
       fogCam.camPos.value.setFromMatrixPosition(camera.matrixWorld);
     }
 
-    // The text pass renders with an unjittered twin of the scene camera.
-    // Both temporal resolvers jitter the projection for sub-pixel
-    // accumulation, and the text pass has no resolver downstream, so jitter
-    // there reads as a 60fps shimmer on the one thing the split exists to
-    // hold still. Rebuilding the projection from intrinsics sidesteps
-    // whichever technique mutated the matrix. The world transform is copied
-    // whole.
+    // Keep the full-resolution text camera free of temporal jitter.
     const source = camera as THREE.PerspectiveCamera;
     if (source.isPerspectiveCamera) {
       const textCamera = textLayer.camera;
@@ -398,9 +242,7 @@ export function FX({
       textCamera.updateProjectionMatrix();
     }
 
-    // Bind/unbind the unjittered projection for motion vectors (see the ref's
-    // doc comment). `upscaler` is null until the node's first setup, so this
-    // polls until it exists — the same latch the fsr3 examples use.
+    // Bind the unjittered projection after the FSR3 upscaler initializes.
     if (useFsr) {
       const upscaler = fsrNodeRef.current?.upscaler;
       if (!velocityBoundRef.current && upscaler) {
@@ -422,33 +264,16 @@ export function FX({
   });
 
   const { rebuild } = useRenderPipeline(
-    // Main: build the effect graph and hand back an output node.
+    // Build the effect graph and return its output node.
     ({ renderPipeline, passes, camera }) => {
       if (!renderPipeline || !passes?.scenePass) return;
       const scenePass = passes.scenePass;
 
-      // Rebuilds replace the FSR node, and the replaced one holds GPU-timer
-      // query sets — on Metal those come from a device-wide pool of counter
-      // sample buffers capped at a few dozen, and each upscaler takes 8. Drop
-      // it undisposed and three or four graph toggles later CreateQuerySet
-      // fails with GPUOutOfMemoryError ("upscale-timer-N"). Dispose before
-      // building the replacement; UpscalerNode.dispose() destroys the query
-      // sets and buffers. (The rest of the replaced graph still leaks —
-      // fiber #3854 — but nothing else in it allocates query sets.)
+      // Dispose FSR3 timer queries before replacing the node.
       fsrNodeRef.current?.dispose();
       fsrNodeRef.current = null;
 
-      // The poster type's own pass, at full display resolution. It sets no
-      // `setResolutionScale`, so it never joins the reduced-res render the
-      // resolver reconstructs. The pass is a stable, explicitly owned
-      // resource: unrelated graph rebuilds reuse it, and disabling the
-      // feature frees it.
-      //
-      // Its depth attachment is where the interleave is decided. The glyph
-      // material writes each letter's authored depth, the tower's twin
-      // writes the ironwork's, and the hardware depth test cuts one against
-      // the other at display resolution (see `occluderScene` in tower.tsx).
-      // The letter fog reads the same attachment back as `textDepth`.
+      // Render glyph color and tower occlusion depth at display resolution.
       if (!textEnabled && textPassRef.current) {
         textPassRef.current.dispose();
         textPassRef.current = null;
@@ -457,29 +282,12 @@ export function FX({
         textPassRef.current = TSL.pass(textLayer.scene, textLayer.camera);
       }
       const textTex = textPassRef.current?.getTextureNode("output");
-      // What the pass wrote to depth, read back for the letter fog. That is
-      // each letter's authored depth, so a band that reads as behind the
-      // tower hazes like it. Elsewhere the value is the twin's depth or the
-      // far clear, which is harmless because fog is masked by `textTex.a`.
+      // Reuse authored glyph depth when applying fog to visible text pixels.
       const textDepth = textPassRef.current
         ? TSL.abs(textPassRef.current.getViewZNode())
         : null;
 
-      /**
-       * Composite the text pass over `base`. A plain over, because the
-       * occlusion already happened inside the pass. The pass accumulates
-       * standard blending onto a transparent clear, so its RGB arrives
-       * premultiplied by coverage: text adds as-is while `base` fades by the
-       * covered fraction. A letter the ironwork crosses has no coverage
-       * there, so the scene and its glow come through the cut untouched.
-       *
-       * A letter in front also occludes the bloom, since `base` fades by the
-       * covered fraction with nothing added back. No glow bleeds through
-       * type that sits in front of the tower. The letter is an opaque card
-       * and the halo stops at its edge, which is why the letters carry their
-       * cream warmth in their own emissive (see lettering.tsx). Alpha keeps
-       * the canvas's transparent boot window honest.
-       */
+      /** Composites premultiplied text after depth occlusion is resolved. */
       const overlayText = textTex
         ? (baseNode: unknown, textRgbNode: unknown) => {
             const base = baseNode as AnyVec4;
@@ -492,19 +300,13 @@ export function FX({
         : null;
 
       if (!enabled) {
-        // Post off still owes the poster its type. The scene renders at
-        // full res here so the pass buys no sharpness, but routing text
-        // through the same seam keeps one code path and one look.
+        // Preserve lettering when post processing is disabled.
         const base = scenePass.getTextureNode("output");
         renderPipeline.outputNode =
           overlayText && textTex
             ? TSL.Fn(() => overlayText(base, textTex.rgb))()
             : base;
-        // Upstream bug in `useRenderPipeline`: it assigns `outputNode` without
-        // setting `needsUpdate`, and three's RenderPipeline only recompiles its
-        // present-quad material when `needsUpdate` is true (three.webgpu.js
-        // RenderPipeline._update). `needsUpdate` starts true, so the FIRST graph
-        // compiles — and every later rebuild() silently renders the old one.
+        // Mark the presentation material dirty after replacing its output node.
         renderPipeline.needsUpdate = true;
         builtKeyRef.current = wantedKey;
         builtSkyRef.current = sky;
@@ -521,10 +323,7 @@ export function FX({
         graph = graph.add(bloom(emissive, 0.5, 0.5));
       }
 
-      // Normals are packed into a byte texture, so they come back as colour
-      // and have to be unpacked per sample rather than read directly. Both
-      // GTAO and SSGI `.sample()` whatever node they're handed, so the same
-      // wrapper serves either consumer.
+      // Unpack byte-encoded normals through a shared sampling node.
       const sceneNormal =
         useGtao || useSsgi
           ? TSL.sample((uv: unknown) =>
@@ -535,12 +334,7 @@ export function FX({
           : null;
 
       if (useSsgi && sceneNormal) {
-        // Stage 3. SSGI replaces GTAO: it computes AO as a byproduct, so the
-        // composite is `beauty·AO + albedo·GI` (the fsr3 examples' shape),
-        // applied over the bloom-composited graph the same way the GTAO
-        // multiply was. GI is denoised spatially; temporal filtering stays
-        // off (see FXOptions.ssgi). All of it runs at render res — under FSR
-        // that's `1/renderScale`, which is where SSGI gets cheap.
+        // Composite spatially denoised GI and AO at scene render resolution.
         const giPass = ssgi(
           color,
           depth,
@@ -575,11 +369,7 @@ export function FX({
           depth,
           sceneNormal,
           camera as THREE.PerspectiveCamera,
-          // `alphaNode` must be the *texture node*, not its alpha channel: the
-          // node does `alphaNode.sample(uv).a` internally (ssao-node.js:399), so
-          // handing it a swizzle throws "sample is not a function". Passing the
-          // colour attachment gives it the scene alpha it wants, and is what the
-          // original's separate `alpha` MRT attachment was standing in for.
+          // SSAO samples alpha from the full color texture node.
           color,
         ) as unknown as SSAOPass;
         aoPass.radius.value = 4;
@@ -594,15 +384,7 @@ export function FX({
       }
 
       if (haze && sky) {
-        // Before the temporal resolve, after the scene-space effects: haze is
-        // part of the image TRAA/FSR3 should be stabilising, not something
-        // painted over an already-resolved frame.
-        //
-        // Note this is the `useSky()` + `applyHaze` path rather than
-        // `<AutoHaze/>`, and deliberately: AutoHaze assigns
-        // `renderPipeline.outputNode` itself, which would race this callback for
-        // ownership of the same graph. Its own docs call the two mutually
-        // exclusive. Stage 2 needs this seam anyway, to slot FSR3 in last.
+        // Apply haze before temporal resolution so the resolver stabilizes it.
         graph = sky.applyHaze(graph, { scenePass, policy: hazePolicy });
       }
 
@@ -610,18 +392,7 @@ export function FX({
         ? (sky as SkyWithBaker | null)?.baker?.texture
         : undefined;
 
-      /**
-       * Sky-colored exponential height fog (see FXOptions.skyFog), split
-       * into two helpers for its two consumers: the scene fog below, which
-       * takes distance from the depth buffer, and the text composite at the
-       * end, which takes it from the text pass's depth. Ray reconstruction
-       * follows the sky's own haze node: hand-built NDC with WebGPU's
-       * flipped Y, inverse projection to a view ray, and
-       * distance = axial depth / |rayDir.z| so oblique pixels are not
-       * underfogged. The fog color is the baked sky cube sampled along the
-       * world ray. That cube is already in scene-luminance units, since the
-       * background renders it directly, so it needs no scaling.
-       */
+      /** Reconstructs a world ray and its axial depth correction. */
       const reconstructRay = () => {
         const u = TSL.uv();
         const ndc = TSL.vec2(
@@ -642,11 +413,9 @@ export function FX({
             const dist = distNode as AnyFloat;
             const rayDirWorld = rayDirWorldNode as AnyVec3;
 
-            // Analytic optical depth through σ(h) = σ₀·e^(−h/H) along the ray:
-            //   OD = σ₀ · e^(−camY/H) · dist · (1 − e^(−x)) / x,  x = dist·rayY/H
-            // with the x→0 limit handled explicitly (level rays).
+            // Integrate exponential density with a stable limit for level rays.
             const H = fogKnobs.heightFalloff;
-            const sigma = fogKnobs.density.div(1000.0); // per-km to per-world-unit
+            const sigma = fogKnobs.density.div(1000.0);
             const rayY = rayDirWorld.y;
             const x = dist.mul(rayY).div(H);
             const term = TSL.abs(x)
@@ -665,13 +434,7 @@ export function FX({
               1.0,
             );
 
-            // The baked cube is black below the horizon, so downward rays
-            // must not sample it directly or ground fog fades toward black
-            // and reads as no fog. Clamp the color lookup to just above the
-            // horizon. Near-ground inscatter is horizon light in real aerial
-            // perspective anyway, and the density math above keeps the true
-            // ray. Toggleable via the uniform for A/B against the raw sample
-            // (see FXOptions.skyFogHorizonClamp).
+            // Clamp downward color samples to the illuminated horizon.
             const sampleDir = TSL.normalize(
               TSL.vec3(
                 rayDirWorld.x,
@@ -695,8 +458,7 @@ export function FX({
           const ray = reconstructRay();
           const dist = TSL.abs(viewZ).div(ray.cosFromAxis);
           const fog = fogAlong(dist, ray.rayDirWorld);
-          // The sky renders at "infinity" and fogging it double-counts the
-          // atmosphere the bake already integrated.
+          // Exclude the sky because its baked texture already includes haze.
           const isSky = scenePass.getLinearDepthNode().greaterThan(0.999);
           const amount = isSky.select(TSL.float(0.0), fog.fogAmount);
           return TSL.vec4(TSL.mix(input.rgb, fog.skyColor, amount), input.a);
@@ -704,23 +466,7 @@ export function FX({
       }
 
       if (useFsr) {
-        // Stage 2. FSR3 is the sole temporal resolver — TRAA never stacks on
-        // top (two temporal resolvers ghost). The composited graph is pinned
-        // to the reduced render resolution with an explicit convertToTexture:
-        // upscale() would wrap it anyway, but unpinned at *full* res, and the
-        // input size is what configures the upscaler, so the pin is the
-        // authority.
-        //
-        // Pinned by **resolution scale**, not fixed pixels. This callback
-        // runs once (rebuilds only on option changes), so a fixed-size RTT
-        // goes stale the moment the window resizes — the upscaler then
-        // reconstructs an old-aspect input into the new display size and the
-        // whole frame smears. With autoResize + setResolutionScale the RTT
-        // tracks the drawing buffer every frame using the same floor()
-        // PassNode applies for setResolutionScale (so the sizes agree), and
-        // UpscalerNode.updateBefore re-configures itself whenever its input
-        // or the display size changes. Resize heals in one frame, no
-        // recompile.
+        // Scale the FSR3 input with the drawing buffer so resizing stays valid.
         const pinned = TSL.convertToTexture(graph);
         pinned.setResolutionScale(1 / renderScale);
         const fsrNode = upscale(
@@ -735,7 +481,7 @@ export function FX({
         graph = fsrNode;
       } else {
         fsrNodeRef.current = null;
-        // TRAA is the temporal resolver on the non-FSR path.
+        // Use TRAA as the temporal resolver when FSR3 is disabled.
         const traaPass = traa(
           graph,
           depth,
@@ -746,13 +492,7 @@ export function FX({
         graph = traaPass;
       }
 
-      // Full-res text over the resolved frame, the seam the whole text pass
-      // exists for. Fog is applied to the type analytically, with the same
-      // formula and the same live knobs, using the text pass's per-pixel
-      // depth in place of the scene depth buffer. That keeps the poster in
-      // the same atmosphere even though it skipped the scene pass. Bloom is
-      // part of `resolved`, and letters occlude it like everything else.
-      // See the no-glow-through-type note on `overlayText`.
+      // Apply matching fog to lettering before the final composite.
       if (overlayText && textTex) {
         const resolved = graph;
         graph = TSL.Fn(() => {
@@ -763,8 +503,7 @@ export function FX({
               ray.cosFromAxis,
             );
             const fog = fogAlong(dist, ray.rayDirWorld);
-            // Premultiplied input, so the inscatter is weighted by
-            // coverage before it replaces the letter color.
+            // Weight fog color by premultiplied glyph coverage.
             textRgb = TSL.mix(
               textRgb,
               fog.skyColor.mul(textTex.a),
@@ -776,19 +515,17 @@ export function FX({
       }
 
       renderPipeline.outputNode = graph;
-      // See the `!enabled` branch: without this, only the first-ever graph
-      // compiles and every rebuild is a silent no-op.
+      // Mark the presentation material dirty after replacing its output node.
       renderPipeline.needsUpdate = true;
       builtKeyRef.current = wantedKey;
       builtSkyRef.current = sky;
     },
-    // Setup: one MRT, every attachment the graph above needs.
+    // Configure one render pass with all required attachments.
     ({ passes }) => {
       const scenePass = passes?.scenePass;
       if (!scenePass) return;
 
-      // Under FSR the scene renders small and the resolver reconstructs to
-      // display res; that reduction is where the whole pipeline gets cheap.
+      // Render below display resolution only when FSR3 will reconstruct it.
       scenePass.setResolutionScale(useFsr ? 1 / renderScale : 1);
 
       const needsNormal = useGtao || useSsgi;
@@ -799,20 +536,14 @@ export function FX({
           ...(needsNormal
             ? { normal: TSL.packNormalToRGB(TSL.normalView) }
             : {}),
-          // Always present: every config ends in a temporal resolver (FSR3
-          // or TRAA), and both consume motion vectors.
+          // Both temporal resolvers require motion vectors.
           velocity: TSL.velocity,
-          // SSGI's composite needs unlit albedo (`albedo · GI`).
+          // SSGI requires unlit albedo for indirect lighting.
           ...(useSsgi ? { diffuse: TSL.diffuseColor } : {}),
         }),
       );
 
-      // Byte textures where float precision buys nothing: packed normals and
-      // LDR albedo. This halves memory bandwidth but does NOT reduce the
-      // maxColorAttachmentBytesPerSample cost — the WebGPU spec charges
-      // rgba8unorm attachments 8 bytes/sample, same as rgba16float, so the
-      // 5-attachment SSGI MRT costs 40 and relies on the raised
-      // `requiredLimits` on the Canvas renderer (scene.tsx).
+      // Store packed normals and low dynamic range albedo as byte textures.
       if (needsNormal) {
         scenePass.getTexture("normal").type = THREE.UnsignedByteType;
       }
@@ -822,36 +553,9 @@ export function FX({
     },
   );
 
-  /**
-   * `useRenderPipeline` runs its callbacks exactly **once**.
-   *
-   * Its layout effect gates on `callbacksRanRef`, which latches true after the
-   * first run (`@react-three/fiber/dist/webgpu/index.mjs:16020`), and only a
-   * scene/camera swap clears it. So the graph is frozen at first mount: every
-   * option below was inert after that, and if the first run bailed early —
-   * before `sky` or `scenePass` existed — `outputNode` stays the raw scene pass
-   * and there is no bloom, no AO and no haze, permanently.
-   *
-   * `rebuild()` clears the latch and re-runs. The callbacks themselves are read
-   * from refs that update every render, so the re-run picks up current props.
-   *
-   * (Each rebuild constructs fresh bloom/ssao/traa nodes and drops the previous
-   * ones without disposing — and fiber leaks the replaced scenePass too, filed
-   * upstream as react-three-fiber#3854. Acceptable for a lab panel driven by
-   * hand; it would need `dispose()` on the old graph before this pattern went
-   * anywhere near the real hero.)
-   *
-   * Guarded by `builtKeyRef` because a rebuild costs a full megashader
-   * recompile (seconds of frozen main thread) — see the ref's doc comment.
-   * On mount the layout-effect build has already run with current props, so
-   * the keys match and this is a no-op; it fires only when an option really
-   * changed, or when the initial build bailed before `sky`/`scenePass`
-   * existed (key still null).
-   */
+  /** Rebuilds the graph when structural options or sky resources change. */
   useEffect(() => {
-    // Both haze and sky fog bind resources owned by a specific Sky instance
-    // (the AP LUT and the baked cube respectively), so an instance swap
-    // invalidates either graph.
+    // Haze and fog resources are owned by a specific Sky instance.
     const skyChanged =
       (haze || skyFog) && Boolean(sky) && builtSkyRef.current !== sky;
     if (builtKeyRef.current !== wantedKey || skyChanged) rebuild();

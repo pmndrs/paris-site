@@ -6,17 +6,7 @@ import { PARIS_LATITUDE, CONFERENCE_DAY_OF_YEAR, TowerCanvas } from "./tower-can
 import type { PerfSample } from "./perf-probe";
 import type { TowerMode } from "./tower";
 
-/**
- * The Leva face of `TowerCanvas` — every prop the scene takes, as a panel.
- *
- * The scene itself lives in `tower-canvas.tsx` with the verified defaults
- * baked in; this wrapper exists so the demo page can tune all of it live.
- * The site hero consumes `TowerCanvas` directly with fixed props and never
- * sees Leva. The `debug` folder exists so a validation error or a
- * frame-time cliff can be bisected from the panel in a few seconds, instead
- * of by editing and reloading: every object and every MRT attachment has
- * its own switch.
- */
+/** Leva controls for tuning and debugging the tower scene. */
 export function HeroDemoScene({
   onSample,
 }: {
@@ -51,10 +41,9 @@ export function HeroDemoScene({
         options: ["glow", "metal", "sparkle"] as TowerMode[],
       },
       beacon: false,
-      // The PMNDRS letters stepping down the tower, PARIS-poster style.
+      // Show the poster lettering around the tower.
       lettering: true,
-      // Size is the glyph em size in world units. Spread is a pure
-      // transform. Neither touches the render pipeline.
+      // Size controls glyph em units and spread scales horizontal offsets.
       letterSize: { value: 6, min: 2.5, max: 12.5, step: 0.25 },
       letterSpread: { value: 0.8, min: 0.3, max: 1.6, step: 0.05 },
     });

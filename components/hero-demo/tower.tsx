@@ -26,27 +26,17 @@ const MODEL_URL = "/hero-demo/free__la_tour_eiffel.glb";
 
 const TOWER_MESHES = ["Object_4", "Object_5", "Object_6"] as const;
 
-/** The model transform, shared by the visible tower and its depth twin. */
+/** Transform shared by the visible tower and its depth twin. */
 const TOWER_MODEL_SCALE = 0.2;
 const TOWER_MODEL_YAW = THREE.MathUtils.degToRad(30);
 
-/**
- * Model-space floor for the occluder twin (see `occluderGeometry`). The
- * poster's lowest ink sits near city y 7, which is model y 35 at
- * TOWER_MODEL_SCALE, and nothing below that can reach a letter. Dropping it
- * halves the twin, 148k triangles to 65k, and what it drops is the dense
- * base and its four arches.
- */
+/** Model height below which tower geometry cannot overlap the lettering. */
 const OCCLUDER_MIN_Y = 30;
 
-/** Keyed by source geometry, which lives as long as the GLB cache. */
+/** Caches trimmed geometry for each source mesh. */
 const occluderCache = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>();
 
-/**
- * One mesh of the tower's depth-only twin (see `DepthTwin`). The result
- * shares the source position attribute, so it costs one GPU buffer and one
- * upload, and re-lists only the triangles that reach the letter band.
- */
+/** Builds depth geometry from triangles that can overlap the lettering. */
 function occluderGeometry(source: THREE.BufferGeometry) {
   const cached = occluderCache.get(source);
   if (cached) return cached;
@@ -68,8 +58,7 @@ function occluderGeometry(source: THREE.BufferGeometry) {
   const twin = new THREE.BufferGeometry();
   twin.setAttribute("position", position);
   twin.setIndex(kept);
-  // The shared attribute still holds every source vertex, so the source's
-  // bounds are conservative for the twin and cheaper than rescanning.
+  // Source bounds remain conservative because the position buffer is shared.
   if (!source.boundingBox) source.computeBoundingBox();
   if (!source.boundingSphere) source.computeBoundingSphere();
   twin.boundingBox = source.boundingBox?.clone() ?? null;
@@ -78,15 +67,10 @@ function occluderGeometry(source: THREE.BufferGeometry) {
   return twin;
 }
 
-/** Depth only, no color. The twin exists to lose or win the depth test. */
+/** Depth-only material for lettering occlusion. */
 const occluderMaterial = new THREE.MeshBasicNodeMaterial({ colorWrite: false });
 
-/**
- * The antenna, from a set of part geometries. One mesh per part, plus the
- * second copy of each arm that makes the crossed pair. `material` is a React
- * element rendered once per mesh. The visible antenna passes the mode's
- * material, the depth twin passes `occluderMaterial`.
- */
+/** Renders antenna parts and duplicates each arm into a crossed pair. */
 function antennaMeshes(
   parts: { kind: AntennaPart["kind"]; geometry: THREE.BufferGeometry }[],
   material: React.ReactNode,
@@ -103,13 +87,7 @@ function antennaMeshes(
   ));
 }
 
-/**
- * The tower as depth and nothing else, portalled into the poster type's
- * scene (see `occluderScene`). Ironwork plus antenna make up the whole
- * silhouette the letters can be cut by. Anything the twin leaves out cannot
- * cross the type. The antenna carries its own geometry here, so the notch it
- * cuts through a letter is exactly the iron the eye sees.
- */
+/** Renders the tower silhouette into the lettering scene as depth only. */
 function DepthTwin({
   nodes,
   summitY,
@@ -132,10 +110,7 @@ function DepthTwin({
   );
 
   return createPortal(
-    // `dispose={null}` because these geometries share the GLB's position
-    // buffers and outlive this mount, so R3F must not free them when the
-    // portal unmounts. Both wrappers mirror what the tower sits under in the
-    // main scene, which is what lands the twin exactly on it.
+    // Shared GLB buffers outlive this portal and must not be disposed here.
     <group dispose={null} scale={worldScale}>
       <group scale={TOWER_MODEL_SCALE} rotation-y={TOWER_MODEL_YAW}>
         {geometries.map((geometry, i) => (
@@ -214,20 +189,11 @@ function makeBeamNodes() {
 const BEAM_LENGTH = 600;
 const BEAM_FLARE = 36;
 
-/**
- * Antenna extension, local units (×0.2 = city units). The model's spire
- * stops at a stub finial, so the broadcast mast is built here. It reaches
- * ANTENNA_REACH above the summit, which is what carries it across the P
- * that crowns the poster and out into open sky above the letter. The
- * silhouette follows the reference photo: a collar where it crosses the
- * letter and two crossed pairs of dipole arms above it. Crossed pairs keep
- * the profile the same from every orbit angle. The mast roots
- * ANTENNA_ROOT below the summit so it grows out of the finial.
- */
+/** Antenna dimensions in unscaled tower model units. */
 const ANTENNA_REACH = 9;
 const ANTENNA_ROOT = 2;
 type AntennaPart = {
-  /** [radiusTop, radiusBottom, height] or a horizontal arm. */
+  /** Top radius, bottom radius, and length. */
   kind: "mast" | "collar" | "arms";
   y: number;
   size: [number, number, number];
@@ -240,7 +206,7 @@ const ANTENNA_PARTS: AntennaPart[] = [
   { kind: "arms", y: 6.2, size: [0.07, 0.07, 2] },
 ];
 
-/** One antenna member, anchored so y = 0 sits at the summit. */
+/** Builds an antenna member anchored at the tower summit. */
 function makeAntennaGeometry({ kind, y, size: [rt, rb, h] }: AntennaPart) {
   const g = new THREE.CylinderGeometry(rt, rb, h, kind === "arms" ? 8 : 12);
   if (kind === "mast") {
@@ -248,7 +214,7 @@ function makeAntennaGeometry({ kind, y, size: [rt, rb, h] }: AntennaPart) {
   } else if (kind === "collar") {
     g.translate(0, y, 0);
   } else {
-    // A crossed pair: the same thin cylinder laid flat both ways.
+    // Lay each arm flat before rendering it in a crossed pair.
     g.rotateZ(Math.PI / 2);
     g.translate(0, y, 0);
   }
@@ -310,14 +276,9 @@ export function Tower({
   onReady?: () => void;
   mode?: TowerMode;
   beacon?: boolean;
-  /**
-   * The poster type's own scene (fx.tsx `TextLayer`). Given one, the tower
-   * portals a depth-only twin of itself into it. The depth test between that
-   * twin and the letters is what decides which letters the ironwork crosses,
-   * per pixel, at display resolution. See `DepthTwin`.
-   */
+  /** Scene that receives the depth-only tower twin. */
   occluderScene?: THREE.Scene;
-  /** Mirrors the scene's outer scale across the portal. */
+  /** Scale shared with the main scene. */
   worldScale?: number;
 }) {
   const { nodes } = useGLTF(MODEL_URL) as unknown as {
@@ -371,8 +332,7 @@ export function Tower({
     },
   } as const satisfies Record<TowerMode, object>;
 
-  // Local-space summit height, measured from the geometry rather than
-  // hardcoded, so the beacon and antenna survive a model swap.
+  // Derive the summit height from the loaded tower geometry.
   const summitY = useMemo(() => {
     let maxY = 0;
     for (const name of TOWER_MESHES) {
@@ -384,8 +344,7 @@ export function Tower({
     return maxY;
   }, [nodes]);
 
-  // Mast, collar and dipole arms. One group per part, one material per mode.
-  // See ANTENNA_PARTS.
+  // Reuse antenna geometry across visible and depth-only renders.
   const antennaGeometries = useMemo(
     () =>
       ANTENNA_PARTS.map((part) => ({
@@ -402,8 +361,7 @@ export function Tower({
         scale={TOWER_MODEL_SCALE}
         rotation-y={TOWER_MODEL_YAW}
       >
-        {/* Keep the warm wash mounted to avoid recompiling shaders when the
-            mode changes. Zero intensity disables it outside glow mode. */}
+        {/* Keep the light mounted so mode changes do not rebuild shaders. */}
         <pointLight
           position={[0, 10, 0]}
           color="#ffb35c"
@@ -423,9 +381,7 @@ export function Tower({
           </mesh>
         ))}
 
-        {/* Same material as the body so every mode carries the mast. Glow's
-            emissive feeds the same bloom, metal stays iron. No shadow flags,
-            since nothing up there receives one and the sun never reads it. */}
+        {/* Match the antenna material to the active tower mode. */}
         <group position={[0, summitY, 0]}>
           {antennaMeshes(
             antennaGeometries,
