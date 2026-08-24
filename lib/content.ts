@@ -3,7 +3,7 @@
  * Lifted from the `renderVals()` block of the original design doc.
  */
 
-export const REGISTER_URL = "https://threejs.paris/";
+export const REGISTER_URL = "https://threejs.paris/workshop";
 
 export const SECTIONS = [
   { id: "overview", label: "Overview" },
