@@ -25,6 +25,7 @@ import {
   PARIS_CITY_DEFAULTS,
 } from "./paris-defaults";
 import { PerfProbe, type PerfSample } from "./perf-probe";
+import { ReadyProbe } from "./ready-probe";
 import { Stars } from "./stars";
 import { Terrain } from "./terrain";
 import { Tower, type TowerMode } from "./tower";
@@ -148,6 +149,8 @@ export interface TowerCanvasProps {
   intro?: boolean;
   /** Fires when the in-scene lettering is far enough along to reveal the UI. */
   onUiReveal?: () => void;
+  /** Fires once assets have resolved and the first frames have rendered. */
+  onFirstFrames?: () => void;
 }
 
 export function TowerCanvas({
@@ -220,6 +223,7 @@ export function TowerCanvas({
   children,
   intro = false,
   onUiReveal,
+  onFirstFrames,
 }: TowerCanvasProps) {
   const towerRef = useRef<THREE.Group>(null);
   const introClock = useRef(intro ? 0 : INTRO_COMPLETE);
@@ -270,6 +274,8 @@ export function TowerCanvas({
         enabled={intro}
         onUiReveal={onUiReveal}
       />
+
+      {onFirstFrames && <ReadyProbe onReady={onFirstFrames} />}
 
       {/* Stars use their own dome radius and render target pixel size. */}
       {stars && (

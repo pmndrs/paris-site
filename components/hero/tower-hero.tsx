@@ -9,6 +9,7 @@ import {
   PARIS_HOMEPAGE_CITY_DEFAULTS,
 } from "@/components/hero-demo/paris-defaults";
 import { TowerCanvas } from "@/components/hero-demo/tower-canvas";
+import { markHeroReady } from "@/lib/hero-ready";
 
 /** This canvas's id, which is also the id of the render job r3f registers. */
 const PRIMARY = "main";
@@ -45,6 +46,27 @@ function useIdleWhenHidden(paused: boolean) {
       if (scheduler.getJobIds().includes(PRIMARY)) scheduler.resumeJob(PRIMARY);
     };
   }, [paused, scheduler]);
+}
+
+/** The design doc's tower plate, shown when WebGPU is unavailable. */
+function FallbackPoster() {
+  // No canvas means no frames — release the loading screen at once.
+  useEffect(() => markHeroReady(), []);
+
+  return (
+    <div
+      className="absolute left-1/2 -translate-x-1/2"
+      style={{
+        top: "clamp(40px, 7vh, 80px)",
+        width: "min(430px, 74vw)",
+        height: "min(660px, 64vh)",
+        backgroundImage: "url(/concept/tower-cutout.png)",
+        backgroundSize: "contain",
+        backgroundPosition: "center bottom",
+        backgroundRepeat: "no-repeat",
+      }}
+    />
+  );
 }
 
 /**
@@ -96,23 +118,12 @@ export function TowerHero({
       frameloop={reducedMotion ? "demand" : "always"}
       intro={!reducedMotion}
       onUiReveal={onUiReveal}
+      // Frees the site-wide loading screen once the scene actually presents.
+      onFirstFrames={markHeroReady}
       canvasStyle={{ pointerEvents: "none" }}
       // No WebGPU: the design doc's original tower plate, placed to match the
       // 3D framing, so the hero still shows a tower.
-      fallback={
-        <div
-          className="absolute left-1/2 -translate-x-1/2"
-          style={{
-            top: "clamp(40px, 7vh, 80px)",
-            width: "min(430px, 74vw)",
-            height: "min(660px, 64vh)",
-            backgroundImage: "url(/concept/tower-cutout.png)",
-            backgroundSize: "contain",
-            backgroundPosition: "center bottom",
-            backgroundRepeat: "no-repeat",
-          }}
-        />
-      }
+      fallback={<FallbackPoster />}
     >
       <DepthAttachmentSync />
     </TowerCanvas>
