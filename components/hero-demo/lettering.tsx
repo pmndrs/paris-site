@@ -2,13 +2,15 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Billboard } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber/webgpu";
+import { createPortal, useFrame } from "@react-three/fiber/webgpu";
 import { Text, TextGroup, useFont } from "@pmndrs/glyph/react";
 import { defineTextMaterial } from "@pmndrs/glyph/three";
 import { msdf } from "@pmndrs/glyph/three/msdf";
 import type { Text as TextObject } from "@pmndrs/glyph/three";
 import * as THREE from "three/webgpu";
-import { lights, mrt, output, vec3, vec4 } from "three/tsl";
+import { lights, vec3 } from "three/tsl";
+
+import type { TextLayer } from "./fx";
 
 /**
  * The PMNDRS lettering, restored from Faraz's `Text.tsx` — specifically the
@@ -19,7 +21,15 @@ import { lights, mrt, output, vec3, vec4 } from "three/tsl";
  * Rendered with `@pmndrs/glyph` (MSDF technique) rather than extruded
  * TextGeometry: the letters billboard to the camera anyway, so the 0.12-unit
  * extrusion never read as depth, and MSDF stays crisp at any distance the
- * orbit reaches. All six letters batch into one draw through the TextGroup.
+ * orbit reaches. All six letters batch into one draw through the TextGroup —
+ * which renders in the text layer's own full-resolution pass (see `TextLayer`
+ * in fx.tsx), composited after the temporal resolver so the glyphs skip the
+ * reduced-res render and its reconstruction entirely. The ironwork
+ * interleave survives the split: every letter sits at z = 0 inside one
+ * Billboard, i.e. on a single image-parallel plane through the tower's
+ * axis, so the composite re-occludes them with one depth compare — tower
+ * members nearer than the axis plane cut in front, members behind don't,
+ * exactly as the in-scene depth test read.
  *
  * The font GLB is baked offline from the same Geist SemiBold the DOM uses:
  *
@@ -37,37 +47,26 @@ const FONT_REQUEST = {
 } as const;
 
 /**
- * Not glyph's stock material, for two pipeline reasons and one look reason.
+ * The dedicated text pass frees this material to be what glyph intended: a
+ * blended transparent quad with the MSDF's shader-side edge coverage in
+ * `opacity` — real antialiasing at display resolution. The old in-scene
+ * version had to be an alpha-tested cutout writing depth and a merged MRT
+ * (a blended quad stomps the scene pass's non-color attachments); the text
+ * pass has a single color target and no depth story of its own, so the
+ * cutout, the MRT override, and the SSAO alpha opt-out all delete.
+ * Occlusion happens downstream, in fx.tsx's composite.
  *
- * The stock material is a blended transparent quad (`transparent: true`, no
- * depth). The FX chain renders the scene into a multi-attachment MRT
- * (output + emissive + normal + velocity), and a blended quad stomps the
- * non-color attachments across its whole rectangle — on screen that read as
- * a ghostly depth-like box over every letter that crossed the tower glow.
- * An alpha-tested cutout discards everything outside the glyph outline
- * instead, so the letters write depth and MRT exactly like the opaque
- * TextGeometry meshes they replace.
- *
- * The `output` alpha override opts the letters out of GTAO: the vendored
- * SSAO node reads the scene alpha attachment and both skips occluders and
- * fades occlusion where alpha is below its threshold (the same channel the
- * original demo's dedicated `alpha` attachment fed). Without it the flat
- * billboarded fill picks up AO speckle from whatever depth surrounds the
- * tower. The material MRT merges over the pass MRT, so emissive, normal,
- * and velocity still flow.
- *
- * And it is a standard (lit) material rather than basic white: the letters
- * take the dusk sky IBL and the tower's warm glow, so they sit in the scene
- * instead of floating over it. Glyph's quad geometry ships no normal
- * attribute, so the camera-facing normal every billboard implies is
- * declared explicitly.
+ * Still a standard (lit) material rather than basic white: the letters
+ * take the dusk sky IBL (mirrored onto the text layer's scene each frame)
+ * and the tower's warm glow, so they sit in the scene instead of floating
+ * over it. Glyph's quad geometry ships no normal attribute, so the
+ * camera-facing normal every billboard implies is declared explicitly.
  *
  * The tower light arrives through a selective `lightsNode`: the scene's own
  * warm wash sits at the tower base and dies off long before the upper
  * letters, so the component mounts a dedicated point light at mid-tower and
  * scopes it to the letters alone — the analytic list replaces scene lights
- * for this material only, the environment IBL still merges in, and the
- * verified scene lighting is untouched.
+ * for this material only, and the environment IBL still merges in.
  */
 function createLetterMaterial(towerGlow: THREE.PointLight) {
   return defineTextMaterial((context) => {
@@ -75,11 +74,12 @@ function createLetterMaterial(towerGlow: THREE.PointLight) {
       side: THREE.DoubleSide,
       roughness: 0.85,
       metalness: 0,
+      transparent: true,
+      depthWrite: false,
     });
     material.positionNode = context.position;
     material.colorNode = context.shader.color;
     material.opacityNode = context.shader.opacity;
-    material.alphaTest = 0.5;
     material.normalNode = vec3(0, 0, 1);
     material.lightsNode = lights([towerGlow]);
     // Sky response above physical so the dusk gradient clearly reads on
@@ -87,11 +87,9 @@ function createLetterMaterial(towerGlow: THREE.PointLight) {
     material.envMapIntensity = 2;
     // A whisper of self-glow so the letters never fall to pure silhouette
     // on the dark side of the orbit — kept subtle so the sky and tower
-    // lighting carry the shading (0.6 here reads as flat unlit white). It
-    // flows into the pass's emissive attachment, so bloom lends the
-    // letters a faint halo.
+    // lighting carry the shading. (The halo the scene's bloom used to lend
+    // is re-applied in the composite, from the tower's own glow.)
     material.emissiveNode = context.shader.color.mul(0.1);
-    material.mrtNode = mrt({ output: vec4(output.rgb, 0) });
     return material;
   });
 }
@@ -125,9 +123,23 @@ export function Lettering({
   size = 6,
   /** Multiplier on the authored x offsets — <1 hugs the tower, >1 spreads. */
   spread = 0.8,
+  /**
+   * Metres per scene unit, mirrored from the canvas's `worldScale` group.
+   * The portal wraps the letters in the same scale so the authored layout
+   * keeps meaning city units.
+   */
+  worldScale = 1,
+  /**
+   * The full-res layer this component renders into (see `TextLayer` in
+   * fx.tsx): content portals into its scene, and the frame callback writes
+   * the letters' shared plane depth for the composite's occlusion and fog.
+   */
+  textLayer,
 }: {
   size?: number;
   spread?: number;
+  worldScale?: number;
+  textLayer: TextLayer;
 }) {
   const geist = useFont(FONT_REQUEST);
 
@@ -163,8 +175,30 @@ export function Lettering({
     if (measured) setBaselineEm(measured.firstBaseline / size);
   });
 
-  return (
-    <>
+  const forward = useMemo(() => new THREE.Vector3(), []);
+  useFrame((state) => {
+    // The composite's occlusion/fog depth. All six letters share one
+    // image-parallel plane through the tower's axis (the Billboard pivots
+    // on the scene origin and every letter sits at z = 0), so a single
+    // view-axis distance — camera to that axis plane — serves the whole
+    // group, and the ironwork interleave comes back through one compare.
+    state.camera.getWorldDirection(forward);
+    const depth = -forward.dot(state.camera.position);
+    if (depth > 0) textLayer.planeDepth.value = depth;
+
+    // The text scene renders in its own pass, so the sky's IBL has to be
+    // mirrored onto it — reference assignments, free when unchanged.
+    textLayer.scene.environment = state.scene.environment;
+    textLayer.scene.environmentIntensity = state.scene.environmentIntensity;
+    textLayer.scene.environmentRotation.copy(state.scene.environmentRotation);
+  });
+
+  // Everything renders in the text layer's scene — its own full-res pass,
+  // composited after the resolver (fx.tsx). The portal wraps the content in
+  // the same worldScale the main scene applies, so the authored layout
+  // keeps meaning city units.
+  return createPortal(
+    <group scale={worldScale}>
       <primitive object={towerGlow} position={[0, 11, 0]} />
       <Billboard>
         <TextGroup
@@ -190,6 +224,7 @@ export function Lettering({
         ))}
         </TextGroup>
       </Billboard>
-    </>
+    </group>,
+    textLayer.scene,
   );
 }

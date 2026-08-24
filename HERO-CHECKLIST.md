@@ -34,8 +34,13 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
 - [ ] **Why section** — now titled "WebGPU is here, behind an API you already
       know" (main's retitle, merged). Confirm it reads right over the flip
       grid.
-- [ ] **FSR ghosting** — orbit at renderScale 1.5; watch tower edges and the
-      lettering for smearing. Compare renderScale 1 (TRAA path, fsr off).
+- [ ] **FSR ghosting** — orbit at renderScale 1.5; watch tower edges for
+      smearing. Compare renderScale 1 (TRAA path, fsr off). The lettering
+      no longer rides the resolver: it renders in its own display-res pass
+      composited afterwards (occlusion is one depth compare against the
+      letters' shared axis plane; the tower's bloom is laid back over
+      them) — judge the glyph edges and the occlusion boundary through the
+      ironwork instead.
 - [ ] **TOD sweep on `/`** — drag the slider 0→100; exposure curve through
       midday should never blow out or crush. (Curve: 40 at night → 12 at 13h.)
 - [ ] **Reduced motion** — with OS reduced-motion on: no auto-rotate, demand
