@@ -252,7 +252,7 @@ export function TimeDial({
         setValue(jump ?? current + (step ?? 0));
       }}
       className={cn(
-        "relative isolate size-14 shrink-0 cursor-pointer touch-none rounded-full border border-white/25 bg-white/5 select-none",
+        "relative isolate size-[72px] shrink-0 cursor-pointer touch-none rounded-full border border-white/25 bg-white/5 select-none sm:size-20",
         "transition-colors hover:border-white/50 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none",
         className,
       )}
@@ -314,11 +314,11 @@ export function TimeDial({
           willChange: "transform",
         }}
       >
-        <div className="absolute top-[4px] left-1/2 h-[7px] w-[2px] -translate-x-1/2 rounded-full bg-white" />
+        <div className="absolute top-[6px] left-1/2 h-[10px] w-[2px] -translate-x-1/2 rounded-full bg-white sm:top-[7px] sm:h-[11px] sm:w-[3px]" />
       </div>
 
       <Icon
-        className="pointer-events-none absolute top-1/2 left-1/2 size-4 -translate-x-1/2 -translate-y-1/2 text-white/80"
+        className="pointer-events-none absolute top-1/2 left-1/2 size-5 -translate-x-1/2 -translate-y-1/2 text-white/80 sm:size-6"
         strokeWidth={1.75}
         aria-hidden
       />

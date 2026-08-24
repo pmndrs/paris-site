@@ -9,6 +9,8 @@ import {
   PARIS_HOMEPAGE_CITY_DEFAULTS,
 } from "@/components/hero-demo/paris-defaults";
 import { TowerCanvas } from "@/components/hero-demo/tower-canvas";
+import { heroGate } from "@/lib/hero-gate";
+import { useWebGPU } from "@/lib/use-webgpu";
 
 /** This canvas's id, which is also the id of the render job r3f registers. */
 const PRIMARY = "main";
@@ -47,6 +49,24 @@ function useIdleWhenHidden(paused: boolean) {
   }, [paused, scheduler]);
 }
 
+/** Static fallback shown when WebGPU is unavailable. */
+function FallbackPoster() {
+  return (
+    <div
+      className="absolute left-1/2 -translate-x-1/2"
+      style={{
+        top: "clamp(40px, 7vh, 80px)",
+        width: "min(430px, 74vw)",
+        height: "min(660px, 64vh)",
+        backgroundImage: "url(/concept/tower-cutout.png)",
+        backgroundSize: "contain",
+        backgroundPosition: "center bottom",
+        backgroundRepeat: "no-repeat",
+      }}
+    />
+  );
+}
+
 /**
  * The real hero: the verified `TowerCanvas` (FSR3 + bloom + sky fog, dusk at
  * Paris solar position, PMNDRS lettering in-scene) as the site's primary
@@ -73,6 +93,30 @@ export function TowerHero({
   onUiReveal?: () => void;
 }) {
   useIdleWhenHidden(paused);
+  const support = useWebGPU();
+
+  useEffect(() => {
+    if (support !== "no") return;
+    // Canvas always mounts its fallback. Capability detection avoids
+    // bypassing the gate after a successful WebGPU boot.
+    heroGate.bypass();
+  }, [support]);
+
+  useEffect(() => {
+    const syncUi = () => {
+      const state = heroGate.getState();
+      if (state === "revealing-final" || state === "settled") {
+        onUiReveal?.();
+      }
+    };
+
+    const unsubscribe = heroGate.subscribe(syncUi);
+    syncUi();
+    return unsubscribe;
+  }, [onUiReveal]);
+
+  if (support === "checking") return null;
+  if (support === "no") return <FallbackPoster />;
 
   // Slider fraction → solar hours for the sky.
   const hours = (value / 100) * 24;
@@ -96,23 +140,11 @@ export function TowerHero({
       frameloop={reducedMotion ? "demand" : "always"}
       intro={!reducedMotion}
       onUiReveal={onUiReveal}
+      gate={heroGate}
       canvasStyle={{ pointerEvents: "none" }}
       // No WebGPU: the design doc's original tower plate, placed to match the
       // 3D framing, so the hero still shows a tower.
-      fallback={
-        <div
-          className="absolute left-1/2 -translate-x-1/2"
-          style={{
-            top: "clamp(40px, 7vh, 80px)",
-            width: "min(430px, 74vw)",
-            height: "min(660px, 64vh)",
-            backgroundImage: "url(/concept/tower-cutout.png)",
-            backgroundSize: "contain",
-            backgroundPosition: "center bottom",
-            backgroundRepeat: "no-repeat",
-          }}
-        />
-      }
+      fallback={<FallbackPoster />}
     >
       <DepthAttachmentSync />
     </TowerCanvas>

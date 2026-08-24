@@ -1,4 +1,5 @@
 import { Hero } from "@/components/hero/hero";
+import { LoadingScreen } from "@/components/loading-screen";
 import { Closer } from "@/components/sections/closer";
 import { Faq } from "@/components/sections/faq";
 import { Outcomes } from "@/components/sections/outcomes";
@@ -13,6 +14,7 @@ import { ConnectorsCanvas } from "@/components/three/scenes";
 export default function Page() {
   return (
     <>
+      <LoadingScreen />
       <SiteHeader />
       <Hero />
       <main className="relative z-10 bg-background">

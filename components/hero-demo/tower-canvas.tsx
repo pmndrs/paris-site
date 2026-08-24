@@ -14,6 +14,7 @@ import { solarPosition } from "@pmndrs/sky";
 import { Sky } from "@pmndrs/sky/react";
 import * as THREE from "three/webgpu";
 
+import type { HeroGateController } from "@/lib/hero-gate";
 import { Buildings } from "./buildings";
 import { Camera, FramingTools } from "./camera";
 import { FX, type TextLayer } from "./fx";
@@ -28,6 +29,7 @@ import { PerfProbe, type PerfSample } from "./perf-probe";
 import { Stars } from "./stars";
 import { Terrain } from "./terrain";
 import { Tower, type TowerMode } from "./tower";
+import { WarmupProbe } from "./warmup-probe";
 
 /** Paris. The whole point of driving the sun from a real solar position. */
 export const PARIS_LATITUDE = 48.8566;
@@ -148,6 +150,8 @@ export interface TowerCanvasProps {
   intro?: boolean;
   /** Fires when the in-scene lettering is far enough along to reveal the UI. */
   onUiReveal?: () => void;
+  /** Coordinates first-load warmup and intro playback. */
+  gate?: HeroGateController;
 }
 
 export function TowerCanvas({
@@ -220,9 +224,11 @@ export function TowerCanvas({
   children,
   intro = false,
   onUiReveal,
+  gate,
 }: TowerCanvasProps) {
   const towerRef = useRef<THREE.Group>(null);
-  const introClock = useRef(intro ? 0 : INTRO_COMPLETE);
+  // Begin gated warmup at the final pose.
+  const introClock = useRef(intro && !gate ? 0 : INTRO_COMPLETE);
   const towerLights = towerLightLevel({ timeOfDay, latitude, dayOfYear });
   const sunLight = useMemo(() => {
     const { elevation, azimuth } = solarPosition({
@@ -268,8 +274,11 @@ export function TowerCanvas({
       <IntroClock
         clock={introClock}
         enabled={intro}
+        gate={gate}
         onUiReveal={onUiReveal}
       />
+
+      {gate && <WarmupProbe gate={gate} replayIntro={intro} />}
 
       {/* Stars use their own dome radius and render target pixel size. */}
       {stars && (
