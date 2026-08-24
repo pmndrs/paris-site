@@ -129,10 +129,13 @@ function createLetterMaterial(towerGlow: THREE.PointLight) {
  * reference does binary layers too: its P entirely behind the tip, its
  * lower letters entirely over the base.
  *
- * - P is behind, and placed as a ring around the tip: bowl centered on
- *   the axis, low enough that the dome pavilion sits inside the counter,
- *   the finial exits through the bowl's top band, and the shaft cuts the
- *   bowl's bottom — every crossing consistently tower-in-front.
+ * - P is the threaded ring around the tip, and the one letter that mixes
+ *   layers — deliberately, via `tilt` rather than an in-envelope z: its
+ *   top leans behind the tower (dome pavilion inside the counter, finial
+ *   out through the bowl's top band) and its bottom leans in front (the
+ *   bowl's lower band lies over the shaft), with a single clean crossing
+ *   at the bowl's waist instead of the per-member ambiguity an
+ *   in-envelope flat letter had.
  * - N is the second "behind" letter: the mid-tower silhouette cuts its
  *   right third, the rest reads against sky and skyline.
  * - M, D, R, S float fully in front, like the reference's lower letters.
@@ -152,8 +155,20 @@ const LETTERS: {
   char: string;
   position: [number, number, number];
   center: [number, number];
+  /**
+   * View-space lean about the letter's own horizontal axis, radians.
+   * Negative pitches the top away from the camera and the bottom toward
+   * it, so depth varies along the letter's height — which is how a letter
+   * can be behind the tower at its top and in front at its bottom in the
+   * same pose: the composite's occlusion is per-pixel depth, so the quad
+   * doesn't have to sit at one distance. Billboard-local, so the lean and
+   * its crossing point hold at every orbit and spin angle. Costs a mild
+   * vertical foreshortening (cos of the angle), which reads as poster
+   * lean, not distortion.
+   */
+  tilt?: number;
 }[] = [
-  { char: "P", position: [-0.3, 21.2, -1.2], center: [0.35, 0.355] },
+  { char: "P", position: [-0.3, 21.2, 0], center: [0.35, 0.355], tilt: -0.61 },
   { char: "M", position: [3.5, 17.8, 2.5], center: [0.451, 0.355] },
   { char: "N", position: [-2.8, 14.6, -3], center: [0.374, 0.355] },
   { char: "D", position: [3.2, 11.6, 4.5], center: [0.3745, 0.355] },
@@ -241,22 +256,31 @@ export function Lettering({
           material={material}
           visible={baselineEm !== null}
         >
-        {LETTERS.map(({ char, position: [x, y, z], center: [cx, cy] }, i) => (
-          <Text
-            key={char}
-            ref={i === 0 ? probeRef : undefined}
-            font={geist}
-            style={style}
-            paint={{ color: "#ffffff" }}
-            position={[
-              x * spread - cx * size,
-              y + (baselineEm ?? 1) * size - cy * size,
-              z,
-            ]}
-          >
-            {char}
-          </Text>
-        ))}
+        {/* The wrapper group puts the rotation pivot at the letter's visual
+            center (a Text anchors at its paragraph box's top-left, so
+            rotating the Text itself would swing the letter around that
+            corner); the center-correction offsets move inside. Glyph
+            observes ancestor matrices up to the TextGroup, so the
+            wrapper's transform reaches the batch. */}
+        {LETTERS.map(
+          ({ char, position: [x, y, z], center: [cx, cy], tilt = 0 }, i) => (
+            <group key={char} position={[x * spread, y, z]} rotation-x={tilt}>
+              <Text
+                ref={i === 0 ? probeRef : undefined}
+                font={geist}
+                style={style}
+                paint={{ color: "#ffffff" }}
+                position={[
+                  -cx * size,
+                  (baselineEm ?? 1) * size - cy * size,
+                  0,
+                ]}
+              >
+                {char}
+              </Text>
+            </group>
+          ),
+        )}
         </TextGroup>
       </Billboard>
     </group>,
