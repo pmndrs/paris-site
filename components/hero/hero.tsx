@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type AnimationEvent as ReactAnimationEvent,
 } from "react";
 
 import { LogoFull } from "@/components/brand/logo";
@@ -162,21 +163,28 @@ const HeroTimeDial = memo(function HeroTimeDial({
   );
 
   return (
-    <TimeDial
-      value={value}
-      onValueChange={handleValueChange}
-      aria-label="Time of day"
+    <div
+      data-hero-ui
+      data-hero-ui-step="3"
       className="absolute right-4 bottom-6 z-40 sm:right-8"
-    />
+    >
+      <TimeDial
+        value={value}
+        onValueChange={handleValueChange}
+        aria-label="Time of day"
+      />
+    </div>
   );
 });
 
 function TimeOfDayExperience({
   reducedMotion,
   onScreen,
+  onUiReveal,
 }: {
   reducedMotion: boolean;
   onScreen: boolean;
+  onUiReveal: () => void;
 }) {
   const { value: tod, enqueue } = useTimeOfDayReplay(
     INITIAL_TIME_OF_DAY,
@@ -197,6 +205,7 @@ function TimeOfDayExperience({
           value={wrapTimeOfDay(tod)}
           reducedMotion={reducedMotion}
           paused={!onScreen}
+          onUiReveal={onUiReveal}
         />
       </div>
 
@@ -209,10 +218,42 @@ export function Hero() {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [onScreen, setOnScreen] = useState(true);
   const sectionRef = useRef<HTMLElement>(null);
+  // The scene's frame callback only flips one DOM attribute. Keeping this cue
+  // outside React avoids reconciling the entire hero during a busy GPU frame.
+  const revealUi = useCallback(() => {
+    const root = sectionRef.current;
+    if (root?.dataset.heroUiState === "out") {
+      root.dataset.heroUiState = "in";
+    }
+  }, []);
+
+  const settleUiLayers = useCallback(
+    (event: ReactAnimationEvent<HTMLElement>) => {
+      const target = event.target;
+      if (
+        event.animationName === "hero-ui-arrive" &&
+        target instanceof HTMLElement &&
+        target.dataset.heroUiStep === "3"
+      ) {
+        // Release the compositor layers after the last stagger has landed.
+        event.currentTarget.dataset.heroUiState = "settled";
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const sync = () => setReducedMotion(query.matches);
+    const sync = () => {
+      setReducedMotion(query.matches);
+      // The canvas replays when motion is re-enabled; reset the DOM cue too.
+      if (sectionRef.current) {
+        const nextState = query.matches ? "settled" : "out";
+        if (sectionRef.current.dataset.heroUiState !== nextState) {
+          sectionRef.current.dataset.heroUiState = nextState;
+        }
+      }
+    };
     sync();
     query.addEventListener("change", sync);
     return () => query.removeEventListener("change", sync);
@@ -235,15 +276,22 @@ export function Hero() {
     <section
       ref={sectionRef}
       id="top"
+      data-hero-ui-state="out"
+      onAnimationEnd={settleUiLayers}
       className="relative flex h-svh min-h-[700px] flex-col overflow-hidden bg-background"
     >
       <TimeOfDayExperience
         reducedMotion={reducedMotion}
         onScreen={onScreen}
+        onUiReveal={revealUi}
       />
 
       {/* z-30 — top bar */}
-      <div className="relative z-30 flex items-center justify-between gap-5 px-4 py-5 font-mono text-[11px] font-medium tracking-[0.11em] text-white uppercase sm:px-8">
+      <div
+        data-hero-ui
+        data-hero-ui-step="0"
+        className="relative z-30 flex items-center justify-between gap-5 px-4 py-5 font-mono text-[11px] font-medium tracking-[0.11em] text-white uppercase sm:px-8"
+      >
         <div className="flex min-w-0 items-center gap-4">
           <LogoFull color="currentColor" className="h-4 w-auto shrink-0" />
           <span className="hidden truncate opacity-50 sm:inline">
@@ -263,21 +311,33 @@ export function Hero() {
 
       <div className="relative z-30 mt-auto px-4 pb-6 sm:px-8">
         <div className="max-w-2xl">
-          <div className="mb-3.5 font-mono text-[11px] font-medium tracking-[0.13em] text-white/60 uppercase">
-            {HERO.kicker}
-          </div>
-          <h1
-            className="font-semibold tracking-[-0.035em] text-white"
-            style={{ fontSize: "clamp(34px, 5.4vw, 58px)", lineHeight: 1.02 }}
+          <div
+            data-hero-ui
+            data-hero-ui-step="1"
           >
-            {HERO.title[0]}
-            <br />
-            {HERO.title[1]}
-          </h1>
-          <p className="mt-4 max-w-[520px] text-[15px] leading-[1.55] text-white/70 lg:text-base">
-            {HERO.lede}
-          </p>
-          <div className="mt-5 flex flex-wrap gap-2.5">
+            <div className="mb-3.5 font-mono text-[11px] font-medium tracking-[0.13em] text-white/60 uppercase">
+              {HERO.kicker}
+            </div>
+            <h1
+              className="font-semibold tracking-[-0.035em] text-white"
+              style={{
+                fontSize: "clamp(34px, 5.4vw, 58px)",
+                lineHeight: 1.02,
+              }}
+            >
+              {HERO.title[0]}
+              <br />
+              {HERO.title[1]}
+            </h1>
+            <p className="mt-4 max-w-[520px] text-[15px] leading-[1.55] text-white/70 lg:text-base">
+              {HERO.lede}
+            </p>
+          </div>
+          <div
+            data-hero-ui
+            data-hero-ui-step="2"
+            className="mt-5 flex flex-wrap gap-2.5"
+          >
             <Button asChild size="lg">
               <a href={REGISTER_URL}>Register on threejs.paris</a>
             </Button>

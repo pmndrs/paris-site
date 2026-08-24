@@ -1,6 +1,19 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState, type RefObject } from "react";
+import { useFrame, useLocalNodes } from "@react-three/fiber/webgpu";
+import {
+  attribute,
+  cos,
+  exp,
+  float,
+  Fn,
+  If,
+  positionLocal,
+  sin,
+  uniform,
+  vec3,
+} from "three/tsl";
 import * as THREE from "three/webgpu";
 
 import {
@@ -8,7 +21,10 @@ import {
   inPark,
   inRiverCorridor,
   inRiverWater,
+  inTowerClearing,
+  TOWER_CLEARING_RADIUS,
 } from "./geography";
+import { INTRO_COMPLETE } from "./intro";
 
 /**
  * Faraz's block city, ported from `threejs-conf-pmndrs/src/Buildings.tsx`.
@@ -74,7 +90,92 @@ type BuildingsProps = {
    * before.
    */
   haussmann?: boolean;
+  /** Render-time clock shared with the tower lettering. */
+  introClock: RefObject<number>;
 };
+
+/**
+ * A radial delay makes the city grow from the tower toward the horizon. The
+ * coordinate hash breaks the wavefront up without consuming the scatter RNG,
+ * so adding the animation cannot reshuffle the authored city.
+ */
+function buildDelay(x: number, z: number, outerRadius: number, phase = 0) {
+  const radial = THREE.MathUtils.clamp(Math.hypot(x, z) / outerRadius, 0, 1);
+  const jitter =
+    Math.sin(x * 12.9898 + z * 78.233) * 43758.5453 -
+    Math.floor(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453);
+  return 0.35 + radial * 1.55 + jitter * 0.24 + phase;
+}
+
+/** GPU-side build motion; every instance reads its own radial delay. */
+function useBuildPosition(
+  clock: RefObject<number>,
+  ground: number,
+  motion: "spring" | "tree" = "spring",
+) {
+  const [uTime] = useState(() => uniform(clock.current));
+
+  useFrame(() => {
+    if (uTime.value !== clock.current) uTime.value = clock.current;
+  });
+
+  return useLocalNodes(() => {
+    return {
+      positionNode: Fn(() => {
+        const verticalGrowth = float(1).toVar();
+        const lateralGrowth = float(1).toVar();
+
+        // A uniform branch leaves the steady-state scene at its original cost.
+        If(uTime.lessThan(INTRO_COMPLETE), () => {
+          const elapsed = uTime
+            .sub(attribute("introDelay", "float"))
+            .max(0);
+
+          if (motion === "tree") {
+            // Trees grow once from an effectively invisible point at their
+            // base. Monotonic smoothstep means no overshoot, recoil, or
+            // apparent trip back through the ground plane.
+            const t = elapsed.div(1.15).clamp(0, 1);
+            const eased = t.mul(t).mul(float(3).sub(t.mul(2)));
+            verticalGrowth.assign(eased.max(0.001));
+            lateralGrowth.assign(eased.max(0.001));
+          } else {
+            const frequency = 10.5;
+            const damping = 4.6;
+            const wave = cos(elapsed.mul(frequency)).add(
+              sin(elapsed.mul(frequency)).mul(damping / frequency),
+            );
+            verticalGrowth.assign(
+              float(1)
+                .sub(exp(elapsed.mul(-damping)).mul(wave))
+                .max(0.001),
+            );
+          }
+        });
+
+        if (motion === "tree") {
+          // NodeMaterial applies instanceMatrix before positionNode. Subtract
+          // the per-instance ground pivot first so scaling happens around each
+          // tree's own base instead of pulling the forest toward world zero.
+          const origin = vec3(attribute<"vec3">("introOrigin", "vec3"));
+          return vec3(
+            origin.x.add(positionLocal.x.sub(origin.x).mul(lateralGrowth)),
+            origin.y.add(positionLocal.y.sub(origin.y).mul(verticalGrowth)),
+            origin.z.add(positionLocal.z.sub(origin.z).mul(lateralGrowth)),
+          );
+        }
+
+        return vec3(
+          positionLocal.x,
+          float(ground).add(
+            positionLocal.y.sub(ground).mul(verticalGrowth),
+          ),
+          positionLocal.z,
+        );
+      })(),
+    };
+  }).positionNode;
+}
 
 export function Buildings({
   count = 300,
@@ -86,6 +187,7 @@ export function Buildings({
   river = true,
   park = true,
   haussmann = true,
+  introClock,
 }: BuildingsProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const treeRef = useRef<THREE.InstancedMesh>(null);
@@ -94,6 +196,7 @@ export function Buildings({
     const random = makeRng(CITY_SEED);
     const dummy = new THREE.Object3D();
     const matrices: THREE.Matrix4[] = [];
+    const delays: number[] = [];
 
     const spanRadius = (bias: number) => {
       const angle = random() * Math.PI * 2;
@@ -112,6 +215,7 @@ export function Buildings({
     const excluded = (x: number, z: number, radius: number) =>
       (river && inRiverCorridor(x, z)) ||
       (park && inPark(x, z, 2)) ||
+      (park && inTowerClearing(x, z, 3)) ||
       (haussmann && radius < HAUSSMANN_RADIUS);
 
     // Tall / landmark high-rises: sparse and confined to the far distance.
@@ -141,6 +245,7 @@ export function Buildings({
       dummy.rotation.y = random() * Math.PI * 2;
       dummy.updateMatrix();
       matrices.push(dummy.matrix.clone());
+      delays.push(buildDelay(x, z, outerRadius));
     }
 
     // Haussmann-style low-rise: dense carpet of small, uniform-height blocks.
@@ -167,17 +272,21 @@ export function Buildings({
       dummy.rotation.y = random() * Math.PI * 2;
       dummy.updateMatrix();
       matrices.push(dummy.matrix.clone());
+      delays.push(buildDelay(x, z, outerRadius));
     }
 
-    return matrices;
+    return { matrices, delays: new Float32Array(delays) };
   }, [count, lowRiseCount, innerRadius, outerRadius, river, park, haussmann]);
 
   const trees = useMemo(() => {
     const random = makeRng(TREE_SEED);
     const dummy = new THREE.Object3D();
     const matrices: THREE.Matrix4[] = [];
+    const delays: number[] = [];
+    const origins: number[] = [];
 
-    // Trees keep the park and the riverbanks — only the water itself rejects.
+    // Trees frame the park and riverbanks, but leave the tower's ceremonial
+    // lawn open so the city reads as a backdrop rather than a base ring.
     for (
       let i = 0, attempts = 0;
       i < treeCount && attempts < treeCount * 8;
@@ -188,7 +297,12 @@ export function Buildings({
       const radius = innerRadius + t * (outerRadius - innerRadius);
       const x = Math.cos(angle) * radius;
       const z = Math.sin(angle) * radius;
-      if (river && inRiverWater(x, z)) continue;
+      if (
+        (river && inRiverWater(x, z)) ||
+        (park && inTowerClearing(x, z, 4))
+      ) {
+        continue;
+      }
       i++;
 
       const distanceFactor =
@@ -206,15 +320,24 @@ export function Buildings({
       dummy.rotation.y = random() * Math.PI * 2;
       dummy.updateMatrix();
       matrices.push(dummy.matrix.clone());
+      delays.push(buildDelay(x, z, outerRadius, 0.38));
+      origins.push(x, 0, z);
     }
 
-    return matrices;
-  }, [treeCount, innerRadius, outerRadius, river]);
+    return {
+      matrices,
+      delays: new Float32Array(delays),
+      origins: new Float32Array(origins),
+    };
+  }, [treeCount, innerRadius, outerRadius, river, park]);
+
+  const blockPosition = useBuildPosition(introClock, -0.5);
+  const treePosition = useBuildPosition(introClock, -1, "tree");
 
   const setMatrices = (mesh: THREE.InstancedMesh | null) => {
     if (!mesh) return;
     meshRef.current = mesh;
-    instances.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
+    instances.matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
   };
@@ -222,7 +345,7 @@ export function Buildings({
   const setTreeMatrices = (mesh: THREE.InstancedMesh | null) => {
     if (!mesh) return;
     treeRef.current = mesh;
-    trees.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
+    trees.matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
   };
@@ -233,34 +356,65 @@ export function Buildings({
           rejection sampling can come up short, and unset instances would
           render as identity-matrix unit cubes at the origin. */}
       <instancedMesh
-        key={`blocks-${instances.length}`}
+        key={`blocks-${instances.matrices.length}`}
         ref={setMatrices}
-        args={[undefined, undefined, instances.length]}
+        args={[undefined, undefined, instances.matrices.length]}
         castShadow
         receiveShadow
         frustumCulled={false}
       >
-        <boxGeometry args={[1, 1, 1]} />
+        <boxGeometry args={[1, 1, 1]}>
+          <instancedBufferAttribute
+            attach="attributes-introDelay"
+            args={[instances.delays, 1]}
+          />
+        </boxGeometry>
         {/* `color` prop deliberately unused, as in the original: the materials
             are white and the near-black defaults are dead. Keeping his rendered
             look, not his intended one — Stage 1 relights this anyway. */}
-        <meshStandardMaterial color="white" roughness={0.85} metalness={0.1} />
+        <meshStandardNodeMaterial
+          color="white"
+          roughness={0.85}
+          metalness={0.1}
+          positionNode={blockPosition}
+        />
       </instancedMesh>
 
       <instancedMesh
-        key={`trees-${trees.length}`}
+        key={`trees-${trees.matrices.length}`}
         ref={setTreeMatrices}
-        args={[undefined, undefined, trees.length]}
+        args={[undefined, undefined, trees.matrices.length]}
         castShadow={treeShadows}
         receiveShadow
         frustumCulled={false}
       >
         {/* 80 triangles, against the 960 of the default sphere. */}
-        <icosahedronGeometry args={[1, 1]} />
-        <meshStandardMaterial color="white" roughness={0.95} metalness={0} />
+        <icosahedronGeometry args={[1, 1]}>
+          <instancedBufferAttribute
+            attach="attributes-introDelay"
+            args={[trees.delays, 1]}
+          />
+          <instancedBufferAttribute
+            attach="attributes-introOrigin"
+            args={[trees.origins, 3]}
+          />
+        </icosahedronGeometry>
+        <meshStandardNodeMaterial
+          color="white"
+          roughness={0.95}
+          metalness={0}
+          positionNode={treePosition}
+        />
       </instancedMesh>
 
-      {haussmann && <HaussmannRing river={river} park={park} />}
+      {haussmann && (
+        <HaussmannRing
+          river={river}
+          park={park}
+          outerRadius={outerRadius}
+          introClock={introClock}
+        />
+      )}
     </>
   );
 }
@@ -276,14 +430,26 @@ export function Buildings({
  * section matches the unit box footprint: radius √2/2 puts the corners at
  * the box corners, and the smaller top radius gives the mansard taper.
  */
-function HaussmannRing({ river, park }: { river: boolean; park: boolean }) {
+function HaussmannRing({
+  river,
+  park,
+  outerRadius,
+  introClock,
+}: {
+  river: boolean;
+  park: boolean;
+  outerRadius: number;
+  introClock: RefObject<number>;
+}) {
   const placements = useMemo(() => {
     const random = makeRng(0xc0ffee11);
     const dummy = new THREE.Object3D();
     const bodies: THREE.Matrix4[] = [];
     const roofs: THREE.Matrix4[] = [];
+    const bodyDelays: number[] = [];
+    const roofDelays: number[] = [];
 
-    const INNER = 16;
+    const INNER = park ? TOWER_CLEARING_RADIUS + 4 : 16;
     for (let ringR = INNER; ringR < HAUSSMANN_RADIUS; ringR += 9) {
       // Blocks are ~4.5 wide; a 6.5-unit arc step leaves street gaps.
       const n = Math.floor((Math.PI * 2 * ringR) / 6.5);
@@ -307,17 +473,28 @@ function HaussmannRing({ river, park }: { river: boolean; park: boolean }) {
         dummy.rotation.set(0, rotation, 0);
         dummy.updateMatrix();
         bodies.push(dummy.matrix.clone());
+        const delay = buildDelay(x, z, outerRadius);
+        bodyDelays.push(delay);
 
         dummy.position.set(x, height + roofHeight / 2, z);
         dummy.scale.set(width, roofHeight, depth);
         dummy.rotation.set(0, rotation, 0);
         dummy.updateMatrix();
         roofs.push(dummy.matrix.clone());
+        roofDelays.push(delay + 0.12);
       }
     }
 
-    return { bodies, roofs };
-  }, [river, park]);
+    return {
+      bodies,
+      roofs,
+      bodyDelays: new Float32Array(bodyDelays),
+      roofDelays: new Float32Array(roofDelays),
+    };
+  }, [river, park, outerRadius]);
+
+  const bodyPosition = useBuildPosition(introClock, -0.5);
+  const roofPosition = useBuildPosition(introClock, -0.5);
 
   const roofGeometry = useMemo(() => {
     const geometry = new THREE.CylinderGeometry(0.34, Math.SQRT1_2, 1, 4, 1);
@@ -343,8 +520,18 @@ function HaussmannRing({ river, park }: { river: boolean; park: boolean }) {
         receiveShadow
         frustumCulled={false}
       >
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color="#cfc5b4" roughness={0.9} metalness={0.05} />
+        <boxGeometry args={[1, 1, 1]}>
+          <instancedBufferAttribute
+            attach="attributes-introDelay"
+            args={[placements.bodyDelays, 1]}
+          />
+        </boxGeometry>
+        <meshStandardNodeMaterial
+          color="#cfc5b4"
+          roughness={0.9}
+          metalness={0.05}
+          positionNode={bodyPosition}
+        />
       </instancedMesh>
       <instancedMesh
         key={`hausroof-${placements.roofs.length}`}
@@ -355,11 +542,16 @@ function HaussmannRing({ river, park }: { river: boolean; park: boolean }) {
         frustumCulled={false}
         geometry={roofGeometry}
       >
-        <meshStandardMaterial
+        <instancedBufferAttribute
+          attach="geometry-attributes-introDelay"
+          args={[placements.roofDelays, 1]}
+        />
+        <meshStandardNodeMaterial
           color="#46505c"
           roughness={0.75}
           metalness={0.15}
           flatShading
+          positionNode={roofPosition}
         />
       </instancedMesh>
     </>

@@ -3,6 +3,10 @@
 import { useControls } from "leva";
 
 import { PARIS_LATITUDE, CONFERENCE_DAY_OF_YEAR, TowerCanvas } from "./tower-canvas";
+import {
+  PARIS_ATMOSPHERE_DEFAULTS,
+  PARIS_CITY_DEFAULTS,
+} from "./paris-defaults";
 import type { PerfSample } from "./perf-probe";
 import type { TowerMode } from "./tower";
 
@@ -21,17 +25,32 @@ export function HeroDemoScene({
     park,
     haussmann,
   } = useControls("city", {
-    highRiseCount: { value: 300, min: 0, max: 1000, step: 10 },
-    lowRiseCount: { value: 10000, min: 0, max: 20000, step: 500 },
-    treeCount: { value: 20000, min: 0, max: 40000, step: 1000 },
-    treeShadows: false,
+    highRiseCount: {
+      value: PARIS_CITY_DEFAULTS.highRiseCount,
+      min: 0,
+      max: 1000,
+      step: 10,
+    },
+    lowRiseCount: {
+      value: PARIS_CITY_DEFAULTS.lowRiseCount,
+      min: 0,
+      max: 20000,
+      step: 500,
+    },
+    treeCount: {
+      value: PARIS_CITY_DEFAULTS.treeCount,
+      min: 0,
+      max: 40000,
+      step: 1000,
+    },
+    treeShadows: PARIS_CITY_DEFAULTS.treeShadows,
     // Geography experiments (geography.ts owns the shapes): the Seine-ish
     // spline, the Champ-de-Mars strip, and the stylized near ring. Each
     // toggle drives both its terrain mesh and the scatter exclusion, so
     // turning one off really restores the plain cube carpet there.
-    river: true,
-    park: true,
-    haussmann: true,
+    river: PARIS_CITY_DEFAULTS.river,
+    park: PARIS_CITY_DEFAULTS.park,
+    haussmann: PARIS_CITY_DEFAULTS.haussmann,
   });
 
   const { towerMode, beacon, lettering, letterSize, letterSpread } =
@@ -66,7 +85,7 @@ export function HeroDemoScene({
     turbidity,
     mirrorBelowHorizon,
   } = useControls("sky", {
-    skyEnabled: true,
+    skyEnabled: PARIS_ATMOSPHERE_DEFAULTS.skyEnabled,
     // Hours, 0..24. Real solar position for the latitude and day below.
     timeOfDay: { value: 20.5, min: 0, max: 24, step: 0.05 },
     latitude: { value: PARIS_LATITUDE, min: -90, max: 90, step: 0.01 },
@@ -74,15 +93,29 @@ export function HeroDemoScene({
     exposure: { value: 40, min: 1, max: 200, step: 1 },
     north: { value: "+Z", options: ["+Z", "-Z", "+X", "-X"] },
     sunDisc: true,
-    turbidity: { value: 1, min: 0, max: 10, step: 0.05 },
+    turbidity: {
+      value: PARIS_ATMOSPHERE_DEFAULTS.turbidity,
+      min: 0,
+      max: 10,
+      step: 0.05,
+    },
     // Mirrors the sky's lower hemisphere for a ground-free IBL bake.
-    mirrorBelowHorizon: false,
+    mirrorBelowHorizon: PARIS_ATMOSPHERE_DEFAULTS.mirrorBelowHorizon,
   });
 
   const { preset, quality, cubeSize } = useControls("sky/rebuild", {
-    preset: { value: "earth", options: ["earth", "mars", "titan"] },
-    quality: { value: "medium", options: ["low", "medium", "high"] },
-    cubeSize: { value: 256, options: [64, 128, 256, 512] },
+    preset: {
+      value: PARIS_ATMOSPHERE_DEFAULTS.preset,
+      options: ["earth", "mars", "titan"],
+    },
+    quality: {
+      value: PARIS_ATMOSPHERE_DEFAULTS.quality,
+      options: ["low", "medium", "high"],
+    },
+    cubeSize: {
+      value: PARIS_ATMOSPHERE_DEFAULTS.cubeSize,
+      options: [64, 128, 256, 512],
+    },
   });
 
   const { haze, hazeStrength, hazePolicy, apKmPerSlice } = useControls(
@@ -91,11 +124,24 @@ export function HeroDemoScene({
       // Off by default (2026-08-10): the per-frame AP LUT update alone costs
       // roughly half the frame budget (85 → 165 fps measured with it off).
       // Sky fog below is the cheap stand-in. Re-enable once budgeted.
-      haze: false,
-      hazeStrength: { value: 1, min: 0, max: 3, step: 0.05 },
-      hazePolicy: { value: "auto", options: ["auto", "ap", "raymarch"] },
+      haze: PARIS_ATMOSPHERE_DEFAULTS.haze,
+      hazeStrength: {
+        value: PARIS_ATMOSPHERE_DEFAULTS.hazeStrength,
+        min: 0,
+        max: 3,
+        step: 0.05,
+      },
+      hazePolicy: {
+        value: PARIS_ATMOSPHERE_DEFAULTS.hazePolicy,
+        options: ["auto", "ap", "raymarch"],
+      },
       // Construction-time: 8 km × 32 slices = 256 km of AP coverage.
-      apKmPerSlice: { value: 8, min: 1, max: 32, step: 1 },
+      apKmPerSlice: {
+        value: PARIS_ATMOSPHERE_DEFAULTS.apKmPerSlice,
+        min: 1,
+        max: 32,
+        step: 1,
+      },
     },
   );
 
@@ -108,17 +154,27 @@ export function HeroDemoScene({
   const { skyFog, fogDensity, fogHeight, fogHorizonClamp } = useControls(
     "sky/fog",
     {
-      skyFog: true,
+      skyFog: PARIS_ATMOSPHERE_DEFAULTS.skyFog,
       // Extinction per km. At the default ~2 km city span, 0.3 ≈ a clearly
       // visible veil on the far edge; 1+ is heavy weather.
-      fogDensity: { value: 0.3, min: 0, max: 2, step: 0.01 },
+      fogDensity: {
+        value: PARIS_ATMOSPHERE_DEFAULTS.fogDensity,
+        min: 0,
+        max: 2,
+        step: 0.01,
+      },
       // Altitude falloff of the fog layer, in world units (~metres).
-      fogHeight: { value: 300, min: 50, max: 2000, step: 10 },
+      fogHeight: {
+        value: PARIS_ATMOSPHERE_DEFAULTS.fogHeight,
+        min: 50,
+        max: 2000,
+        step: 10,
+      },
       // The baked sky cube is black below the horizon, so downward rays
       // clamp their color lookup to the horizon band. Off = raw cube
       // sample — for A/B, and the honest mode if `mirrorBelowHorizon`
       // fills the lower hemisphere. Live uniform, toggles instantly.
-      fogHorizonClamp: true,
+      fogHorizonClamp: PARIS_ATMOSPHERE_DEFAULTS.fogHorizonClamp,
     },
   );
 

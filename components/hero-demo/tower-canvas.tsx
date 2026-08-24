@@ -15,8 +15,13 @@ import * as THREE from "three/webgpu";
 import { Buildings } from "./buildings";
 import { Camera, FramingTools } from "./camera";
 import { FX, type TextLayer } from "./fx";
+import { INTRO_COMPLETE, IntroClock } from "./intro";
 import { Lights } from "./lights";
 import { Lettering } from "./lettering";
+import {
+  PARIS_ATMOSPHERE_DEFAULTS,
+  PARIS_CITY_DEFAULTS,
+} from "./paris-defaults";
 import { PerfProbe, type PerfSample } from "./perf-probe";
 import { Terrain } from "./terrain";
 import { Tower, type TowerMode } from "./tower";
@@ -106,42 +111,46 @@ export interface TowerCanvasProps {
   fallback?: ReactNode;
   /** Additional nodes rendered inside the canvas. */
   children?: ReactNode;
+  /** Plays the staged city and PMNDRS entrance. The demo stays immediate. */
+  intro?: boolean;
+  /** Fires when the in-scene lettering is far enough along to reveal the UI. */
+  onUiReveal?: () => void;
 }
 
 export function TowerCanvas({
-  highRiseCount = 300,
-  lowRiseCount = 10000,
-  treeCount = 20000,
-  treeShadows = false,
-  river = true,
-  park = true,
-  haussmann = true,
+  highRiseCount = PARIS_CITY_DEFAULTS.highRiseCount,
+  lowRiseCount = PARIS_CITY_DEFAULTS.lowRiseCount,
+  treeCount = PARIS_CITY_DEFAULTS.treeCount,
+  treeShadows = PARIS_CITY_DEFAULTS.treeShadows,
+  river = PARIS_CITY_DEFAULTS.river,
+  park = PARIS_CITY_DEFAULTS.park,
+  haussmann = PARIS_CITY_DEFAULTS.haussmann,
   towerMode = "glow",
   beacon = false,
   lettering = true,
   letterSize = 5,
   letterSpread = 0.8,
-  skyEnabled = true,
+  skyEnabled = PARIS_ATMOSPHERE_DEFAULTS.skyEnabled,
   timeOfDay = 20.5,
   latitude = PARIS_LATITUDE,
   dayOfYear = CONFERENCE_DAY_OF_YEAR,
   exposure = 40,
   north = "+Z",
   sunDisc = true,
-  turbidity = 1,
+  turbidity = PARIS_ATMOSPHERE_DEFAULTS.turbidity,
   groundAlbedo,
-  mirrorBelowHorizon = false,
-  preset = "earth",
-  quality = "medium",
-  cubeSize = 256,
-  haze = false,
-  hazeStrength = 1,
-  hazePolicy = "auto",
-  apKmPerSlice = 8,
-  skyFog = true,
-  fogDensity = 0.3,
-  fogHeight = 300,
-  fogHorizonClamp = true,
+  mirrorBelowHorizon = PARIS_ATMOSPHERE_DEFAULTS.mirrorBelowHorizon,
+  preset = PARIS_ATMOSPHERE_DEFAULTS.preset,
+  quality = PARIS_ATMOSPHERE_DEFAULTS.quality,
+  cubeSize = PARIS_ATMOSPHERE_DEFAULTS.cubeSize,
+  haze = PARIS_ATMOSPHERE_DEFAULTS.haze,
+  hazeStrength = PARIS_ATMOSPHERE_DEFAULTS.hazeStrength,
+  hazePolicy = PARIS_ATMOSPHERE_DEFAULTS.hazePolicy,
+  apKmPerSlice = PARIS_ATMOSPHERE_DEFAULTS.apKmPerSlice,
+  skyFog = PARIS_ATMOSPHERE_DEFAULTS.skyFog,
+  fogDensity = PARIS_ATMOSPHERE_DEFAULTS.fogDensity,
+  fogHeight = PARIS_ATMOSPHERE_DEFAULTS.fogHeight,
+  fogHorizonClamp = PARIS_ATMOSPHERE_DEFAULTS.fogHorizonClamp,
   worldScale = 5,
   unlocked = false,
   padding = 0.1,
@@ -170,8 +179,11 @@ export function TowerCanvas({
   canvasStyle,
   fallback,
   children,
+  intro = false,
+  onUiReveal,
 }: TowerCanvasProps) {
   const towerRef = useRef<THREE.Group>(null);
+  const introClock = useRef(intro ? 0 : INTRO_COMPLETE);
 
   // Refit the camera after the tower geometry becomes measurable.
   const [refitKey, setRefitKey] = useState(0);
@@ -185,6 +197,11 @@ export function TowerCanvas({
 
   const contents = (
     <>
+      <IntroClock
+        clock={introClock}
+        enabled={intro}
+        onUiReveal={onUiReveal}
+      />
       <Camera
         targetRef={towerRef}
         padding={padding}
@@ -211,6 +228,7 @@ export function TowerCanvas({
             river={river}
             park={park}
             haussmann={haussmann}
+            introClock={introClock}
           />
         )}
 
@@ -237,6 +255,7 @@ export function TowerCanvas({
           spread={letterSpread}
           worldScale={worldScale}
           textLayer={textLayer}
+          introClock={introClock}
         />
       )}
 
