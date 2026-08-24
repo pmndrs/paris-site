@@ -15,8 +15,6 @@ import {
   lights,
   mix,
   mrt,
-  output,
-  packNormalToRGB,
   positionView,
   smoothstep,
   uv,
@@ -38,13 +36,10 @@ import type { TextLayer } from "./fx";
  * extrusion never read as depth, and MSDF stays crisp at any distance the
  * orbit reaches. M/N/D/R/S batch into the text layer's own full-resolution
  * pass (see `TextLayer` in fx.tsx), composited after the temporal resolver so
- * their glyphs skip the reduced-res render and its reconstruction entirely.
- *
- * The P is deliberately different for this intersection POC: it renders in
- * the main scene MRT alongside the tower. Its alpha-tested Glyph quad writes
- * hardware depth and all scene attachments before bloom, so the tower and P
- * can genuinely trade front/back fragments within the same letter instead
- * of reconstructing that relationship in a later 2D composite.
+ * every glyph skips the reduced-res render and its reconstruction entirely.
+ * The same pass carries a depth-only proxy of the tower summit and one R8
+ * coverage attachment for P. That lets P trade front/back fragments with the
+ * tower while retaining Glyph's blended, display-resolution MSDF edge.
  *
  * The font GLB is baked offline from the same Geist SemiBold the DOM uses:
  *
@@ -70,12 +65,11 @@ const INTERSECTION_LOWER_Z = 1.1;
  * The dedicated text pass frees this material to be what glyph intended: a
  * blended transparent quad with the MSDF's shader-side edge coverage in
  * `opacity` — real antialiasing at display resolution. The old in-scene
- * version had to be an alpha-tested cutout writing depth and a merged MRT
- * (a blended quad stomps the scene pass's non-color attachments); the text
- * pass has a single color target and no depth story of its own, so the
- * cutout, MRT override, and SSAO alpha opt-out all stay deleted. Occlusion
- * for these five non-intersecting letters happens downstream against their
- * shared axis plane; the intersecting P uses the material below instead.
+ * version had to be an alpha-tested cutout writing depth and a merged scene
+ * MRT. Here this material ignores the text pass's depth and writes only its
+ * regular color output. Occlusion for these five non-intersecting letters
+ * happens downstream against their shared axis plane; the intersecting P
+ * uses the material below instead.
  *
  * Still a standard (lit) material rather than basic white: the letters
  * take the dusk sky IBL (mirrored onto the text layer's scene each frame)
@@ -111,37 +105,32 @@ function createOverlayLetterMaterial(towerGlow: THREE.PointLight) {
     // on the dark side of the orbit — kept subtle so the sky and tower
     // lighting carry the shading.
     material.emissiveNode = context.shader.color.mul(0.1);
+    // Glyph billboards are planar; avoid the second transparent draw that
+    // DoubleSide materials otherwise issue for back/front sorting.
+    material.forceSinglePass = true;
     return material;
   });
 }
 
 /**
- * The P's main-scene material. This is the part that makes the reference
- * composition real rather than a post-process mask:
- *
- * - the MSDF is alpha-tested into an actual cutout, so the empty quad never
- *   touches depth or MRT attachments;
- * - normal depth test/write lets front tower fragments replace P fragments
- *   while the P replaces tower fragments that sit behind its plane;
- * - the material MRT merges with the scene MRT and marks visible P fragments
- *   in output alpha. FX uses that marker both to keep the flat poster fill out
- *   of screen-space lighting and to stop the depth-blind bloom blur at the P;
- * - explicit zero emissive and camera-facing normal outputs keep every active
- *   scene attachment valid despite Glyph's normal-less unit quad.
- *
- * The tradeoff is local and intentional for the POC: the P uses a 0.5 cutout
- * and passes through FSR/TRAA with the world, so its edge is less pristine
- * than the five letters that remain in the display-resolution text layer.
+ * P renders into only the full-resolution pass's R8 intersection attachment.
+ * Its color output is transparent, while its MSDF opacity becomes an exact
+ * coverage mask wherever the summit proxy's depth does not win. The final
+ * composite consumes that mask after bloom, so a foreground P also clips the
+ * depth-blind halo without sacrificing antialiasing.
  */
 function createIntersectionLetterMaterial(worldScale: number) {
   return defineTextMaterial((context) => {
     const material = new THREE.MeshBasicNodeMaterial({
       side: THREE.DoubleSide,
+      transparent: true,
+      depthTest: true,
+      depthWrite: false,
     });
     material.positionNode = context.position;
     material.colorNode = context.shader.color;
     material.opacityNode = context.shader.opacity;
-    material.alphaTest = 0.5;
+    material.forceSinglePass = true;
     // Keep the quad visually flat, but give its upper and lower regions
     // different view-axis depths. Glyph's unit-quad UV starts at the upper
     // left, so this transition runs behind the counter: the tower wins across
@@ -161,9 +150,10 @@ function createIntersectionLetterMaterial(worldScale: number) {
       cameraFar,
     );
     material.mrtNode = mrt({
-      output: vec4(output.rgb, 0),
-      emissive: vec3(0),
-      normal: packNormalToRGB(vec3(0, 0, 1)),
+      // Material blending makes alpha-zero output a no-op on the regular text
+      // target. The R8 target is unblended, preserving exact MSDF coverage.
+      output: vec4(0),
+      intersection: vec4(context.shader.opacity),
     });
     return material;
   });
@@ -219,9 +209,9 @@ export function Lettering({
   worldScale = 1,
   /**
    * The full-res layer this component renders into (see `TextLayer` in
-   * fx.tsx): M/N/D/R/S portal into its scene, while the P stays in the main
-   * scene. The frame callback writes the overlay plane depth for their
-   * composite occlusion and fog.
+   * fx.tsx): all letters portal into its scene. The frame callback writes the
+   * overlay plane depth used by M/N/D/R/S for composite occlusion and fog;
+   * P instead resolves against the summit proxy's hardware depth.
    */
   textLayer,
 }: {
@@ -237,8 +227,8 @@ export function Lettering({
   /**
    * The overlay-letters-only tower glow (see `createOverlayLetterMaterial`).
    * It lives in the text scene at mid-tower so every overlay letter sits
-   * within a similar falloff band; the main-scene P is intentionally unlit
-   * poster-white like the reference.
+   * within a similar falloff band; P is intentionally poster-white like the
+   * reference.
    */
   const [towerGlow] = useState(
     () => new THREE.PointLight("#ffb35c", 500, 0, 2),
@@ -275,8 +265,8 @@ export function Lettering({
   const forward = useMemo(() => new THREE.Vector3(), []);
   useFrame((state) => {
     // M/N/D/R/S all remain on the image-parallel plane through the tower
-    // axis, so one view-axis distance restores their existing overlay
-    // occlusion/fog. The P is excluded: hardware depth already resolved it.
+    // axis, so one view-axis distance restores their overlay occlusion/fog.
+    // P uses the same distance only for fog; depth already resolves its mask.
     state.camera.getWorldDirection(forward);
     const depth = -forward.dot(state.camera.position);
     if (depth > 0) textLayer.planeDepth.value = depth;
@@ -312,65 +302,51 @@ export function Lettering({
     intersectionZ,
   ];
 
-  return (
-    <>
-      {/*
-        The P shares the tower's scene pass, depth buffer and MRT. Its own
-        billboard pivot is essential: the cutout plane must pass through the
-        tower at the P's height, not through the world origin.
-      */}
-      <group scale={worldScale}>
-        <Billboard
-          position={[
-            intersectionX * spread,
-            intersectionY,
-            0,
-          ]}
+  return createPortal(
+    <group scale={worldScale}>
+      {/* P needs its own billboard pivot: its custom depth plane must pass
+          through the tower at P height rather than through world origin. */}
+      <Billboard position={[intersectionX * spread, intersectionY, 0]}>
+        <TextGroup
+          compositing="independent"
+          material={intersectionMaterial}
+          renderOrder={1000}
+          visible={baselineEm !== null}
         >
-          <TextGroup
-            compositing="independent"
-            material={intersectionMaterial}
-            visible={baselineEm !== null}
+          <Text
+            ref={probeRef}
+            font={geist}
+            style={style}
+            paint={{ color: "#ffffff" }}
+            position={intersectionOffset}
           >
+            {intersectionLetter.char}
+          </Text>
+        </TextGroup>
+      </Billboard>
+
+      {/* The other letters share the same crisp display-resolution pass. */}
+      <primitive object={towerGlow} position={[0, 11, 0]} />
+      <Billboard>
+        <TextGroup
+          compositing="independent"
+          material={overlayMaterial}
+          visible={baselineEm !== null}
+        >
+          {overlayLetters.map(({ char, position, center }) => (
             <Text
-              ref={probeRef}
+              key={char}
               font={geist}
               style={style}
               paint={{ color: "#ffffff" }}
-              position={intersectionOffset}
+              position={makePosition(position, center)}
             >
-              {intersectionLetter.char}
+              {char}
             </Text>
-          </TextGroup>
-        </Billboard>
-      </group>
-
-      {/* The other letters retain the crisp display-resolution overlay. */}
-      {createPortal(
-        <group scale={worldScale}>
-          <primitive object={towerGlow} position={[0, 11, 0]} />
-          <Billboard>
-            <TextGroup
-              compositing="independent"
-              material={overlayMaterial}
-              visible={baselineEm !== null}
-            >
-              {overlayLetters.map(({ char, position, center }) => (
-                <Text
-                  key={char}
-                  font={geist}
-                  style={style}
-                  paint={{ color: "#ffffff" }}
-                  position={makePosition(position, center)}
-                >
-                  {char}
-                </Text>
-              ))}
-            </TextGroup>
-          </Billboard>
-        </group>,
-        textLayer.scene,
-      )}
-    </>
+          ))}
+        </TextGroup>
+      </Billboard>
+    </group>,
+    textLayer.scene,
   );
 }

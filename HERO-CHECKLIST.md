@@ -36,15 +36,17 @@ merged through the Why retitle, and `SectionLink` for the two-days buttons.
       grid.
 - [ ] **FSR ghosting** — orbit at renderScale 1.5; watch tower edges for
       smearing. Compare renderScale 1 (TRAA path, fsr off). M/N/D/R/S render
-      in the display-res overlay, but the intersecting P deliberately rides
-      the main resolver so it can share hardware depth/MRT with the tower;
-      check its alpha-tested edge and disocclusion trail separately.
+      in the display-res overlay, and the intersecting P now joins that same
+      pass with blended MSDF coverage plus a summit depth proxy. Its edge
+      should remain equally sharp and stable at both resolver settings.
 - [ ] **P/tower intersection** — freeze the camera and A/B the `tower` toggle:
       tower-off must show a continuous, visually flat white P. Tower-on must put
       the antenna over the P's solid top (with only its tip barely clearing the
       letter) and put the P's lower bowl over the tower. Counter-only overlap
       does not pass. With bloom back on, the foreground bowl stays opaque while
-      tower-front fragments and their emissive source remain.
+      tower-front fragments and their emissive source remain. Also A/B post FX,
+      FSR at 1 / 1.5, DPR/window size, and glow/metal/sparkle tower modes; the
+      full-resolution R8 mask must not shift or shimmer.
 - [ ] **TOD sweep on `/`** — drag the slider 0→100; exposure curve through
       midday should never blow out or crush. (Curve: 40 at night → 12 at 13h.)
 - [ ] **Reduced motion** — with OS reduced-motion on: no auto-rotate, demand

@@ -62,12 +62,12 @@ interface SkyWithBaker {
  *
  * The scene pass renders at `1/renderScale` and a temporal resolver
  * reconstructs it — the worst possible treatment for static, high-contrast
- * glyphs, so the non-intersecting poster type opts out: `Lettering` portals
- * M/N/D/R/S into `scene`, and this component renders that scene as its own
- * pass at display resolution and composites it AFTER the resolver. The POC P
- * stays in the main scene instead, where it can share hardware depth and MRT
- * writes with the tower. `camera` is kept an unjittered twin of the scene
- * camera here (see the sync in `useFrame`). Created once by `TowerCanvas`.
+ * glyphs, so the poster type opts out: `Lettering` portals every letter into
+ * `scene`, and this component renders that scene as its own pass at display
+ * resolution and composites it AFTER the resolver. A depth-only summit proxy
+ * resolves P's front/back weave there, and an R8 attachment carries only its
+ * MSDF coverage into the composite. `camera` is kept an unjittered twin of the
+ * scene camera here (see the sync in `useFrame`). Created once by `TowerCanvas`.
  */
 export interface TextLayer {
   scene: THREE.Scene;
@@ -435,19 +435,39 @@ export function FX({
       // `setResolutionScale`, so it never joins the reduced-res render the
       // resolver reconstructs. It is a stable, explicitly owned resource:
       // unrelated graph rebuilds reuse it, while disabling the feature frees
-      // it. The overlay glyph material neither tests nor writes depth, so a
-      // display-sized depth attachment here would only waste memory. (The P
-      // is not in this pass; it writes real depth in the main scene.)
+      // it. Its depth attachment is used only by the cheap summit proxy and P;
+      // the extra R8 target carries P's display-resolution coverage without
+      // paying for another full RGBA pass.
       if (!textEnabled && textPassRef.current) {
         textPassRef.current.dispose();
         textPassRef.current = null;
       }
       if (textEnabled && !textPassRef.current) {
-        textPassRef.current = TSL.pass(textLayer.scene, textLayer.camera, {
-          depthBuffer: false,
+        const pass = TSL.pass(textLayer.scene, textLayer.camera, {
+          depthBuffer: true,
+          samples: 0,
         });
+        // Configure the secondary target before the pass first compiles.
+        // Coverage is scalar and LDR, so RGBA16F would inflate bandwidth and
+        // use eight times the storage for no benefit.
+        const intersection = pass.getTexture("intersection");
+        intersection.format = THREE.RedFormat;
+        intersection.type = THREE.UnsignedByteType;
+        intersection.colorSpace = THREE.NoColorSpace;
+        intersection.minFilter = THREE.NearestFilter;
+        intersection.magFilter = THREE.NearestFilter;
+        pass.setMRT(
+          TSL.mrt({
+            output: TSL.output,
+            intersection: TSL.float(0),
+          }),
+        );
+        textPassRef.current = pass;
       }
       const textTex = textPassRef.current?.getTextureNode("output");
+      const intersectionTex =
+        textPassRef.current?.getTextureNode("intersection");
+      const intersectionCoverage = intersectionTex?.r;
 
       /**
        * Composite the text pass over `base`. The pass accumulates standard
@@ -456,8 +476,8 @@ export function FX({
        * fraction. `vis` is the overlay occlusion mask: the remaining five
        * letters share one image-parallel axis plane, so anything the scene
        * rendered nearer wins. `glow` restores the already-composited tower
-       * bloom over those overlay letters. The intersection P never reaches
-       * this helper; it has already resolved through main-scene depth/MRT.
+       * bloom over those overlay letters. P is composited separately and
+       * last, using its hardware-depth-resolved R8 coverage.
        * Alpha keeps the canvas's transparent boot window honest.
        */
       const overlayText = textTex
@@ -482,18 +502,35 @@ export function FX({
           }
         : null;
 
+      const overlayIntersection = intersectionCoverage
+        ? (baseNode: unknown, intersectionRgbNode: unknown) => {
+            const base = baseNode as AnyVec4;
+            const covered = intersectionCoverage as unknown as AnyFloat;
+            const rgb = base.rgb
+              .mul(TSL.oneMinus(covered))
+              .add(intersectionRgbNode as AnyVec3);
+            return TSL.vec4(rgb, TSL.max(base.a, covered));
+          }
+        : null;
+
       if (!enabled) {
         // Post off still owes the poster its type. The scene renders at
         // full res here so the pass buys no sharpness, but routing text
         // through the same seam keeps one code path and one look.
         const base = scenePass.getTextureNode("output");
-        const composited = overlayText && textTex
+        let composited = overlayText && textTex
           ? TSL.Fn(() => overlayText(base, textTex.rgb))()
           : base;
-        // The P temporarily owns output alpha as a scene-pass mask. It has
-        // served that purpose once the pass is sampled, so never present its
-        // zero marker as canvas transparency when post processing is off.
-        renderPipeline.outputNode = TSL.vec4(composited.rgb, 1);
+        if (overlayIntersection && intersectionCoverage) {
+          const resolved = composited;
+          composited = TSL.Fn(() =>
+            overlayIntersection(
+              resolved,
+              TSL.vec3(intersectionCoverage),
+            ),
+          )();
+        }
+        renderPipeline.outputNode = composited;
         // Upstream bug in `useRenderPipeline`: it assigns `outputNode` without
         // setting `needsUpdate`, and three's RenderPipeline only recompiles its
         // present-quad material when `needsUpdate` is true (three.webgpu.js
@@ -516,16 +553,9 @@ export function FX({
       if (withBloom) {
         const emissive = scenePass.getTextureNode("emissive");
         bloomNode = bloom(emissive, 0.5, 0.5);
-        // BloomNode has no depth input: its five blur levels will otherwise
-        // spread tower light back over a foreground P even though depth kept
-        // that tower fragment out of `emissive`. The P writes output.a = 0,
-        // while ordinary scene/tower winners write 1, so mask the *blurred*
-        // result at the same winning fragment. This preserves tower bloom in
-        // the P's counter and wherever the tower is actually in front.
-        graph = TSL.vec4(
-          graph.rgb.add(bloomNode.rgb.mul(color.a)),
-          graph.a,
-        );
+        // P is composited after this blur. Its depth-resolved full-res mask
+        // replaces both scene color and halo only where P actually wins.
+        graph = TSL.vec4(graph.rgb.add(bloomNode.rgb), graph.a);
       }
 
       // Normals are packed into a byte texture, so they come back as colour
@@ -572,9 +602,7 @@ export function FX({
         const lit = graph.rgb
           .mul(giPass.getAONode().r)
           .add(albedo.rgb.mul(gi.rgb));
-        // Match GTAO's alpha opt-out: the flat P is a poster cutout, not a
-        // surface for SSGI to relight. `color.a` is its scene-pass marker.
-        graph = TSL.vec4(TSL.mix(graph.rgb, lit, color.a), graph.a);
+        graph = TSL.vec4(lit, graph.a);
       }
 
       if (!useSsgi) ssgiPassRef.current = null;
@@ -756,17 +784,13 @@ export function FX({
         graph = traaPass;
       }
 
-      // output.a was a render-pipeline mask for the main-scene P, not final
-      // transparency. Restore an opaque frame after all consumers have read
-      // it; this also makes the non-FSR TRAA path match FSR's opaque blit.
-      graph = TSL.vec4(graph.rgb, 1);
-
       // Full-res text over the resolved frame — the seam the whole text
       // pass exists for. Fog is applied to the type analytically: same
       // formula, same live knobs, with the overlay plane's constant depth
       // standing in for the scene depth buffer, so the poster keeps its
-      // atmospheric seat even though it skipped the scene pass. The P is
-      // already in `graph`; this block is only M/N/D/R/S.
+      // atmospheric seat even though it skipped the scene pass. This block
+      // handles M/N/D/R/S; P follows last so it can occlude their already-
+      // composited bloom if the authored layout ever overlaps.
       if (overlayText && textTex) {
         const resolved = graph;
         graph = TSL.Fn(() => {
@@ -786,6 +810,27 @@ export function FX({
             ) as unknown as AnyVec3;
           }
           return overlayText(resolved, textRgb, bloomNode);
+        })();
+      }
+
+      if (overlayIntersection && intersectionCoverage) {
+        const resolved = graph;
+        graph = TSL.Fn(() => {
+          const coverage = intersectionCoverage as unknown as AnyFloat;
+          let intersectionRgb = TSL.vec3(coverage) as unknown as AnyVec3;
+          if (fogAlong) {
+            const ray = reconstructRay();
+            const dist = (textLayer.planeDepth as unknown as AnyFloat).div(
+              ray.cosFromAxis,
+            );
+            const fog = fogAlong(dist, ray.rayDirWorld);
+            intersectionRgb = TSL.mix(
+              intersectionRgb,
+              fog.skyColor.mul(coverage),
+              fog.fogAmount,
+            ) as unknown as AnyVec3;
+          }
+          return overlayIntersection(resolved, intersectionRgb);
         })();
       }
 

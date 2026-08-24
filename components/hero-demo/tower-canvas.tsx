@@ -180,10 +180,10 @@ export function TowerCanvas({
 
   /**
    * The lettering's full-resolution layer (see `TextLayer` in fx.tsx):
-   * `Lettering` portals M/N/D/R/S into `scene` and writes `planeDepth`; `FX`
-   * renders them in a display-res pass after the resolver. The intersecting P
-   * is deliberately not in this layer—it renders with the tower in the main
-   * scene depth/MRT pass.
+   * `Lettering` portals every glyph into `scene` and writes `planeDepth`; `FX`
+   * renders them in a display-res pass after the resolver. `Tower` portals a
+   * summit-only depth proxy into the same scene so P can weave through it
+   * without giving up Glyph's blended full-resolution edge.
    */
   const [textLayer] = useState<TextLayer>(() => ({
     scene: new THREE.Scene(),
@@ -227,7 +227,13 @@ export function TowerCanvas({
             until `onReady` fires. */}
         <group ref={towerRef}>
           {tower && (
-            <Tower onReady={onTowerReady} mode={towerMode} beacon={beacon} />
+            <Tower
+              onReady={onTowerReady}
+              mode={towerMode}
+              beacon={beacon}
+              intersectionScene={lettering ? textLayer.scene : undefined}
+              worldScale={worldScale}
+            />
           )}
         </group>
 

@@ -9,7 +9,11 @@ Title: ( FREE ) La tour Eiffel
 */
 
 import { useEffect, useMemo, useRef } from "react";
-import { useFrame, useLocalNodes } from "@react-three/fiber/webgpu";
+import {
+  createPortal,
+  useFrame,
+  useLocalNodes,
+} from "@react-three/fiber/webgpu";
 import { useGLTF } from "@react-three/drei";
 import * as TSL from "three/tsl";
 import * as THREE from "three/webgpu";
@@ -21,6 +25,65 @@ import * as THREE from "three/webgpu";
 const MODEL_URL = "/hero-demo/free__la_tour_eiffel.glb";
 
 const TOWER_MESHES = ["Object_4", "Object_5", "Object_6"] as const;
+
+/** The model-space transform shared by the visible tower and its depth proxy. */
+const TOWER_MODEL_SCALE = 0.2;
+const TOWER_MODEL_YAW = THREE.MathUtils.degToRad(30);
+
+/**
+ * Only the summit can cross the P in the locked poster composition. Keeping
+ * triangles that touch this model-space height cuts the proxy from ~148k to
+ * ~28k triangles without copying the GLB's large position buffers.
+ */
+const INTERSECTION_PROXY_MIN_Y = 80;
+const intersectionProxyCache = new WeakMap<
+  THREE.BufferGeometry,
+  THREE.BufferGeometry
+>();
+
+const intersectionDepthMaterial = new THREE.MeshBasicNodeMaterial({
+  colorWrite: false,
+  depthTest: true,
+  depthWrite: true,
+});
+
+function getIntersectionProxyGeometry(source: THREE.BufferGeometry) {
+  const cached = intersectionProxyCache.get(source);
+  if (cached) return cached;
+
+  const position = source.getAttribute("position");
+  const sourceIndex = source.getIndex();
+  const triangleCount = (sourceIndex?.count ?? position.count) / 3;
+  const filtered: number[] = [];
+
+  for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+    const offset = triangle * 3;
+    const a = sourceIndex ? sourceIndex.getX(offset) : offset;
+    const b = sourceIndex ? sourceIndex.getX(offset + 1) : offset + 1;
+    const c = sourceIndex ? sourceIndex.getX(offset + 2) : offset + 2;
+
+    if (
+      Math.max(position.getY(a), position.getY(b), position.getY(c)) >=
+      INTERSECTION_PROXY_MIN_Y
+    ) {
+      filtered.push(a, b, c);
+    }
+  }
+
+  const proxy = new THREE.BufferGeometry();
+  proxy.setAttribute("position", position);
+  // All three source meshes fit 16-bit indices; let three choose Uint16 here
+  // instead of forcing twice the index bandwidth with Uint32.
+  proxy.setIndex(filtered);
+  // The shared attribute still contains every source vertex, so borrowing the
+  // source bounds is both conservative and avoids another full-buffer scan.
+  if (!source.boundingBox) source.computeBoundingBox();
+  if (!source.boundingSphere) source.computeBoundingSphere();
+  proxy.boundingBox = source.boundingBox?.clone() ?? null;
+  proxy.boundingSphere = source.boundingSphere?.clone() ?? null;
+  intersectionProxyCache.set(source, proxy);
+  return proxy;
+}
 
 export type TowerMode = "glow" | "metal" | "sparkle";
 
@@ -128,10 +191,16 @@ export function Tower({
   onReady,
   mode = "glow",
   beacon = false,
+  intersectionScene,
+  worldScale = 1,
 }: {
   onReady?: () => void;
   mode?: TowerMode;
   beacon?: boolean;
+  /** Full-resolution text scene that receives the summit depth proxy. */
+  intersectionScene?: THREE.Scene;
+  /** Mirrors the physical world's outer scale across the scene portal. */
+  worldScale?: number;
 }) {
   const { nodes } = useGLTF(MODEL_URL) as unknown as {
     nodes: Record<string, THREE.Mesh>;
@@ -197,35 +266,70 @@ export function Tower({
     return maxY;
   }, [nodes]);
 
+  const intersectionProxyGeometries = useMemo(
+    () =>
+      intersectionScene
+        ? TOWER_MESHES.map((name) =>
+            getIntersectionProxyGeometry(nodes[name].geometry),
+          )
+        : [],
+    [intersectionScene, nodes],
+  );
+
   return (
-    <group dispose={null} scale={0.2} rotation-y={THREE.MathUtils.degToRad(30)}>
-      {/* Keep the warm wash mounted to avoid recompiling shaders when the mode
-          changes. Zero intensity disables it outside glow mode. */}
-      <pointLight
-        position={[0, 10, 0]}
-        color="#ffb35c"
-        intensity={mode === "glow" ? 400 : 0}
-        distance={100}
-        decay={2}
-      />
+    <>
+      <group
+        dispose={null}
+        scale={TOWER_MODEL_SCALE}
+        rotation-y={TOWER_MODEL_YAW}
+      >
+        {/* Keep the warm wash mounted to avoid recompiling shaders when the mode
+            changes. Zero intensity disables it outside glow mode. */}
+        <pointLight
+          position={[0, 10, 0]}
+          color="#ffb35c"
+          intensity={mode === "glow" ? 400 : 0}
+          distance={100}
+          decay={2}
+        />
 
-      {TOWER_MESHES.map((name) => (
-        <mesh
-          key={name}
-          castShadow
-          receiveShadow
-          geometry={nodes[name].geometry}
-        >
-          <meshStandardNodeMaterial {...modeProps[mode]} />
-        </mesh>
-      ))}
+        {TOWER_MESHES.map((name) => (
+          <mesh
+            key={name}
+            castShadow
+            receiveShadow
+            geometry={nodes[name].geometry}
+          >
+            <meshStandardNodeMaterial {...modeProps[mode]} />
+          </mesh>
+        ))}
 
-      {beacon && (
-        <group position={[0, summitY, 0]}>
-          <Beacon />
-        </group>
-      )}
-    </group>
+        {beacon && (
+          <group position={[0, summitY, 0]}>
+            <Beacon />
+          </group>
+        )}
+      </group>
+
+      {intersectionScene &&
+        createPortal(
+          // The cached proxy geometries deliberately share the GLB's position
+          // attributes and live for the model cache's lifetime; never let R3F
+          // dispose those shared GPU buffers when this portal toggles.
+          <group dispose={null} scale={worldScale}>
+            <group scale={TOWER_MODEL_SCALE} rotation-y={TOWER_MODEL_YAW}>
+              {intersectionProxyGeometries.map((geometry, index) => (
+                <mesh
+                  key={TOWER_MESHES[index]}
+                  geometry={geometry}
+                  material={intersectionDepthMaterial}
+                />
+              ))}
+            </group>
+          </group>,
+          intersectionScene,
+        )}
+    </>
   );
 }
 
