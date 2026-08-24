@@ -195,7 +195,7 @@ const KNOCK_REACH = 0.5;
 /** Pointer speed, in half-viewport-heights per second, that lands a full knock. */
 const FULL_KNOCK_SPEED = 1.8;
 /** Knock acceleration, in knock limits per second squared. */
-const KNOCK_FORCE = 120;
+const KNOCK_FORCE = 138;
 /** Velocity ceiling, in knock limits per second. */
 const KNOCK_SPEED_LIMIT = 13;
 /** Share of the knock that shoves the letter along the pointer's travel. */
@@ -204,9 +204,9 @@ const SHOVE = 0.72;
 const DODGE = 0.55;
 /** Spring back to the authored slot. Underdamped, so the letter rings a little. */
 const SWAY_STIFFNESS = 110;
-const SWAY_DAMPING = 6.2;
+const SWAY_DAMPING = 5.7;
 const SPIN_STIFFNESS = 84;
-const SPIN_DAMPING = 5.4;
+const SPIN_DAMPING = 5;
 /** Longest step the springs are integrated over. */
 const MAX_STEP = 1 / 30;
 /** Combined offset and velocity below which a letter is parked at rest. */
@@ -215,6 +215,8 @@ const REST = 2e-3;
 const IDLE_SPEED = 0.02;
 /** Smoothing rate for pointer velocity, in inverse seconds. */
 const TRAVEL_SMOOTHING = 18;
+/** Share of a letter's full travel used while the pointer rests over it. */
+const HOVER_OFFSET = 0.62;
 
 type Wobble = {
   x: number;
@@ -260,28 +262,45 @@ function spring(
  * is nothing to raycast against — the cursor is read off the window and
  * measured against each letter in clip space instead, which also keeps the
  * cost at one projection per letter. Each letter is a spring anchored to its
- * authored slot and the pointer only ever adds velocity, so a parked cursor
- * does nothing and a pass across the stack leaves a wobble trailing behind it.
+ * authored slot. Hovering pulls it away from the cursor, while a pass across
+ * the stack adds velocity and leaves a wobble trailing behind it.
  */
 function usePointerKnock(
   groups: RefObject<(THREE.Group | null)[]>,
   { size, worldScale }: { size: number; worldScale: number },
 ) {
-  const renderer = useThree((state) => state.renderer);
+  const bounds = useThree((state) => state.size);
 
   /** Latest pointer position in NDC, written from the window listener. */
-  const cursor = useRef({ tracked: false, x: 0, y: 0 });
+  const cursor = useRef({ tracked: false, warped: true, x: 0, y: 0 });
 
   useEffect(() => {
-    const canvas = renderer.domElement;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
 
     const onMove = (event: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      cursor.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      cursor.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      if (!bounds.width || !bounds.height) return;
+      const x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
+      const y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
+      if (x < -1 || x > 1 || y < -1 || y > 1) {
+        park();
+        return;
+      }
+      if (!cursor.current.tracked) cursor.current.warped = true;
+      cursor.current.x = x;
+      cursor.current.y = y;
       cursor.current.tracked = true;
+    };
+
+    const park = () => {
+      cursor.current.tracked = false;
+      cursor.current.warped = true;
+    };
+
+    const onOut = (event: PointerEvent) => {
+      if (!event.relatedTarget) park();
+    };
+    const onVisibility = () => {
+      if (document.hidden) park();
     };
 
     // Motion preferences can be switched with the page open, so the listener
@@ -289,18 +308,24 @@ function usePointerKnock(
     const sync = () => {
       if (reduced.matches) {
         window.removeEventListener("pointermove", onMove);
-        cursor.current.tracked = false;
+        park();
       } else {
         window.addEventListener("pointermove", onMove, { passive: true });
       }
     };
     sync();
     reduced.addEventListener("change", sync);
+    document.addEventListener("pointerout", onOut);
+    window.addEventListener("blur", park);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       reduced.removeEventListener("change", sync);
       window.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerout", onOut);
+      window.removeEventListener("blur", park);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [renderer]);
+  }, [bounds]);
 
   /** Pointer position last frame, in half-height units. */
   const previous = useRef({ tracked: false, x: 0, y: 0 });
@@ -321,17 +346,24 @@ function usePointerKnock(
     // ellipse.
     const aspect = view.aspect || 1;
 
-    // Pointer travel since the last frame. A cursor that has not moved has no
-    // velocity, and therefore lands no knock.
+    // Pointer travel since the last frame. Keep both ends: a fast cursor can
+    // cross an entire letter between frames, so the hit test uses the swept
+    // segment rather than only the latest point.
     const now = cursor.current;
     const was = previous.current;
     const x = now.x * aspect;
     const y = now.y;
+    const fromX = was.x;
+    const fromY = was.y;
+    const swept = now.tracked && was.tracked && !now.warped;
+    const sweepX = swept ? x - fromX : 0;
+    const sweepY = swept ? y - fromY : 0;
+    const sweepLengthSq = sweepX * sweepX + sweepY * sweepY;
     const decay = 1 - Math.exp(-step * TRAVEL_SMOOTHING);
-    if (now.tracked && was.tracked) {
+    if (swept) {
       const dt = Math.max(frameDelta, 1 / 240);
-      travel.current.x += ((x - was.x) / dt - travel.current.x) * decay;
-      travel.current.y += ((y - was.y) / dt - travel.current.y) * decay;
+      travel.current.x += (sweepX / dt - travel.current.x) * decay;
+      travel.current.y += (sweepY / dt - travel.current.y) * decay;
     } else {
       travel.current.x -= travel.current.x * decay;
       travel.current.y -= travel.current.y * decay;
@@ -339,10 +371,11 @@ function usePointerKnock(
     was.x = x;
     was.y = y;
     was.tracked = now.tracked;
+    now.warped = false;
 
     const speed = Math.hypot(travel.current.x, travel.current.y);
-    const passing = now.tracked && speed > IDLE_SPEED;
-    if (passing) view.getWorldPosition(scratch.eye);
+    const passing = swept && speed > IDLE_SPEED;
+    if (now.tracked) view.getWorldPosition(scratch.eye);
 
     LETTERS.forEach(({ knock }, i) => {
       const group = wobbleGroups[i];
@@ -351,8 +384,11 @@ function usePointerKnock(
       const slot = group?.parent;
       if (!group || !slot) return;
       const wobble = wobbles.current[i];
+      let targetX = 0;
+      let targetY = 0;
+      let targetSpin = 0;
 
-      if (passing) {
+      if (now.tracked) {
         slot.getWorldPosition(scratch.slot);
         const depth = scratch.eye.distanceTo(scratch.slot);
         scratch.slot.project(view);
@@ -361,12 +397,45 @@ function usePointerKnock(
         const halfHeight =
           Math.tan((view.fov * THREE.MathUtils.DEG2RAD) / 2) * depth;
         const reach = (size * worldScale * KNOCK_REACH) / halfHeight;
-        // Pointer to letter.
-        const toLetterX = scratch.slot.x * aspect - x;
-        const toLetterY = scratch.slot.y - y;
+        const letterX = scratch.slot.x * aspect;
+        const letterY = scratch.slot.y;
+
+        // A resting pointer gives the spring a small offset target. The slot
+        // stays fixed, so the letter cannot move its own hover area away.
+        const hoverX = letterX - x;
+        const hoverY = letterY - y;
+        const hoverGap = Math.hypot(hoverX, hoverY);
+        if (hoverGap < reach) {
+          const near = 1 - hoverGap / reach;
+          const falloff = near * near * (3 - 2 * near);
+          const fallbackX = speed > IDLE_SPEED ? travel.current.x / speed : 0;
+          const fallbackY = speed > IDLE_SPEED ? travel.current.y / speed : 1;
+          const awayX = hoverGap > 1e-4 ? hoverX / hoverGap : fallbackX;
+          const awayY = hoverGap > 1e-4 ? hoverY / hoverGap : fallbackY;
+          targetX = awayX * knock.sway * HOVER_OFFSET * falloff;
+          targetY = awayY * knock.lift * HOVER_OFFSET * falloff;
+          targetSpin = -awayX * knock.spin * HOVER_OFFSET * falloff;
+        }
+
+        // Find the closest point on this frame's cursor sweep. Sampling only
+        // the endpoint made quick passes jump clean over a letter.
+        const alongSweep =
+          passing && sweepLengthSq > 1e-8
+            ? THREE.MathUtils.clamp(
+                ((letterX - fromX) * sweepX +
+                  (letterY - fromY) * sweepY) /
+                  sweepLengthSq,
+                0,
+                1,
+              )
+            : 1;
+        const hitX = fromX + sweepX * alongSweep;
+        const hitY = fromY + sweepY * alongSweep;
+        const toLetterX = letterX - hitX;
+        const toLetterY = letterY - hitY;
         const gap = Math.hypot(toLetterX, toLetterY);
 
-        if (gap < reach) {
+        if (passing && gap < reach) {
           const near = 1 - gap / reach;
           const falloff = near * near * (3 - 2 * near);
           const strength = Math.min(speed / FULL_KNOCK_SPEED, 1) * falloff;
@@ -390,7 +459,16 @@ function usePointerKnock(
         Math.abs(wobble.y) +
         Math.abs(wobble.vx) +
         Math.abs(wobble.vy);
-      if (energy === 0 && wobble.spin === 0 && wobble.vSpin === 0) return;
+      const targetEnergy =
+        Math.abs(targetX) + Math.abs(targetY) + Math.abs(targetSpin);
+      if (
+        energy === 0 &&
+        wobble.spin === 0 &&
+        wobble.vSpin === 0 &&
+        targetEnergy === 0
+      ) {
+        return;
+      }
 
       const swayCap = knock.sway * KNOCK_SPEED_LIMIT;
       const liftCap = knock.lift * KNOCK_SPEED_LIMIT;
@@ -402,7 +480,7 @@ function usePointerKnock(
       [wobble.x, wobble.vx] = spring(
         wobble.x,
         wobble.vx,
-        0,
+        targetX,
         SWAY_STIFFNESS,
         SWAY_DAMPING,
         step,
@@ -410,7 +488,7 @@ function usePointerKnock(
       [wobble.y, wobble.vy] = spring(
         wobble.y,
         wobble.vy,
-        0,
+        targetY,
         SWAY_STIFFNESS,
         SWAY_DAMPING,
         step,
@@ -418,7 +496,7 @@ function usePointerKnock(
       [wobble.spin, wobble.vSpin] = spring(
         wobble.spin,
         wobble.vSpin,
-        0,
+        targetSpin,
         SPIN_STIFFNESS,
         SPIN_DAMPING,
         step,
