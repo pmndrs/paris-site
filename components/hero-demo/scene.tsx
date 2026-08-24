@@ -307,6 +307,11 @@ export function HeroDemoScene({
       tower={tower}
       environment={environment}
       shadows={shadows}
+      // Uncapped: the perf readout above measures pipeline throughput, and a
+      // frame cap would turn it into a readout of the cap. (`PerfProbe`
+      // counts update-phase callbacks, which a render-job cap doesn't slow —
+      // capped, it would report 120fps while presenting 60.)
+      maxFps={0}
       onSample={onSample}
       tools
     />

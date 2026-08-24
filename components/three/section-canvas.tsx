@@ -1,7 +1,15 @@
 "use client";
 
-import { Canvas, waitForPrimary } from "@react-three/fiber/webgpu";
-import { useEffect, useState, type ReactNode } from "react";
+import { Canvas, useFrame, waitForPrimary } from "@react-three/fiber/webgpu";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { DepthAttachmentSync } from "./depth-attachment-sync";
 
@@ -24,6 +32,9 @@ import { useWebGPU } from "@/lib/use-webgpu";
 
 const PRIMARY = "main";
 
+/** Resume this far outside the viewport, so scrolling in never meets a frozen frame. */
+const WAKE_MARGIN = "160px";
+
 function usePrimaryReady(): boolean {
   const [ready, setReady] = useState(false);
 
@@ -42,6 +53,47 @@ function usePrimaryReady(): boolean {
   }, []);
 
   return ready;
+}
+
+const OnScreenContext = createContext(true);
+
+/**
+ * Whether the enclosing `SectionCanvas` is near the viewport. The canvas's
+ * render job is already skipped while this is false; scenes that burn CPU in
+ * `useFrame` regardless of rendering (physics, most of all) should read this
+ * and stand down too.
+ */
+export function useSectionOnScreen(): boolean {
+  return useContext(OnScreenContext);
+}
+
+/**
+ * Skips this canvas's render pass while it is scrolled out of view.
+ *
+ * Job-level for the same reason the hero idles that way (see
+ * `useIdleWhenHidden` in tower-hero): `frameloop` writes to the scheduler
+ * singleton the whole page shares, so pausing one canvas's job is the only
+ * per-canvas idle there is. Only the render job pauses — `useFrame` updates
+ * keep their rhythm, so nothing has to reconcile a paused clock on the way
+ * back in.
+ */
+function IdleWhenHidden({ jobId, hidden }: { jobId: string; hidden: boolean }) {
+  // The no-callback form of `useFrame` is the documented scheduler access.
+  const { scheduler } = useFrame();
+
+  useEffect(() => {
+    if (!scheduler.getJobIds().includes(jobId)) return;
+
+    if (hidden) scheduler.pauseJob(jobId);
+    else scheduler.resumeJob(jobId);
+
+    // Never leave it parked on unmount — the job outlives this effect.
+    return () => {
+      if (scheduler.getJobIds().includes(jobId)) scheduler.resumeJob(jobId);
+    };
+  }, [hidden, jobId, scheduler]);
+
+  return null;
 }
 
 export function SectionCanvas({
@@ -63,11 +115,37 @@ export function SectionCanvas({
 }) {
   const support = useWebGPU();
   const ready = usePrimaryReady();
+  const mounted = support === "yes" && ready;
 
-  if (support !== "yes" || !ready) return null;
+  // The render job needs a stable name to be pausable, and the scheduler
+  // takes the canvas id as the job id. `useId` guarantees uniqueness across
+  // instances; strip React's delimiters so it stays a clean DOM id too.
+  const jobId = "section-" + useId().replace(/[^a-zA-Z0-9_-]/g, "");
+
+  // r3f forwards the Canvas ref to the <canvas> element itself.
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [onScreen, setOnScreen] = useState(true);
+
+  // Freeze the canvas once it scrolls away — same signal the hero uses, per
+  // canvas. On a page of decorated sections, whatever is off screen is most
+  // of them.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setOnScreen(entry.isIntersecting),
+      { rootMargin: WAKE_MARGIN },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [mounted]);
+
+  if (!mounted) return null;
 
   return (
     <Canvas
+      ref={canvasRef}
+      id={jobId}
       className={className}
       orthographic={orthographic}
       camera={camera}
@@ -99,8 +177,11 @@ export function SectionCanvas({
           : { pointerEvents: "none" }
       }
     >
+      <IdleWhenHidden jobId={jobId} hidden={!onScreen} />
       <DepthAttachmentSync />
-      {children}
+      <OnScreenContext.Provider value={onScreen}>
+        {children}
+      </OnScreenContext.Provider>
     </Canvas>
   );
 }

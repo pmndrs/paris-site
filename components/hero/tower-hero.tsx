@@ -139,6 +139,9 @@ export function TowerHero({
       autoRotateSpeed={reducedMotion ? 0 : 1}
       frameloop={reducedMotion ? "demand" : "always"}
       intro={!reducedMotion}
+      // The homepage never enables SSGI, so don't let the widened device
+      // limit it needs fail canvas creation on adapters that lack it.
+      reserveSsgiHeadroom={false}
       onUiReveal={onUiReveal}
       gate={heroGate}
       canvasStyle={{ pointerEvents: "none" }}
