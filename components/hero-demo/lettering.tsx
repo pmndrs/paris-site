@@ -25,11 +25,10 @@ import type { TextLayer } from "./fx";
  * which renders in the text layer's own full-resolution pass (see `TextLayer`
  * in fx.tsx), composited after the temporal resolver so the glyphs skip the
  * reduced-res render and its reconstruction entirely. The ironwork
- * interleave survives the split: every letter sits at z = 0 inside one
- * Billboard, i.e. on a single image-parallel plane through the tower's
- * axis, so the composite re-occludes them with one depth compare — tower
- * members nearer than the axis plane cut in front, members behind don't,
- * exactly as the in-scene depth test read.
+ * interleave survives the split per pixel: the Glyph quads write depth in
+ * the text pass, and the composite compares that depth against the scene.
+ * This keeps the type flat and crisp while letting the tower pass in front
+ * of the visible glyph shape wherever it is actually nearer.
  *
  * The font GLB is baked offline from the same Geist SemiBold the DOM uses:
  *
@@ -52,9 +51,12 @@ const FONT_REQUEST = {
  * `opacity` — real antialiasing at display resolution. The old in-scene
  * version had to be an alpha-tested cutout writing depth and a merged MRT
  * (a blended quad stomps the scene pass's non-color attachments); the text
- * pass has a single color target and no depth story of its own, so the
- * cutout, the MRT override, and the SSAO alpha opt-out all delete.
- * Occlusion happens downstream, in fx.tsx's composite.
+ * pass has a single color target, so the MRT override and the SSAO alpha
+ * opt-out stay deleted. Occlusion happens downstream, in fx.tsx's composite.
+ * The material does write depth for that comparison. A one-LSB alpha test
+ * discards the fully transparent area around each MSDF glyph so the quad's
+ * rectangular bounds never become an invisible occluder; the antialiased
+ * edge remains blended at display resolution.
  *
  * Still a standard (lit) material rather than basic white: the letters
  * take the dusk sky IBL (mirrored onto the text layer's scene each frame)
@@ -75,8 +77,9 @@ function createLetterMaterial(towerGlow: THREE.PointLight) {
       roughness: 0.85,
       metalness: 0,
       transparent: true,
-      depthTest: false,
-      depthWrite: false,
+      depthTest: true,
+      depthWrite: true,
+      alphaTest: 1 / 255,
     });
     material.positionNode = context.position;
     material.colorNode = context.shader.color;
@@ -100,6 +103,11 @@ function createLetterMaterial(towerGlow: THREE.PointLight) {
  * multiplies the x offsets at render time, so the whole arrangement can be
  * pulled toward the tower (or pushed out) without re-authoring each letter.
  *
+ * The z component is a view-axis offset inside the Billboard: positive is
+ * camera-ward and negative is behind the tower axis. The POC tucks the P
+ * slightly behind the mast so the same Glyph quad is visibly threaded by
+ * the top of the 3D tower.
+ *
  * `center` is the letter's outline-bbox center in em units, measured with
  * opentype.js against the same TTF the GLB is baked from. The old
  * TextGeometry path called `geometry.center()`, making `position` mean "the
@@ -111,7 +119,7 @@ const LETTERS: {
   position: [number, number, number];
   center: [number, number];
 }[] = [
-  { char: "P", position: [-4.5, 20, 0], center: [0.35, 0.355] },
+  { char: "P", position: [-1, 22.3, -0.4], center: [0.35, 0.355] },
   { char: "M", position: [4, 16.5, 0], center: [0.451, 0.355] },
   { char: "N", position: [-6, 13, 0], center: [0.374, 0.355] },
   { char: "D", position: [4.5, 9.5, 0], center: [0.3745, 0.355] },
@@ -132,8 +140,8 @@ export function Lettering({
   worldScale = 1,
   /**
    * The full-res layer this component renders into (see `TextLayer` in
-   * fx.tsx): content portals into its scene, and the frame callback writes
-   * the letters' shared plane depth for the composite's occlusion and fog.
+   * fx.tsx): content portals into its scene; the pass's depth texture carries
+   * the glyph depth used by the composite for occlusion and fog.
    */
   textLayer,
 }: {
@@ -176,17 +184,7 @@ export function Lettering({
     if (measured) setBaselineEm(measured.firstBaseline / size);
   });
 
-  const forward = useMemo(() => new THREE.Vector3(), []);
   useFrame((state) => {
-    // The composite's occlusion/fog depth. All six letters share one
-    // image-parallel plane through the tower's axis (the Billboard pivots
-    // on the scene origin and every letter sits at z = 0), so a single
-    // view-axis distance — camera to that axis plane — serves the whole
-    // group, and the ironwork interleave comes back through one compare.
-    state.camera.getWorldDirection(forward);
-    const depth = -forward.dot(state.camera.position);
-    if (depth > 0) textLayer.planeDepth.value = depth;
-
     // The text scene renders in its own pass, so the sky's IBL has to be
     // mirrored onto it — reference assignments, free when unchanged.
     textLayer.scene.environment = state.scene.environment;

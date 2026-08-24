@@ -5,8 +5,6 @@ import { Canvas } from "@react-three/fiber/webgpu";
 import { Sky } from "@pmndrs/sky/react";
 import * as THREE from "three/webgpu";
 
-import { uniform } from "three/tsl";
-
 import { Buildings } from "./buildings";
 import { Camera, FramingTools } from "./camera";
 import { FX, type TextLayer } from "./fx";
@@ -180,15 +178,14 @@ export function TowerCanvas({
 
   /**
    * The lettering's full-resolution layer (see `TextLayer` in fx.tsx):
-   * `Lettering` portals the letters into `scene` and writes `planeDepth`;
-   * `FX` renders the scene as its own display-res pass after the resolver
-   * and composites it — sharp glyphs over a 1/renderScale world, with the
-   * ironwork interleave restored by one depth compare.
+   * `Lettering` portals the letters into `scene`; `FX` renders that scene as
+   * its own display-res pass after the resolver and composites it — sharp
+   * glyphs over a 1/renderScale world, with the ironwork interleave restored
+   * from the text pass's depth texture.
    */
   const [textLayer] = useState<TextLayer>(() => ({
     scene: new THREE.Scene(),
     camera: new THREE.PerspectiveCamera(),
-    planeDepth: uniform(10) as unknown as TextLayer["planeDepth"],
   }));
 
   const contents = (
