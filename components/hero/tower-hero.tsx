@@ -118,8 +118,9 @@ export function TowerHero({
       frameloop={reducedMotion ? "demand" : "always"}
       intro={!reducedMotion}
       onUiReveal={onUiReveal}
-      // Frees the site-wide loading screen once the scene actually presents.
-      onFirstFrames={markHeroReady}
+      // Frees the site-wide loading screen once the rehearsed scene renders
+      // smoothly — the entrance then replays from the top, jank-free.
+      onWarmedUp={markHeroReady}
       canvasStyle={{ pointerEvents: "none" }}
       // No WebGPU: the design doc's original tower plate, placed to match the
       // 3D framing, so the hero still shows a tower.

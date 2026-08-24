@@ -25,10 +25,10 @@ import {
   PARIS_CITY_DEFAULTS,
 } from "./paris-defaults";
 import { PerfProbe, type PerfSample } from "./perf-probe";
-import { ReadyProbe } from "./ready-probe";
 import { Stars } from "./stars";
 import { Terrain } from "./terrain";
 import { Tower, type TowerMode } from "./tower";
+import { WarmupProbe } from "./warmup-probe";
 
 /** Paris. The whole point of driving the sun from a real solar position. */
 export const PARIS_LATITUDE = 48.8566;
@@ -149,8 +149,13 @@ export interface TowerCanvasProps {
   intro?: boolean;
   /** Fires when the in-scene lettering is far enough along to reveal the UI. */
   onUiReveal?: () => void;
-  /** Fires once assets have resolved and the first frames have rendered. */
-  onFirstFrames?: () => void;
+  /**
+   * Fires once the scene can be shown without jank: assets resolved,
+   * pipelines compiled, frame pacing settled. With `intro`, the entrance is
+   * rehearsed at its final pose while this warms up, then replayed from the
+   * top — so the reveal that follows plays it clean.
+   */
+  onWarmedUp?: () => void;
 }
 
 export function TowerCanvas({
@@ -223,10 +228,13 @@ export function TowerCanvas({
   children,
   intro = false,
   onUiReveal,
-  onFirstFrames,
+  onWarmedUp,
 }: TowerCanvasProps) {
   const towerRef = useRef<THREE.Group>(null);
-  const introClock = useRef(intro ? 0 : INTRO_COMPLETE);
+  // With a warmup consumer attached, the intro opens parked at its final
+  // pose — the dress rehearsal — and `WarmupProbe` rewinds it on reveal.
+  const introHold = useRef(intro && onWarmedUp !== undefined);
+  const introClock = useRef(intro && !introHold.current ? 0 : INTRO_COMPLETE);
   const towerLights = towerLightLevel({ timeOfDay, latitude, dayOfYear });
   const sunLight = useMemo(() => {
     const { elevation, azimuth } = solarPosition({
@@ -272,10 +280,13 @@ export function TowerCanvas({
       <IntroClock
         clock={introClock}
         enabled={intro}
+        hold={introHold}
         onUiReveal={onUiReveal}
       />
 
-      {onFirstFrames && <ReadyProbe onReady={onFirstFrames} />}
+      {onWarmedUp && (
+        <WarmupProbe clock={introClock} hold={introHold} onReady={onWarmedUp} />
+      )}
 
       {/* Stars use their own dome radius and render target pixel size. */}
       {stars && (

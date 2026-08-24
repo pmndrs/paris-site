@@ -17,25 +17,37 @@ const MAX_DT = 1 / 20;
 export function IntroClock({
   clock,
   enabled,
+  hold,
   onUiReveal,
 }: {
   clock: RefObject<number>;
   enabled: boolean;
+  /**
+   * While set, park the clock at the final pose instead of playing: the
+   * dress rehearsal behind the loading screen that compiles every pipeline
+   * the entrance will need. `WarmupProbe` clears it and rewinds the clock.
+   */
+  hold?: RefObject<boolean>;
   onUiReveal?: () => void;
 }) {
   const invalidate = useThree((state) => state.invalidate);
   const cueSent = useRef(false);
 
   useEffect(() => {
-    clock.current = enabled ? 0 : INTRO_COMPLETE;
+    clock.current = enabled && !hold?.current ? 0 : INTRO_COMPLETE;
     cueSent.current = !enabled;
     if (!enabled) onUiReveal?.();
     // Request one frame so reduced motion reaches the final state.
     invalidate();
-  }, [clock, enabled, invalidate, onUiReveal]);
+  }, [clock, enabled, hold, invalidate, onUiReveal]);
 
   useFrame((_, delta) => {
     if (!enabled) {
+      clock.current = INTRO_COMPLETE;
+      return;
+    }
+
+    if (hold?.current) {
       clock.current = INTRO_COMPLETE;
       return;
     }
