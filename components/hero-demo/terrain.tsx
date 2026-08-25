@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { useLocalNodes } from "@react-three/fiber/webgpu";
 import { useSky } from "@pmndrs/sky/react";
 import * as TSL from "three/tsl";
@@ -157,7 +157,8 @@ function makeWaterNodes(skyCube?: THREE.CubeTexture) {
   return { colorNode, roughnessNode, emissiveNode };
 }
 
-export function Terrain({
+/** Memoized for the same reason as `Buildings`: its props never change. */
+export const Terrain = memo(function Terrain({
   river = true,
   park = true,
 }: {
@@ -270,4 +271,4 @@ export function Terrain({
       )}
     </>
   );
-}
+});

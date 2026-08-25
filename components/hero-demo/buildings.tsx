@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useCallback,
   useMemo,
   useRef,
@@ -181,7 +182,33 @@ function useBuildPosition(
   return useLocalNodes(createPositionNodes).positionNode;
 }
 
-export function Buildings({
+/**
+ * Builds a ref callback that uploads a fixed set of instance matrices.
+ *
+ * Memoize the result. React detaches and re-attaches a ref whose identity
+ * changed on *every* commit, so an inline callback here re-uploads every
+ * matrix and re-runs `computeBoundingSphere` — a per-instance
+ * `Matrix4.fromArray` + `Sphere.union` loop — each time the scene re-renders.
+ * Dragging the time dial re-renders per frame, which turned ~22k static
+ * placements into ~500 KB/frame of `queue.writeBuffer` traffic and the single
+ * hottest leaf on the main thread.
+ */
+function instanceMatrixRef(matrices: THREE.Matrix4[]) {
+  return (mesh: THREE.InstancedMesh | null) => {
+    if (!mesh) return;
+    matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  };
+}
+
+/**
+ * Memoized: every prop here is fixed for the life of the canvas, so the city
+ * has no reason to reconcile when the scene above it re-renders. Dragging the
+ * time dial re-renders that scene every frame, and this subtree — four
+ * instanced meshes plus the Haussmann ring — is the bulk of the JSX in it.
+ */
+export const Buildings = memo(function Buildings({
   count = 300,
   lowRiseCount = 10000,
   treeCount = 20000,
@@ -337,21 +364,23 @@ export function Buildings({
   const blockPosition = useBuildPosition(introClock, -0.5);
   const treePosition = useBuildPosition(introClock, -1, "tree");
 
-  const setMatrices = (mesh: THREE.InstancedMesh | null) => {
-    if (!mesh) return;
-    meshRef.current = mesh;
-    instances.matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  };
+  const setMatrices = useMemo(() => {
+    const upload = instanceMatrixRef(instances.matrices);
+    return (mesh: THREE.InstancedMesh | null) => {
+      if (!mesh) return;
+      meshRef.current = mesh;
+      upload(mesh);
+    };
+  }, [instances]);
 
-  const setTreeMatrices = (mesh: THREE.InstancedMesh | null) => {
-    if (!mesh) return;
-    treeRef.current = mesh;
-    trees.matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  };
+  const setTreeMatrices = useMemo(() => {
+    const upload = instanceMatrixRef(trees.matrices);
+    return (mesh: THREE.InstancedMesh | null) => {
+      if (!mesh) return;
+      treeRef.current = mesh;
+      upload(mesh);
+    };
+  }, [trees]);
 
   return (
     <>
@@ -420,7 +449,7 @@ export function Buildings({
       )}
     </>
   );
-}
+});
 
 /**
  * The near ring, stylized: Paris-block bodies with mansard-ish roofs where
@@ -505,19 +534,20 @@ function HaussmannRing({
     return geometry;
   }, []);
 
-  const setFrom =
-    (matrices: THREE.Matrix4[]) => (mesh: THREE.InstancedMesh | null) => {
-      if (!mesh) return;
-      matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingSphere();
-    };
+  const setBodyMatrices = useMemo(
+    () => instanceMatrixRef(placements.bodies),
+    [placements],
+  );
+  const setRoofMatrices = useMemo(
+    () => instanceMatrixRef(placements.roofs),
+    [placements],
+  );
 
   return (
     <>
       <instancedMesh
         key={`hausbody-${placements.bodies.length}`}
-        ref={setFrom(placements.bodies)}
+        ref={setBodyMatrices}
         args={[undefined, undefined, placements.bodies.length]}
         castShadow
         receiveShadow
@@ -538,7 +568,7 @@ function HaussmannRing({
       </instancedMesh>
       <instancedMesh
         key={`hausroof-${placements.roofs.length}`}
-        ref={setFrom(placements.roofs)}
+        ref={setRoofMatrices}
         args={[undefined, undefined, placements.roofs.length]}
         castShadow
         receiveShadow
