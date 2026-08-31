@@ -232,13 +232,24 @@ function noiseSpace(u: CloudUniforms, xzNode: unknown, sheet: number) {
 }
 
 /**
- * Density at a point in noise space: three Perlin octaves for the broad
- * shape, inverted Worley cells for the domes, and a fine octave that fades
- * with distance because it would alias.
+ * Density at a point in noise space: the space itself is first bent by a
+ * low-frequency warp — a smoothstepped boundary through warped coordinates
+ * meanders and curls the way a cloud edge does, where the same boundary
+ * through straight coordinates traces an airbrushed blob. Then three Perlin
+ * octaves for the broad shape, inverted Worley cells for the domes, and a
+ * fine octave that fades with distance because it would alias. The fine
+ * octave is returned too: the caller re-uses it to erode the edges.
  */
 function densityAt(u: CloudUniforms, qNode: unknown, detailNode: unknown) {
-  const q = qNode as Vec2Node;
+  const q0 = qNode as Vec2Node;
   const detail = detailNode as FloatNode;
+  const w1 = TSL.mx_noise_float(
+    TSL.vec3(q0.mul(0.65).add(TSL.vec2(13.7, 7.1)), u.boil.mul(0.9)),
+  );
+  const w2 = TSL.mx_noise_float(
+    TSL.vec3(q0.mul(0.65).add(TSL.vec2(41.3, 23.9)), u.boil.mul(0.9).add(7.0)),
+  );
+  const q = q0.add(TSL.vec2(w1, w2).mul(0.45));
   const p1 = TSL.mx_noise_float(TSL.vec3(q, u.boil));
   const p2 = TSL.mx_noise_float(
     TSL.vec3(q.mul(2.03).add(TSL.vec2(3.7, 1.9)), u.boil.mul(1.3).add(11.0)),
@@ -259,10 +270,11 @@ function densityAt(u: CloudUniforms, qNode: unknown, detailNode: unknown) {
       .clamp(0.0, 1.0),
   );
   const broad = p1.mul(0.55).add(p2.mul(0.28)).add(p3.mul(0.14)).mul(0.5).add(0.5);
-  return broad
+  const d = broad
     .mul(0.58)
     .add(cells.mul(0.42))
     .add(fine.mul(0.09).mul(detail));
+  return { d, fine };
 }
 
 /**
@@ -279,7 +291,8 @@ function coverageAt(
   sheet: number,
 ) {
   const q = noiseSpace(u, xzNode, sheet);
-  const d = densityAt(u, q, detailNode);
+  const detail = detailNode as FloatNode;
+  const { d, fine } = densityAt(u, q, detail);
   const front = TSL.mx_noise_float(
     TSL.vec3(q.mul(0.13), u.boil.mul(0.2).add(41.0)),
   );
@@ -287,9 +300,20 @@ function coverageAt(
   const threshold = TSL.mix(1.05, 0.4, u.cloudiness)
     .add(front.mul(0.14))
     .add(sheet * 0.08);
-  const cover = TSL.smoothstep(threshold, threshold.add(0.38), d);
-  const thick = TSL.smoothstep(threshold, threshold.add(0.6), d);
-  return { q, d, threshold, cover, thick };
+  // Tear the rim: erosion scaled by the square of edge-ness, so cores stay
+  // solid while boundaries fray into wisps. The fine octave is already paid
+  // for; near-zero extra cost.
+  const pre = TSL.smoothstep(threshold, threshold.add(0.38), d);
+  const fray = TSL.float(1.0)
+    .sub(pre)
+    .pow(2.0)
+    .mul(fine.mul(0.5).add(0.5))
+    .mul(0.16)
+    .mul(detail.mul(0.7).add(0.3));
+  const eroded = d.sub(fray);
+  const cover = TSL.smoothstep(threshold, threshold.add(0.38), eroded);
+  const thick = TSL.smoothstep(threshold, threshold.add(0.6), eroded);
+  return { q, d, fine, threshold, cover, thick };
 }
 
 /** The inputs three hands a shadow filter; `shadow` is the light's LightShadow. */
@@ -377,7 +401,7 @@ function makeDeckNodes(
       TSL.smoothstep(u.detailNear, u.detailFar, tEnter),
     );
     const column = coverageAt(u, entry.xz, entryDetail, 0);
-    const dSun = densityAt(u, column.q.add(sunStep), entryDetail);
+    const dSun = densityAt(u, column.q.add(sunStep), entryDetail).d;
     const thickSun = TSL.smoothstep(column.threshold, column.threshold.add(0.6), dSun);
     const occlusion = TSL.smoothstep(-0.15, 0.35, thickSun.sub(column.thick));
     const shade = TSL.float(1.0).sub(
@@ -404,7 +428,7 @@ function makeDeckNodes(
       const detail = TSL.float(1.0).sub(
         TSL.smoothstep(u.detailNear, u.detailFar, t),
       );
-      const { cover, thick } = coverageAt(u, p.xz, detail, 0);
+      const { cover, thick, fine } = coverageAt(u, p.xz, detail, 0);
 
       // A thick column hangs to the slab's bottom; a thin one only fills the
       // top. The sample is inside the cloud above that column's base.
@@ -419,7 +443,11 @@ function makeDeckNodes(
       const fromBelow = shade.mul(TSL.exp(h.sub(base).max(0.0).mul(-2.0)));
       const sun = u.sunRadiance.mul(TSL.mix(fromAbove.mul(TSL.mix(0.35, 1.0, sunAbove)), fromBelow, under));
       const moon = u.moonRadiance.mul(TSL.exp(overhead.mul(-2.0)).mul(0.6));
-      const direct = sun.add(moon).mul(u.sunlight);
+      // The powder term: multiple scattering has not built up in the outer
+      // skin, so it darkens just inside the bright rim — the signature
+      // volumetric cue.
+      const powder = TSL.float(1.0).sub(TSL.exp(inside.mul(-5.0)));
+      const direct = sun.add(moon).mul(u.sunlight).mul(TSL.mix(1.0, powder, 0.55));
 
       // Thin cloud between here and the sun glows with forward scatter.
       const silver = u.sunRadiance
@@ -432,7 +460,10 @@ function makeDeckNodes(
         .mul(u.ambient)
         .mul(TSL.mix(1.0, 0.2, thick))
         .mul(TSL.mix(0.38, 1.0, h))
-        .mul(TSL.float(1.0).sub(occlusion.mul(0.3)));
+        .mul(TSL.float(1.0).sub(occlusion.mul(0.3)))
+        // Mottle the big faces and lift the thin rim, so no area is airbrushed.
+        .mul(fine.mul(0.3).add(0.9))
+        .mul(TSL.float(1.0).add(TSL.exp(inside.mul(-3.0)).mul(0.25)));
 
       const sample = direct
         .div(Math.PI)
