@@ -134,6 +134,7 @@ export interface TowerCanvasProps {
   unlocked?: boolean;
   padding?: number;
   polarDegrees?: number;
+  initialAzimuthDegrees?: number;
   autoRotate?: boolean;
   autoRotateSpeed?: number;
   // post
@@ -248,6 +249,7 @@ export function TowerCanvas({
   unlocked = false,
   padding = 0.1,
   polarDegrees = 93,
+  initialAzimuthDegrees = 0,
   autoRotate = true,
   autoRotateSpeed = 2,
   postFx = true,
@@ -379,6 +381,7 @@ export function TowerCanvas({
         padding={padding}
         autoRotate={autoRotate}
         autoRotateSpeed={autoRotateSpeed}
+        initialAzimuthDegrees={initialAzimuthDegrees}
         polarDegrees={polarDegrees}
         unlocked={unlocked}
         worldScale={worldScale}

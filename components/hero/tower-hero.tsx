@@ -18,6 +18,8 @@ const PRIMARY = "main";
 // Dark blue ground reflectance keeps the horizon saturated.
 // Stable identity prevents unnecessary sky rebakes.
 const HERO_GROUND_ALBEDO = { x: 0.025, y: 0.075, z: 0.18 } as const;
+/** Winter-solstice arc: a low sun that stays close to the Paris horizon. */
+const HERO_DAY_OF_YEAR = 355;
 
 /**
  * Idle this canvas without touching the frame loop.
@@ -132,10 +134,15 @@ export function TowerHero({
       {...PARIS_ATMOSPHERE_DEFAULTS}
       canvasId={PRIMARY}
       timeOfDay={hours}
+      dayOfYear={HERO_DAY_OF_YEAR}
       exposure={exposure}
       // A clear, saturated "bleu nuit" horizon lets the stars stay crisp.
       turbidity={0}
       groundAlbedo={HERO_GROUND_ALBEDO}
+      // Begin just before the winter sunset arc so the slow rotation approaches
+      // and passes the sun instead of starting with it already centered.
+      // The shared demo keeps its neutral 0° default.
+      initialAzimuthDegrees={36}
       autoRotateSpeed={reducedMotion ? 0 : 1}
       frameloop={reducedMotion ? "demand" : "always"}
       intro={!reducedMotion}

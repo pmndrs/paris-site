@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { CameraControls, CameraControlsImpl } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber/webgpu";
 import { button, useControls } from "leva";
@@ -32,6 +32,13 @@ export interface FramingOptions {
    * continuous drift wants to be applied directly.
    */
   autoRotateSpeed?: number;
+  /**
+   * Orbit bearing used for the first successful fit, in degrees.
+   *
+   * Later fits preserve the live bearing so a resize never snaps away from a
+   * user's drag or the accumulated auto-rotation.
+   */
+  initialAzimuthDegrees?: number;
   /** Locked orbit elevation, degrees. 90 is level with the horizon. */
   polarDegrees?: number;
   /**
@@ -81,6 +88,7 @@ export function Camera({
   padding = 0.1,
   autoRotate = true,
   autoRotateSpeed = 2,
+  initialAzimuthDegrees = 0,
   polarDegrees = 93,
   unlocked = false,
   worldScale = 1,
@@ -91,6 +99,7 @@ export function Camera({
   const size = useThree((state) => state.size);
   const camera = useThree((state) => state.camera);
   const controls = useThree((state) => state.controls) as CameraControlsImpl;
+  const hasFramed = useRef(false);
 
   // Clip planes track worldScale. `<Canvas camera={{ near, far }}>` only applies
   // at creation, so scaling the world afterwards left the far plane at three's
@@ -151,9 +160,12 @@ export function Camera({
     if (!Number.isFinite(distance) || distance <= 0) return false;
 
     const polar = THREE.MathUtils.degToRad(polarDegrees);
-    const azimuth = Number.isFinite(controls.azimuthAngle)
+    const liveAzimuth = Number.isFinite(controls.azimuthAngle)
       ? controls.azimuthAngle
       : 0;
+    const azimuth = hasFramed.current
+      ? liveAzimuth
+      : THREE.MathUtils.degToRad(initialAzimuthDegrees);
 
     const sinPolar = Math.sin(polar);
     const position = new THREE.Vector3(
@@ -177,12 +189,21 @@ export function Camera({
       _center.z,
       false,
     );
+    hasFramed.current = true;
     if (!unlocked) {
       controls.minPolarAngle = polar;
       controls.maxPolarAngle = polar;
     }
     return true;
-  }, [controls, camera, targetRef, padding, polarDegrees, unlocked]);
+  }, [
+    controls,
+    camera,
+    targetRef,
+    padding,
+    polarDegrees,
+    initialAzimuthDegrees,
+    unlocked,
+  ]);
 
   useEffect(() => {
     if (!controls) return;
