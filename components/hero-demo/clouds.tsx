@@ -122,9 +122,9 @@ export interface CloudsOptions {
 /** Slab depth, city units: how far a fully thick column hangs below the layer top. */
 const DECK_THICKNESS = 90;
 /** Samples per view ray through the slab. */
-const MARCH_STEPS = 5;
+const MARCH_STEPS = 6;
 /** Extinction per step through a fully dense sample. */
-const STEP_EXTINCTION = 2.4;
+const STEP_EXTINCTION = 2.0;
 /** How much of the deck's underside radiance comes back down as fill. */
 const GLOW_GAIN = 0.6;
 /** Base-octave noise frequency, per city unit: lumps a few hundred metres across. */
@@ -331,19 +331,6 @@ export function cloudShadowFilter(base: ShadowFilter): ShadowFilter {
 }
 
 /**
- * Interleaved gradient noise, stepped through the golden ratio each frame:
- * a per-pixel offset that dithers the march, and one the temporal resolver
- * averages away instead of printing as a fixed stipple.
- */
-function ditherAt(px: unknown) {
-  const p = px as Vec2Node;
-  const ign = TSL.fract(
-    TSL.float(52.9829189).mul(TSL.fract(p.x.mul(0.06711056).add(p.y.mul(0.00583715)))),
-  );
-  return TSL.fract(ign.add(TSL.time.mul(60.0 * 0.61803398875)));
-}
-
-/**
  * The dome's shader graph: march the view ray through the slab from its
  * bottom to its top, lighting each sample, and composite front to back.
  */
@@ -403,12 +390,14 @@ function makeDeckNodes(
     );
     const glow = TSL.vec3(1.0, 0.6, 0.3).mul(nearCity).mul(u.night).mul(0.25);
 
-    const dither = ditherAt(TSL.screenCoordinate);
+    // No dither: FSR treats per-pixel noise as instability and clamps it in
+    // visible tiles. Six mid-point samples through transitions this soft
+    // band less than the noise cost.
     const transmittance = TSL.float(1.0).toVar();
     const accumulated = TSL.vec3(0.0).toVar();
 
     for (let i = 0; i < MARCH_STEPS; i++) {
-      const t = tEnter.add(span.mul(TSL.float(i).add(dither).div(MARCH_STEPS)));
+      const t = tEnter.add(span.mul((i + 0.5) / MARCH_STEPS));
       const p = cam.add(V.mul(t));
       // Height within the slab: 0 at the bottom, 1 at the top.
       const h = p.y.sub(bottom).div(u.thickness);
@@ -420,7 +409,7 @@ function makeDeckNodes(
       // A thick column hangs to the slab's bottom; a thin one only fills the
       // top. The sample is inside the cloud above that column's base.
       const base = TSL.float(1.0).sub(thick);
-      const inside = TSL.smoothstep(base.sub(0.08), base.add(0.12), h).mul(cover);
+      const inside = TSL.smoothstep(base.sub(0.15), base.add(0.18), h).mul(cover);
 
       // Light from above falls off through the cloud overhead; light from
       // under the layer reaches the base straight on, shaded by the lumps
