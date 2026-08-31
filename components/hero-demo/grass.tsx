@@ -44,11 +44,22 @@ function makeBladeGeometry() {
     1, 0,
     0.5, 1,
   ]);
+  // Up-facing roots receive the same light as the horizontal lawn. Normals
+  // curve toward each triangle's face at the tip, so the upper blade still
+  // catches highlights and reads clearly against the ground.
+  const normals = new Float32Array([
+    0, 1, 0,
+    0, 1, 0,
+    0, 0.12, 0.9928,
+    0, 1, 0,
+    0, 1, 0,
+    -0.9928, 0.12, 0,
+  ]);
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
-  geometry.computeVertexNormals();
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
   return geometry;
 }
 
@@ -109,12 +120,12 @@ function makeGrassNodes(
   const lowerColor = TSL.mix(
     TSL.color(PARK_COLOR),
     TSL.color(GRASS_MID_COLOR),
-    TSL.smoothstep(0, 0.62, gradientY),
+    TSL.smoothstep(0.16, 0.66, gradientY),
   );
   const colorNode = TSL.mix(
     lowerColor,
     TSL.color(GRASS_TIP_COLOR).mul(tone),
-    TSL.smoothstep(0.42, 1, gradientY),
+    TSL.smoothstep(0.48, 1, gradientY),
   );
 
   return { colorNode, positionNode };
@@ -277,7 +288,7 @@ export const Grass = memo(function Grass({
       <meshStandardNodeMaterial
         colorNode={nodes.colorNode}
         positionNode={nodes.positionNode}
-        roughness={0.96}
+        roughness={1}
         metalness={0}
         side={THREE.DoubleSide}
       />
