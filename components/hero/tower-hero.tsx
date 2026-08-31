@@ -152,10 +152,10 @@ export function TowerHero({
       // A clear, saturated "bleu nuit" horizon lets the stars stay crisp.
       turbidity={0}
       groundAlbedo={HERO_GROUND_ALBEDO}
-      // Begin just before the equinox sunset arc so the slow rotation approaches
-      // and passes the sun instead of starting with it already centered.
+      // Face the morning equinox arc reached halfway through the dial cycle.
+      // A small offset keeps the sun beside the tower instead of behind it.
       // The shared demo keeps its neutral 0° default.
-      initialAzimuthDegrees={74}
+      initialAzimuthDegrees={268}
       autoRotateSpeed={reducedMotion ? 0 : 1}
       frameloop={reducedMotion ? "demand" : "always"}
       intro={!reducedMotion}
