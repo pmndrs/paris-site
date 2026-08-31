@@ -527,7 +527,7 @@ function makePuffNodes(
 
   // The gate: the sheet's own coverage where this sprite floats. Condense
   // inside a streak, thin out in its saturated core, vanish outside it.
-  const { cover, thick } = coverageAt(u, offset.xz, TSL.float(0.0));
+  const { cover, thick } = coverageAt(u, offset.xz, TSL.float(0.0), 0);
   const gate = TSL.smoothstep(0.22, 0.5, cover).mul(
     TSL.float(1.0).sub(TSL.smoothstep(0.8, 1.0, cover).mul(0.5)),
   );
