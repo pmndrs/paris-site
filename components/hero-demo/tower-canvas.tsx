@@ -79,8 +79,6 @@ export interface TowerCanvasProps {
   /** Stylized triangular blades on the round lawn around the tower. */
   grass?: boolean;
   grassCount?: number;
-  /** Grass motion strength; zero freezes the blades. */
-  grassWind?: number;
   river?: boolean;
   park?: boolean;
   haussmann?: boolean;
@@ -236,7 +234,6 @@ export function TowerCanvas({
   treeShadows = PARIS_CITY_DEFAULTS.treeShadows,
   grass = PARIS_CITY_DEFAULTS.grass,
   grassCount = PARIS_CITY_DEFAULTS.grassCount,
-  grassWind = PARIS_CITY_DEFAULTS.grassWind,
   river = PARIS_CITY_DEFAULTS.river,
   park = PARIS_CITY_DEFAULTS.park,
   haussmann = PARIS_CITY_DEFAULTS.haussmann,
@@ -439,7 +436,6 @@ export function TowerCanvas({
           park={park}
           grass={grass}
           grassCount={grassCount}
-          grassWind={grassWind}
         />
 
         {buildings && (

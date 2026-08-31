@@ -24,7 +24,6 @@ export function HeroDemoScene({
     treeShadows,
     grass,
     grassCount,
-    grassWind,
     river,
     park,
     haussmann,
@@ -53,14 +52,8 @@ export function HeroDemoScene({
     grassCount: {
       value: PARIS_CITY_DEFAULTS.grassCount,
       min: 0,
-      max: 20_000,
-      step: 500,
-    },
-    grassWind: {
-      value: PARIS_CITY_DEFAULTS.grassWind,
-      min: 0,
-      max: 2,
-      step: 0.05,
+      max: 10_000,
+      step: 200,
     },
     // Geography experiments (geography.ts owns the shapes): the Seine-ish
     // spline, the Champ-de-Mars strip, and the stylized near ring. Each
@@ -360,7 +353,6 @@ export function HeroDemoScene({
       treeShadows={treeShadows}
       grass={grass}
       grassCount={grassCount}
-      grassWind={grassWind}
       river={river}
       park={park}
       haussmann={haussmann}

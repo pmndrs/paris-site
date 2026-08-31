@@ -162,14 +162,12 @@ export const Terrain = memo(function Terrain({
   river = true,
   park = true,
   grass = true,
-  grassCount = 4_000,
-  grassWind = 0.65,
+  grassCount = 2_400,
 }: {
   river?: boolean;
   park?: boolean;
   grass?: boolean;
   grassCount?: number;
-  grassWind?: number;
 }) {
   // Null when sky is disabled — the water then falls back to plain dark.
   const sky = useSky();
@@ -263,7 +261,7 @@ export const Terrain = memo(function Terrain({
             />
           </mesh>
 
-          {grass && <Grass count={grassCount} wind={grassWind} />}
+          {grass && <Grass count={grassCount} />}
         </>
       )}
 

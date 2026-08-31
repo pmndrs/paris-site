@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo } from "react";
 import { useLocalNodes } from "@react-three/fiber/webgpu";
 import * as TSL from "three/tsl";
 import * as THREE from "three/webgpu";
@@ -26,40 +26,60 @@ function makeRng(seed: number) {
   };
 }
 
-/** Two crossed, low-poly triangles keep each blade visible from every orbit. */
+/** Two crossed, tapered ribbons keep each blade visible from every orbit. */
 function makeBladeGeometry() {
   const positions = new Float32Array([
+    // X ribbon: narrow through the middle, then lean gently along +Z.
     -0.5, 0, 0,
     0.5, 0, 0,
-    0, 1, 0,
+    -0.28, 0.56, 0.04,
+    0.28, 0.56, 0.04,
+    0, 1, 0.14,
+    // Z ribbon: the same profile, leaning in a different direction.
     0, 0, -0.5,
     0, 0, 0.5,
-    0, 1, 0,
+    -0.04, 0.56, -0.28,
+    -0.04, 0.56, 0.28,
+    -0.14, 1, 0,
   ]);
   const uvs = new Float32Array([
     0, 0,
     1, 0,
+    0.18, 0.56,
+    0.82, 0.56,
     0.5, 1,
     0, 0,
     1, 0,
+    0.18, 0.56,
+    0.82, 0.56,
     0.5, 1,
   ]);
-  // Up-facing roots receive the same light as the horizontal lawn. Normals
-  // curve toward each triangle's face at the tip, so the upper blade still
-  // catches highlights and reads clearly against the ground.
-  const normals = new Float32Array([
-    0, 1, 0,
-    0, 1, 0,
-    0, 0.12, 0.9928,
-    0, 1, 0,
-    0, 1, 0,
-    -0.9928, 0.12, 0,
-  ]);
+  const indices: number[] = [];
+  for (const offset of [0, 5]) {
+    const front = [
+      offset, offset + 1, offset + 3,
+      offset, offset + 3, offset + 2,
+      offset + 2, offset + 3, offset + 4,
+    ];
+    indices.push(...front);
+    // Explicit reverse winding keeps both faces visible without DoubleSide's
+    // back-face normal flip, which made alternate cards almost black.
+    for (let i = 0; i < front.length; i += 3) {
+      indices.push(front[i], front[i + 2], front[i + 1]);
+    }
+  }
+
+  // Grass this small cannot carry stable face lighting after temporal
+  // reconstruction. Up-facing normals make every orientation shade like the
+  // lawn; the authored color gradient supplies the blade shape instead.
+  const normals = new Float32Array(positions.length);
+  for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
   geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geometry.setIndex(indices);
   return geometry;
 }
 
@@ -69,91 +89,51 @@ function isLawn(x: number, z: number) {
 }
 
 function makeGrassNodes(
-  traitAttribute: THREE.InstancedBufferAttribute,
-  originAttribute: THREE.InstancedBufferAttribute,
-  wind: THREE.UniformNode<"float", number>,
+  toneAttribute: THREE.InstancedBufferAttribute,
 ) {
-  const trait = TSL.instancedBufferAttribute(
-    traitAttribute,
-  ) as unknown as ReturnType<typeof TSL.vec4>;
-  const origin = TSL.instancedBufferAttribute(
-    originAttribute,
-  ) as unknown as ReturnType<typeof TSL.vec3>;
-
-  const bladeY = TSL.positionGeometry.y.clamp(0, 1);
-  const tipWeight = bladeY.mul(bladeY);
-  const clock = TSL.time;
-
-  // Two detuned waves prevent the whole park from bowing in lockstep. The
-  // second term crosses the first slightly, producing small travelling gusts.
-  const primary = TSL.sin(
-    clock
-      .mul(1.15)
-      .add(origin.x.mul(0.21))
-      .add(origin.z.mul(0.13))
-      .add(trait.x),
-  );
-  const gust = TSL.sin(
-    clock
-      .mul(0.54)
-      .sub(origin.x.mul(0.07))
-      .add(origin.z.mul(0.18))
-      .add(trait.x.mul(1.7)),
-  );
-  const amount = primary
-    .mul(0.68)
-    .add(gust.mul(0.32))
-    .mul(trait.y)
-    .mul(trait.z)
-    .mul(wind)
-    .mul(tipWeight)
-    .mul(0.2);
-
-  const positionNode = TSL.vec3(
-    TSL.positionLocal.x.add(amount.mul(0.82)),
-    TSL.positionLocal.y.sub(TSL.abs(amount).mul(tipWeight).mul(0.035)),
-    TSL.positionLocal.z.add(amount.mul(0.57)),
-  );
-
-  const tone = trait.w.sub(0.5).mul(0.22).add(1);
+  const tone = (
+    TSL.instancedBufferAttribute(toneAttribute) as unknown as ReturnType<
+      typeof TSL.float
+    >
+  )
+    .sub(0.5)
+    .mul(0.08)
+    .add(1);
   const gradientY = TSL.uv().y.clamp(0, 1);
   const lowerColor = TSL.mix(
     TSL.color(PARK_COLOR),
     TSL.color(GRASS_MID_COLOR),
-    TSL.smoothstep(0.16, 0.66, gradientY),
+    TSL.smoothstep(0.2, 0.78, gradientY),
   );
   const colorNode = TSL.mix(
     lowerColor,
     TSL.color(GRASS_TIP_COLOR).mul(tone),
-    TSL.smoothstep(0.48, 1, gradientY),
+    TSL.smoothstep(0.64, 1, gradientY),
   );
 
-  return { colorNode, positionNode };
+  return { colorNode };
 }
 
 /**
- * A single draw call of tiny crossed triangles around the tower's round lawn.
- * Placement is deterministic; only the vertex tips move, entirely on the GPU.
+ * A single draw call of static bent ribbons around the tower's round lawn.
+ * Placement is deterministic and intentionally broad enough to survive the
+ * hero's reduced-resolution temporal reconstruction without shimmering.
  */
 export const Grass = memo(function Grass({
-  count = 4_000,
-  wind: windStrength = 0.65,
+  count = 2_400,
 }: {
   count?: number;
-  /** Motion strength. Zero freezes the blades for reduced-motion visitors. */
-  wind?: number;
 }) {
   const bladeCount = Math.max(0, Math.floor(count));
   const placement = useMemo(() => {
     const random = makeRng(GRASS_SEED);
     const dummy = new THREE.Object3D();
     const matrices: THREE.Matrix4[] = [];
-    const origins: number[] = [];
-    const traits: number[] = [];
+    const tones: number[] = [];
 
-    // Each accepted point is a tuft rather than a lone blade. A shared phase,
-    // height family, and green tone ties its members together visually while
-    // small offsets and rotations keep it from looking stamped.
+    // Each accepted point is a tuft rather than a lone blade. A shared height
+    // family and green tone tie its members together visually while small
+    // offsets and rotations keep it from looking stamped.
     for (
       let attempts = 0;
       matrices.length < bladeCount && attempts < bladeCount * 8;
@@ -177,8 +157,8 @@ export const Grass = memo(function Grass({
       // A smooth radial fade opens those gaps further near the ring path.
       const patch =
         0.62 +
-        Math.sin(centreX * 0.24 + Math.sin(centreZ * 0.11)) * 0.18 +
-        Math.sin(centreZ * 0.17 - centreX * 0.08) * 0.12;
+        Math.sin(centreX * 0.24 + Math.sin(centreZ * 0.11)) * 0.1 +
+        Math.sin(centreZ * 0.17 - centreX * 0.08) * 0.07;
       const lawnRadius = PARK_RING_PATH_INNER - PATH_MARGIN;
       const edgeT = THREE.MathUtils.smoothstep(
         centreRadius / lawnRadius,
@@ -188,14 +168,13 @@ export const Grass = memo(function Grass({
       const edgeDensity = THREE.MathUtils.lerp(1, 0.08, edgeT);
       if (random() > patch * edgeDensity) continue;
 
-      const tuftSize = random() < 0.76 ? 3 + Math.floor(random() * 4) : 1;
-      const tuftSpread = THREE.MathUtils.lerp(0.26, 0.72, random());
+      const tuftSize = random() < 0.76 ? 2 + Math.floor(random() * 3) : 1;
+      const tuftSpread = THREE.MathUtils.lerp(0.22, 0.55, random());
       const tuftHeight = THREE.MathUtils.lerp(
-        0.4,
-        0.86,
+        0.34,
+        0.7,
         Math.pow(random(), 1.35),
       );
-      const tuftPhase = random() * Math.PI * 2;
       const tuftTone = random();
 
       for (
@@ -211,12 +190,10 @@ export const Grass = memo(function Grass({
         if (!isLawn(x, z)) continue;
 
         const height = tuftHeight * THREE.MathUtils.lerp(0.78, 1.14, random());
-        const width = THREE.MathUtils.lerp(0.065, 0.13, random());
+        const width = THREE.MathUtils.lerp(0.1, 0.17, random());
         const rotation = random() * Math.PI;
-        const phase = tuftPhase + THREE.MathUtils.lerp(-0.18, 0.18, random());
-        const flexibility = THREE.MathUtils.lerp(0.82, 1.14, random());
         const tone = THREE.MathUtils.clamp(
-          tuftTone + THREE.MathUtils.lerp(-0.1, 0.1, random()),
+          tuftTone + THREE.MathUtils.lerp(-0.06, 0.06, random()),
           0,
           1,
         );
@@ -226,41 +203,25 @@ export const Grass = memo(function Grass({
         dummy.scale.set(width, height, width);
         dummy.updateMatrix();
         matrices.push(dummy.matrix.clone());
-        origins.push(x, PARK_SURFACE_Y, z);
-        traits.push(phase, height, flexibility, tone);
+        tones.push(tone);
       }
     }
 
     const geometry = makeBladeGeometry();
-    const originAttribute = new THREE.InstancedBufferAttribute(
-      new Float32Array(origins),
-      3,
+    const toneAttribute = new THREE.InstancedBufferAttribute(
+      new Float32Array(tones),
+      1,
     );
-    const traitAttribute = new THREE.InstancedBufferAttribute(
-      new Float32Array(traits),
-      4,
-    );
-    geometry.setAttribute("grassOrigin", originAttribute);
-    geometry.setAttribute("grassTrait", traitAttribute);
+    geometry.setAttribute("grassTone", toneAttribute);
 
-    return { geometry, matrices, originAttribute, traitAttribute };
+    return { geometry, matrices, toneAttribute };
   }, [bladeCount]);
 
   useEffect(() => () => placement.geometry.dispose(), [placement.geometry]);
 
-  const [wind] = useState(() => TSL.uniform(windStrength, "float"));
-  useEffect(() => {
-    wind.value = windStrength;
-  }, [wind, windStrength]);
-
   const createNodes = useCallback(
-    () =>
-      makeGrassNodes(
-        placement.traitAttribute,
-        placement.originAttribute,
-        wind,
-      ),
-    [placement.originAttribute, placement.traitAttribute, wind],
+    () => makeGrassNodes(placement.toneAttribute),
+    [placement.toneAttribute],
   );
   const nodes = useLocalNodes(createNodes);
 
@@ -287,10 +248,9 @@ export const Grass = memo(function Grass({
     >
       <meshStandardNodeMaterial
         colorNode={nodes.colorNode}
-        positionNode={nodes.positionNode}
         roughness={1}
         metalness={0}
-        side={THREE.DoubleSide}
+        side={THREE.FrontSide}
       />
     </instancedMesh>
   );

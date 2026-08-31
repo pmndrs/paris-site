@@ -5,8 +5,7 @@ export const PARIS_CITY_DEFAULTS = {
   treeCount: 20_000,
   treeShadows: false,
   grass: true,
-  grassCount: 4_000,
-  grassWind: 0.65,
+  grassCount: 2_400,
   river: true,
   park: true,
   haussmann: true,
@@ -17,7 +16,7 @@ export const PARIS_CITY_DEFAULTS = {
 export const PARIS_HOMEPAGE_CITY_DEFAULTS = {
   ...PARIS_CITY_DEFAULTS,
   treeCount: 12_000,
-  grassCount: 3_000,
+  grassCount: 1_800,
 } as const;
 
 /** The demo's inexpensive dusk environment and aerial-depth treatment. */

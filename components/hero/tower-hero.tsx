@@ -145,9 +145,6 @@ export function TowerHero({
       {...PARIS_CLOUD_DEFAULTS}
       // Still weather for visitors who asked for reduced motion.
       cloudWind={reducedMotion ? 0 : PARIS_CLOUD_DEFAULTS.cloudWind}
-      grassWind={
-        reducedMotion ? 0 : PARIS_HOMEPAGE_CITY_DEFAULTS.grassWind
-      }
       canvasId={PRIMARY}
       timeOfDay={hours}
       dayOfYear={HERO_DAY_OF_YEAR}
