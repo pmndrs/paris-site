@@ -253,7 +253,10 @@ function bakeFieldTexture(renderer: THREE.WebGPURenderer) {
   const P = BAKE_PERIOD;
   const pos = TSL.uv().mul(P);
   /** Evaluate a field on the torus: blend the four period-shifted reads. */
-  const tiled = (f: (q: Vec2Node) => FloatNode) => {
+  // Blending four independent reads compresses variance toward the mean —
+  // the tile would come out washed out and the thresholds would starve.
+  // Dividing the deviation by the blend weights' RMS restores it.
+  const tiled = (f: (q: Vec2Node) => FloatNode, mean: number) => {
     const q = pos as unknown as Vec2Node;
     const n00 = f(q);
     const n10 = f(q.sub(TSL.vec2(P, 0)) as unknown as Vec2Node);
@@ -261,7 +264,15 @@ function bakeFieldTexture(renderer: THREE.WebGPURenderer) {
     const n11 = f(q.sub(TSL.vec2(P, P)) as unknown as Vec2Node);
     const wx = TSL.uv().x;
     const wy = TSL.uv().y;
-    return TSL.mix(TSL.mix(n00, n10, wx), TSL.mix(n01, n11, wx), wy);
+    const blended = TSL.mix(TSL.mix(n00, n10, wx), TSL.mix(n01, n11, wx), wy);
+    const rms = TSL.sqrt(
+      wx.mul(wx).add(TSL.float(1.0).sub(wx).pow(2.0)),
+    ).mul(TSL.sqrt(wy.mul(wy).add(TSL.float(1.0).sub(wy).pow(2.0))));
+    return blended
+      .sub(mean)
+      .div(TSL.max(rms, 1e-3))
+      .add(mean)
+      .clamp(0.0, 1.0);
   };
 
   const broad = tiled((q) =>
@@ -271,22 +282,22 @@ function bakeFieldTexture(renderer: THREE.WebGPURenderer) {
       .add(TSL.mx_noise_float(TSL.vec3(q.mul(4.1).add(TSL.vec2(9.1, 5.3)), 23.0)).mul(0.14))
       .mul(0.5)
       .add(0.5) as unknown as FloatNode,
-  );
+  0.5);
   const cells = tiled((q) =>
     TSL.float(1.0).sub(
       TSL.mx_worley_noise_float(q.mul(1.15), 1.0).mul(1.1).clamp(0.0, 1.0),
     ) as unknown as FloatNode,
-  );
+  0.42);
   const fine = tiled((q) =>
     TSL.mx_noise_float(TSL.vec3(q.mul(8.3).add(TSL.vec2(2.2, 7.7)), 31.0))
       .mul(0.5)
       .add(0.5) as unknown as FloatNode,
-  );
+  0.5);
   const warp = tiled((q) =>
     TSL.mx_noise_float(TSL.vec3(q.mul(0.65).add(TSL.vec2(13.7, 7.1)), 5.0))
       .mul(0.5)
       .add(0.5) as unknown as FloatNode,
-  );
+  0.5);
 
   const material = new THREE.NodeMaterial();
   material.colorNode = TSL.vec4(broad, cells, fine, warp);
@@ -322,7 +333,12 @@ function fieldAt(u: CloudUniforms, qNode: unknown) {
   };
   const uv0 = q.add(offsetOf(i0)).div(BAKE_PERIOD);
   const uv1 = q.add(offsetOf(i0.add(1.0))).div(BAKE_PERIOD);
-  const sample = TSL.mix(fieldTexNode.sample(uv0), fieldTexNode.sample(uv1), blend);
+  const mixed = TSL.mix(fieldTexNode.sample(uv0), fieldTexNode.sample(uv1), blend);
+  // Blending two independent taps also compresses variance; restore it, or
+  // the coverage breathes with the morph phase.
+  const rms = TSL.sqrt(blend.mul(blend).add(TSL.float(1.0).sub(blend).pow(2.0)));
+  const means = TSL.vec4(0.5, 0.42, 0.5, 0.5);
+  const sample = mixed.sub(means).div(TSL.max(rms, 1e-3)).add(means).clamp(0.0, 1.0);
   return {
     broad: sample.r,
     cells: sample.g,
