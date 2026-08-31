@@ -1,8 +1,7 @@
 "use client";
 
 import { Logo } from "@/components/brand/logo";
-import { Button } from "@/components/ui/button";
-import { HERO, REGISTER_URL } from "@/lib/content";
+import { HERO } from "@/lib/content";
 import { useScrollSpy } from "@/lib/use-scroll-spy";
 import { cn } from "@/lib/utils";
 
@@ -43,21 +42,6 @@ export function SiteHeader() {
         >
           <Logo color="currentColor" className="size-6 shrink-0" />
         </a>
-
-        <Button
-          asChild
-          size="sm"
-          className={cn(
-            "h-11 px-5 text-sm transition-shadow duration-500 sm:h-8 sm:px-4 sm:text-[0.8rem]",
-            shown
-              ? "shadow-none"
-              : "shadow-[0_0_24px_rgba(255,255,255,0.2)]",
-          )}
-        >
-          <a href={REGISTER_URL} target="_blank" rel="noopener noreferrer">
-            Register
-          </a>
-        </Button>
       </div>
 
       {/* Continuous page progress without section markers. */}

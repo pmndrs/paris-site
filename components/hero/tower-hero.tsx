@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useFrame } from "@react-three/fiber/webgpu";
 import { solarPosition } from "@pmndrs/sky";
 
@@ -103,6 +103,79 @@ function useSixtyHzLoop(enabled: boolean) {
   }, [enabled, scheduler]);
 }
 
+// --- Promo capture sequence -------------------------------------------------
+// Hardcoded for the conference promo video: start from a bare scene, then
+// layer the effects back in one at a time with a caption for each step.
+// Step 0 is the baseline (sky, stars, fsr, ssgi, ao, bloom all disabled).
+const PROMO_STEP_MS = 4000;
+/** Shorter hold on the bare baseline before the sky arrives. */
+const PROMO_FIRST_STEP_MS = 700;
+/** How long each effect takes to blend from zero to its target. */
+const PROMO_BLEND_MS = 1600;
+const PROMO_CAPTIONS = [
+  null,
+  "sky enabled",
+  "ambient occlusion enabled",
+  "bloom enabled",
+  "fsr enabled",
+  "ssgi enabled",
+] as const;
+const PROMO_LAST_STEP = PROMO_CAPTIONS.length - 1;
+/** Time of day (solar hours) the sky arrives at as it fades in. */
+const PROMO_TIME_OF_DAY = 20.2;
+
+/** Smoothstep ease shared by every effect blend. */
+const ease = (t: number) => t * t * (3 - 2 * t);
+
+/**
+ * Advances the promo step every `PROMO_STEP_MS` once `started` flips true,
+ * stopping at the final step, and eases each step's blend from 0 to 1 over
+ * `PROMO_BLEND_MS`.
+ *
+ * The whole pipeline (sky, stars, bloom, FSR, SSGI) is compiled once up
+ * front, and every "enable" is a runtime uniform ramp — never a graph
+ * rebuild — so effects dissolve in with no stall.
+ */
+function usePromoSequence(started: boolean) {
+  const [step, setStep] = useState(0);
+  const [blend, setBlend] = useState(1);
+
+  useEffect(() => {
+    if (!started) return;
+    const timers: number[] = [];
+    let raf = 0;
+
+    let current = 0;
+    const advance = () => {
+      if (current >= PROMO_LAST_STEP) return;
+      current += 1;
+      setStep(current);
+
+      // Ease the newly enabled effect in from zero.
+      cancelAnimationFrame(raf);
+      const startedAt = performance.now();
+      const ramp = (now: number) => {
+        const t = Math.min(1, (now - startedAt) / PROMO_BLEND_MS);
+        setBlend(ease(t));
+        if (t < 1) raf = requestAnimationFrame(ramp);
+      };
+      setBlend(0);
+      raf = requestAnimationFrame(ramp);
+
+      timers.push(window.setTimeout(advance, PROMO_STEP_MS));
+    };
+    // The dark baseline reads quickly; move on to the sky sooner.
+    timers.push(window.setTimeout(advance, PROMO_FIRST_STEP_MS));
+
+    return () => {
+      timers.forEach((t) => window.clearTimeout(t));
+      cancelAnimationFrame(raf);
+    };
+  }, [started]);
+
+  return { step, blend };
+}
+
 /** Static fallback shown when WebGPU is unavailable. */
 function FallbackPoster() {
   return (
@@ -150,6 +223,10 @@ export function TowerHero({
   const support = useWebGPU();
   // Matches the canvas's `frameloop`: "never" is only passed when this arms.
   useSixtyHzLoop(!reducedMotion && support === "yes");
+  // The sequence starts once the intro has settled, so the recording opens on
+  // the bare scene rather than mid-boot.
+  const [promoStarted, setPromoStarted] = useState(false);
+  const { step: promoStep, blend } = usePromoSequence(promoStarted);
 
   useEffect(() => {
     if (support !== "no") return;
@@ -163,6 +240,7 @@ export function TowerHero({
       const state = heroGate.getState();
       if (state === "revealing-final" || state === "settled") {
         onUiReveal?.();
+        setPromoStarted(true);
       }
     };
 
@@ -174,8 +252,32 @@ export function TowerHero({
   if (support === "checking") return null;
   if (support === "no") return <FallbackPoster />;
 
-  // Slider fraction → solar hours for the sky.
-  const hours = (value / 100) * 24;
+  // Per-step blend: 0 before the step, easing 0→1 during it, 1 after it.
+  const stepBlend = (s: number) =>
+    promoStep > s ? 1 : promoStep === s ? blend : 0;
+
+  // Promo sequence: the full pipeline (sky, stars, AO, bloom, FSR, SSGI) is
+  // compiled once at boot; each step ramps a runtime value so effects blend
+  // in seamlessly with no graph rebuild.
+  //
+  // - Sky "enables" by ramping its exposure up from black; stars ride the
+  //   same ramp through their live intensity uniform, and the hour eases to
+  //   20.2 on the same ramp so the sky arrives already at its target time.
+  // - AO comes from the SSGI pass's own AO term (GTAO is superseded when
+  //   SSGI is compiled in), blended via `aoBlend`.
+  // - Bloom ramps `bloomStrength`; SSGI's indirect light ramps `giBlend`.
+  // - FSR is structural (it changes render resolution and the temporal
+  //   resolver), so it runs from the start; its step is caption-only.
+  const skyBlend = stepBlend(1);
+  const aoBlend = stepBlend(2);
+  const bloomBlend = stepBlend(3);
+  const giBlend = stepBlend(5);
+  const caption = PROMO_CAPTIONS[promoStep];
+
+  // Slider fraction → solar hours; eased to the locked hour as the sky
+  // fades in, so enabling the sky and setting its time read as one motion.
+  const dialHours = (value / 100) * 24;
+  const hours = dialHours + (PROMO_TIME_OF_DAY - dialHours) * skyBlend;
 
   // Drive exposure from the same solar elevation as the sky. The old
   // hour-based curve followed summer sunrise and sunset, so its golden-hour
@@ -190,6 +292,7 @@ export function TowerHero({
   const exposure = 40 + (6 - 40) * daylight;
 
   return (
+    <div className="absolute inset-0">
     <TowerCanvas
       {...PARIS_HOMEPAGE_CITY_DEFAULTS}
       {...PARIS_ATMOSPHERE_DEFAULTS}
@@ -225,5 +328,58 @@ export function TowerHero({
     >
       <DepthAttachmentSync />
     </TowerCanvas>
+    <div className="absolute inset-0">
+      <TowerCanvas
+        {...PARIS_HOMEPAGE_CITY_DEFAULTS}
+        {...PARIS_ATMOSPHERE_DEFAULTS}
+        canvasId={PRIMARY}
+        timeOfDay={hours}
+        // The sky fades up from black as its blend ramps.
+        exposure={exposure * skyBlend}
+        // A clear, saturated "bleu nuit" horizon lets the stars stay crisp.
+        turbidity={0}
+        groundAlbedo={HERO_GROUND_ALBEDO}
+        autoRotateSpeed={reducedMotion ? 0 : 1}
+        frameloop={reducedMotion ? "demand" : "always"}
+        intro={!reducedMotion}
+        dpr={[1, 2]}
+        renderScale={1.5}
+        // Everything is compiled in up front; the blends do the reveal.
+        skyEnabled
+        stars
+        starIntensity={2.8 * skyBlend}
+        ao
+        aoBlend={aoBlend}
+        bloom
+        bloomStrength={0.5 * bloomBlend}
+        fsr
+        ssgi
+        giBlend={giBlend}
+        // SSGI is compiled in, which needs the widened
+        // maxColorAttachmentBytesPerSample device limit at canvas creation.
+        reserveSsgiHeadroom
+        onUiReveal={onUiReveal}
+        gate={heroGate}
+        canvasStyle={{ pointerEvents: "none" }}
+        // No WebGPU: the design doc's original tower plate, placed to match
+        // the 3D framing, so the hero still shows a tower.
+        fallback={<FallbackPoster />}
+      >
+        <DepthAttachmentSync />
+      </TowerCanvas>
+
+      {/* Promo caption for the current step, pinned to the bottom edge. */}
+      {caption && (
+        <div
+          key={promoStep}
+          className="pointer-events-none absolute inset-x-0 bottom-6 z-30 flex justify-center"
+        >
+          <span className="rounded-full border border-white/20 bg-black/75 px-5 py-2 font-mono text-[14px] font-semibold tracking-[0.13em] text-white uppercase shadow-lg backdrop-blur-md">
+            {caption}
+          </span>
+        </div>
+      )}
+    </div>
+    </div>
   );
 }

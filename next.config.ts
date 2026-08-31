@@ -1,11 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Next's dev indicator defaults to bottom-left, which is exactly where the
-  // demo pages put their info button — in dev it sits on top and swallows the
-  // click. Production is unaffected either way; this just stops the two
-  // fighting locally.
-  devIndicators: { position: "bottom-right" },
+  // Disabled entirely while capturing promo footage — the "Rendering…"
+  // status badge would otherwise appear in recordings of the dev server.
+  // (It previously sat bottom-right to avoid the demo pages' info button.)
+  devIndicators: false,
 
   turbopack: {
     resolveAlias: {

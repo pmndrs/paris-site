@@ -41,8 +41,9 @@ interface SSGIPass {
   getGINode(): unknown;
 }
 
-/** Bloom texture accessor. */
+/** Bloom texture accessor and runtime strength uniform. */
 interface BloomPass {
+  strength: { value: number };
   getTextureNode(): THREE.TextureNode;
 }
 
@@ -90,6 +91,12 @@ export interface FXOptions {
   enabled?: boolean;
   ao?: boolean;
   bloom?: boolean;
+  /** Bloom strength, adjustable at runtime without a graph rebuild. */
+  bloomStrength?: number;
+  /** Blends the AO term in from 0 (off) to 1 (full) without a rebuild. */
+  aoBlend?: number;
+  /** Blends SSGI's indirect light in from 0 (off) to 1 (full) without a rebuild. */
+  giBlend?: number;
   /** Adds sky aerial perspective to the graph. */
   haze?: boolean;
   hazeStrength?: number;
@@ -125,6 +132,9 @@ export function FX({
   enabled = true,
   ao = true,
   bloom: withBloom = true,
+  bloomStrength = 0.5,
+  aoBlend = 1,
+  giBlend = 1,
   haze = false,
   hazeStrength = 1,
   hazePolicy = "auto",
@@ -168,6 +178,9 @@ export function FX({
   /** Active SSGI pass whose tuning values are runtime uniforms. */
   const ssgiPassRef = useRef<SSGIPass | null>(null);
 
+  /** Active bloom pass whose strength is a runtime uniform. */
+  const bloomPassRef = useRef<BloomPass | null>(null);
+
   /** Stable fog uniforms shared with the render graph. */
   const fogKnobs = useUniforms(
     {
@@ -178,6 +191,15 @@ export function FX({
     },
     "heroFog",
   ) as unknown as FogKnobs;
+
+  /** Per-effect blend factors, tunable without a rebuild. */
+  const blendKnobs = useUniforms(
+    { aoBlend, giBlend },
+    "heroFxBlend",
+  ) as unknown as Record<
+    "aoBlend" | "giBlend",
+    THREE.UniformNode<"float", number>
+  >;
 
   /** Lettering response to the tower bloom, tunable without a rebuild. */
   const glowKnobs = useUniforms(
@@ -226,6 +248,11 @@ export function FX({
     pass.giIntensity.value = ssgiIntensity;
     pass.aoIntensity.value = ssgiAoIntensity;
   }, [ssgiSlices, ssgiSteps, ssgiRadius, ssgiIntensity, ssgiAoIntensity]);
+
+  useEffect(() => {
+    const pass = bloomPassRef.current;
+    if (pass) pass.strength.value = bloomStrength;
+  }, [bloomStrength]);
 
   useFrame(({ camera }) => {
     // Output nodes need explicit main camera uniforms for fog rays.
@@ -341,12 +368,15 @@ export function FX({
 
       if (withBloom) {
         const emissive = scenePass.getTextureNode("emissive");
-        const bloomPass = bloom(emissive, 0.5, 0.5);
+        const bloomPass = bloom(emissive, bloomStrength, 0.5);
+        bloomPassRef.current = bloomPass as unknown as BloomPass;
         // Reuse the result texture without running bloom again.
         bloomTex = (
           bloomPass as unknown as BloomPass
         ).getTextureNode() as unknown as AnyVec4;
         graph = graph.add(bloomPass);
+      } else {
+        bloomPassRef.current = null;
       }
 
       // Unpack byte-encoded normals through a shared sampling node.
@@ -382,10 +412,19 @@ export function FX({
           camera as THREE.PerspectiveCamera,
         ) as unknown as { rgb: unknown };
         const albedo = scenePass.getTextureNode("diffuse");
-        graph = TSL.vec4(
-          graph.rgb.mul(giPass.getAONode().r).add(albedo.rgb.mul(gi.rgb)),
-          graph.a,
+        // Blend each SSGI contribution in via uniforms so enabling them at
+        // runtime dissolves rather than rebuilding the graph. The AO term
+        // follows `aoBlend` (SSGI supplies AO when it is compiled in) and
+        // the indirect light follows `giBlend`.
+        const aoTerm = TSL.mix(
+          TSL.float(1),
+          giPass.getAONode().r as unknown as AnyFloat,
+          blendKnobs.aoBlend,
         );
+        const giRgb = (albedo.rgb.mul(gi.rgb) as unknown as AnyVec3).mul(
+          blendKnobs.giBlend,
+        );
+        graph = TSL.vec4(graph.rgb.mul(aoTerm).add(giRgb), graph.a);
       }
 
       if (!useSsgi) ssgiPassRef.current = null;
@@ -406,7 +445,14 @@ export function FX({
         aoPass.useTemporalFiltering = true;
         aoPass.useLinearThickness.value = true;
 
-        graph = TSL.vec4(graph.rgb.mul(aoPass.getAONode().r), graph.a);
+        // Blend AO in via uniform so enabling it at runtime dissolves
+        // rather than rebuilding the graph.
+        const aoTerm = TSL.mix(
+          TSL.float(1),
+          aoPass.getAONode().r as unknown as AnyFloat,
+          blendKnobs.aoBlend,
+        );
+        graph = TSL.vec4(graph.rgb.mul(aoTerm), graph.a);
       }
 
       if (haze && sky) {

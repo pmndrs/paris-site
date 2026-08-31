@@ -166,10 +166,16 @@ export interface TowerCanvasProps {
   // post
   postFx?: boolean;
   ao?: boolean;
+  /** Blends the AO term in from 0 to 1 at runtime without a rebuild. */
+  aoBlend?: number;
   bloom?: boolean;
+  /** Bloom strength, adjustable at runtime without a rebuild. */
+  bloomStrength?: number;
   fsr?: boolean;
   renderScale?: number;
   ssgi?: boolean;
+  /** Blends SSGI's indirect light in from 0 to 1 at runtime without a rebuild. */
+  giBlend?: number;
   ssgiIntensity?: number;
   ssgiAoIntensity?: number;
   ssgiSlices?: number;
@@ -293,10 +299,13 @@ export function TowerCanvas({
   autoRotateSpeed = 2,
   postFx = true,
   ao = true,
+  aoBlend = 1,
   bloom = true,
+  bloomStrength = 0.5,
   fsr = true,
   renderScale = 1.5,
   ssgi = false,
+  giBlend = 1,
   ssgiIntensity = 10,
   ssgiAoIntensity = 2,
   ssgiSlices = 2,
@@ -522,7 +531,10 @@ export function TowerCanvas({
       <FX
         enabled={postFx}
         ao={ao}
+        aoBlend={aoBlend}
         bloom={bloom}
+        bloomStrength={bloomStrength}
+        giBlend={giBlend}
         haze={haze && skyEnabled}
         hazeStrength={hazeStrength}
         hazePolicy={hazePolicy}
