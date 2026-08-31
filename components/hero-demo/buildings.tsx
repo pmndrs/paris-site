@@ -12,6 +12,7 @@ import { useFrame, useLocalNodes } from "@react-three/fiber/webgpu";
 import {
   abs,
   attribute,
+  clamp,
   cos,
   exp,
   float,
@@ -165,9 +166,11 @@ const WINDOW_INTENSITY = 2.2;
  *
  * Each pane keeps a fixed random value and lights when it drops below the
  * light level times the facade's occupancy, so windows come on one by one
- * across the city as the dial passes dusk. Where a cell shrinks under a
- * couple of pixels the pattern blends to its mean radiance, which keeps far
- * facades from shimmering through the temporal resolver.
+ * across the city as the dial passes dusk. Panes are box-filtered over the
+ * pixel footprint so a far window is the same soft dot as its neighbours,
+ * and where a cell shrinks under a few pixels the pattern blends to its mean
+ * radiance, which keeps far facades from shimmering through the temporal
+ * resolver.
  */
 function useWindowEmissive(lightLevel: THREE.UniformNode<"float", number>) {
   const createWindowNodes = useCallback(() => {
@@ -206,13 +209,28 @@ function useWindowEmissive(lightLevel: THREE.UniformNode<"float", number>) {
             .div(WINDOW_PITCH_Y),
         );
         const id = floor(cell);
-        const f = fract(cell);
         const inside = step(0, id.x)
           .mul(step(id.x, cols.sub(1)))
           .mul(step(0, id.y))
           .mul(step(id.y, rows.sub(1)));
-        const pane = step(abs(f.x.sub(0.5)), WINDOW_PANE_X * 0.5).mul(
-          step(abs(f.y.sub(0.5)), WINDOW_PANE_Y * 0.5),
+
+        // Exact box-filtered pulse train: the average of the centred pane
+        // band over this pixel's footprint. A hard `step` rounds each far
+        // pane to a different pixel count and beats against the grid.
+        const footprint = max(fwidth(cell), vec2(1e-4));
+        const filteredPane = (
+          x: typeof cell.x,
+          duty: number,
+          width: typeof cell.x,
+        ) => {
+          const margin = (1 - duty) / 2;
+          const integral = (t: typeof cell.x) =>
+            floor(t).mul(duty).add(clamp(fract(t).sub(margin), 0, duty));
+          const half = width.mul(0.5);
+          return integral(x.add(half)).sub(integral(x.sub(half))).div(width);
+        };
+        const pane = filteredPane(cell.x, WINDOW_PANE_X, footprint.x).mul(
+          filteredPane(cell.y, WINDOW_PANE_Y, footprint.y),
         );
 
         // Chained hashes: `hash` truncates its seed to an integer, so
@@ -230,8 +248,9 @@ function useWindowEmissive(lightLevel: THREE.UniformNode<"float", number>) {
         const brightness = mix(float(0.45), float(1.25), r2);
         const tint = mix(vec3(1.0, 0.58, 0.25), vec3(1.0, 0.82, 0.58), r3);
 
-        const footprint = fwidth(cell);
-        const lod = smoothstep(0.3, 0.9, max(footprint.x, footprint.y));
+        // Past one cell per pixel the filtered pane is flat and only the
+        // per-cell on/off is left to alias, so hand over to the mean there.
+        const lod = smoothstep(0.35, 1.0, max(footprint.x, footprint.y));
         const mean = lightLevel
           .mul(occupancy)
           .mul(WINDOW_PANE_X * WINDOW_PANE_Y * 0.85);
