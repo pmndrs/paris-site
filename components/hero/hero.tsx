@@ -277,7 +277,7 @@ function HighlightedText({
   );
 }
 
-export function Hero() {
+export function Hero({ quiet = false }: { quiet?: boolean }) {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [onScreen, setOnScreen] = useState(true);
   const sectionRef = useRef<HTMLElement>(null);
@@ -372,80 +372,82 @@ export function Hero() {
           onUiReveal={revealUi}
         />
 
-        <div className="relative z-30 col-start-1 row-start-1">
-          <div className="relative z-10 flex h-svh min-h-[500px] flex-col">
-            <div className="mt-auto px-4 pb-6 sm:px-8">
-              <div
-                data-hero-ui
-                data-hero-ui-step="1"
-                className="max-w-2xl"
-              >
-                <div className="mb-3.5 font-mono text-[11px] font-medium tracking-[0.13em] text-white/60 uppercase">
-                  {HERO.kicker}
-                </div>
-                <h1
-                  className="font-bold tracking-[-0.035em] text-white"
-                  style={{
-                    fontSize: "clamp(34px, 5.4vw, 58px)",
-                    lineHeight: 1.02,
-                  }}
+        {!quiet && (
+          <div className="relative z-30 col-start-1 row-start-1">
+            <div className="relative z-10 flex h-svh min-h-[500px] flex-col">
+              <div className="mt-auto px-4 pb-6 sm:px-8">
+                <div
+                  data-hero-ui
+                  data-hero-ui-step="1"
+                  className="max-w-2xl"
                 >
-                  {HERO.title[0]}
-                  <br />
-                  {HERO.title[1]}
-                </h1>
+                  <div className="mb-3.5 font-mono text-[11px] font-medium tracking-[0.13em] text-white/60 uppercase">
+                    {HERO.kicker}
+                  </div>
+                  <h1
+                    className="font-bold tracking-[-0.035em] text-white"
+                    style={{
+                      fontSize: "clamp(34px, 5.4vw, 58px)",
+                      lineHeight: 1.02,
+                    }}
+                  >
+                    {HERO.title[0]}
+                    <br />
+                    {HERO.title[1]}
+                  </h1>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="relative isolate px-4 pt-8 pb-8 sm:px-8 sm:pt-12 sm:pb-12 lg:pt-16">
-            <div className="pointer-events-none absolute inset-x-0 -top-40 bottom-0 z-0 bg-gradient-to-b from-transparent via-black/90 via-30% to-black" />
+            <div className="relative isolate px-4 pt-8 pb-8 sm:px-8 sm:pt-12 sm:pb-12 lg:pt-16">
+              <div className="pointer-events-none absolute inset-x-0 -top-40 bottom-0 z-0 bg-gradient-to-b from-transparent via-black/90 via-30% to-black" />
 
-            <RevealGroup className="relative z-10 mx-auto max-w-[1180px]">
-              <h2
-                className="max-w-[860px] text-[24px] leading-[1.25] font-medium tracking-[-0.025em] text-white sm:text-[30px] lg:text-[36px]"
-                data-reveal
-              >
-                <DecoratedText
-                  text={HERO.description}
-                  phrases={["three.js conf"]}
-                  decorate={(phrase) => (
-                    <a
-                      href={REGISTER_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline decoration-white/35 underline-offset-[0.16em] transition-colors hover:decoration-white/80 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+              <RevealGroup className="relative z-10 mx-auto max-w-[1180px]">
+                <h2
+                  className="max-w-[860px] text-[24px] leading-[1.25] font-medium tracking-[-0.025em] text-white sm:text-[30px] lg:text-[36px]"
+                  data-reveal
+                >
+                  <DecoratedText
+                    text={HERO.description}
+                    phrases={["three.js conf"]}
+                    decorate={(phrase) => (
+                      <a
+                        href={REGISTER_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline decoration-white/35 underline-offset-[0.16em] transition-colors hover:decoration-white/80 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                      >
+                        {phrase}
+                      </a>
+                    )}
+                  />
+                </h2>
+
+                <div className="mt-14 border-t border-white/25 sm:mt-18">
+                  {HERO.days.map((day) => (
+                    <article
+                      key={day.label}
+                      className="grid gap-4 border-b border-white/20 py-7 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-8 lg:py-9"
+                      data-reveal
                     >
-                      {phrase}
-                    </a>
-                  )}
-                />
-              </h2>
+                      <h3 className="font-mono text-[11px] font-medium tracking-[0.14em] text-white/50 uppercase">
+                        {day.label}
+                      </h3>
+                      <p className="max-w-[760px] text-base leading-[1.6] text-white/70 sm:text-lg">
+                        <HighlightedText
+                          text={day.body}
+                          phrases={day.highlights}
+                        />
+                      </p>
+                    </article>
+                  ))}
+                </div>
 
-              <div className="mt-14 border-t border-white/25 sm:mt-18">
-                {HERO.days.map((day) => (
-                  <article
-                    key={day.label}
-                    className="grid gap-4 border-b border-white/20 py-7 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-8 lg:py-9"
-                    data-reveal
-                  >
-                    <h3 className="font-mono text-[11px] font-medium tracking-[0.14em] text-white/50 uppercase">
-                      {day.label}
-                    </h3>
-                    <p className="max-w-[760px] text-base leading-[1.6] text-white/70 sm:text-lg">
-                      <HighlightedText
-                        text={day.body}
-                        phrases={day.highlights}
-                      />
-                    </p>
-                  </article>
-                ))}
-              </div>
-
-              <Instructors />
-            </RevealGroup>
+                <Instructors />
+              </RevealGroup>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </section>
   );

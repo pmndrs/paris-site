@@ -11,12 +11,15 @@ import { Why } from "@/components/sections/why";
 import { SiteHeader } from "@/components/site-header";
 import { ConnectorsCanvas } from "@/components/three/scenes";
 
-export default function Page() {
+export default async function Page({ searchParams }: PageProps<"/">) {
+  const params = await searchParams;
+  const quiet = Object.prototype.hasOwnProperty.call(params, "quiet");
+
   return (
     <>
       <LoadingScreen />
-      <SiteHeader />
-      <Hero />
+      {!quiet && <SiteHeader />}
+      <Hero quiet={quiet} />
       <main className="relative z-10 bg-background">
         <Overview />
         <Why />
