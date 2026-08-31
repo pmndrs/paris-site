@@ -1,7 +1,25 @@
 "use client";
 
+import { useLayoutEffect, useRef } from "react";
 import { Environment } from "@react-three/drei";
-import { Vector3, type ColorRepresentation } from "three";
+import { useThree } from "@react-three/fiber/webgpu";
+import {
+  BasicShadowMap,
+  PCFSoftShadowMap,
+  Vector3,
+  VSMShadowMap,
+  type ColorRepresentation,
+  type DirectionalLight,
+} from "three";
+import {
+  BasicShadowFilter,
+  PCFShadowFilter,
+  PCFSoftShadowFilter,
+  VSMShadowFilter,
+} from "three/tsl";
+import type { WebGPURenderer } from "three/webgpu";
+
+import { cloudShadowFilter } from "./clouds";
 
 /**
  * Ported from `threejs-conf-pmndrs/src/Lights.tsx`.
@@ -21,17 +39,9 @@ export const KEY_DISTANCE = 400;
 /** Faraz's moon, as a direction. */
 export const MOON_DIRECTION = new Vector3(-25, 40, -20).normalize();
 
-/**
- * Depth bias as a world-space offset. Three's `shadow.bias` is in NDC depth,
- * so a fixed value would grow with the frustum's depth range — and the range
- * grows when the clouds need the frustum to start kilometres behind the light.
- * 0.4 is the -0.0005 the ring was tuned with, at its original 800-unit range.
- */
-const SHADOW_BIAS_WORLD = 0.4;
 
 export function Lights({
   shadowRadius = 60,
-  shadowNear = 1,
   environment = true,
   sunlight = true,
   keyColor = "#aac4ff",
@@ -42,12 +52,6 @@ export function Lights({
   fillIntensity = 0,
 }: {
   shadowRadius?: number;
-  /**
-   * Near plane of the key's ortho frustum, world units. Negative reaches
-   * behind the light — how clouds on the sun side of the city get into the
-   * map at all.
-   */
-  shadowNear?: number;
   environment?: boolean;
   /** The shadow-casting key: sun by day, moon by night. */
   keyColor?: ColorRepresentation;
@@ -66,8 +70,32 @@ export function Lights({
    */
   sunlight?: boolean;
 }) {
-  const shadowFar = KEY_DISTANCE * 2;
-  const shadowBias = -SHADOW_BIAS_WORLD / (shadowFar - shadowNear);
+  // The key's shadow filter is the map's own PCF wrapped with the cloud
+  // layer's shade (see `clouds.tsx`). A light's shadow node reads
+  // `filterNode` when the first receiving material compiles, so it has to be
+  // in place before the key's first frame — a layout effect runs before any
+  // frame does. Installed unconditionally: the filter branches on a uniform
+  // and costs nothing while there are no clouds.
+  const renderer = useThree((state) => state.gl) as unknown as WebGPURenderer;
+  const keyRef = useRef<DirectionalLight>(null);
+  useLayoutEffect(() => {
+    const key = keyRef.current;
+    if (!key) return;
+    const type = renderer.shadowMap.type;
+    const base =
+      type === PCFSoftShadowMap
+        ? PCFSoftShadowFilter
+        : type === VSMShadowMap
+          ? VSMShadowFilter
+          : type === BasicShadowMap
+            ? BasicShadowFilter
+            : PCFShadowFilter;
+    // `filterNode` is read by three's ShadowNode but missing from the typings.
+    const shadow = key.shadow as unknown as { filterNode: unknown };
+    shadow.filterNode = cloudShadowFilter(
+      base as unknown as Parameters<typeof cloudShadowFilter>[0],
+    );
+  }, [renderer]);
 
   return (
     <>
@@ -109,19 +137,20 @@ export function Lights({
           The depth range is sized from KEY_DISTANCE so a low sun's long
           shadows still fit. */}
       <directionalLight
+        ref={keyRef}
         castShadow
         position={keyPosition}
         intensity={keyIntensity}
         color={keyColor}
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
-        shadow-camera-near={shadowNear}
-        shadow-camera-far={shadowFar}
+        shadow-camera-near={1}
+        shadow-camera-far={KEY_DISTANCE * 2}
         shadow-camera-left={-shadowRadius}
         shadow-camera-right={shadowRadius}
         shadow-camera-top={shadowRadius}
         shadow-camera-bottom={-shadowRadius}
-        shadow-bias={shadowBias}
+        shadow-bias={-0.0005}
         shadow-normalBias={0.05}
       />
     </>

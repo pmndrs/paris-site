@@ -35,22 +35,22 @@ export const PARIS_ATMOSPHERE_DEFAULTS = {
 } as const;
 
 /**
- * The cloud field (`clouds.tsx`): sphere-cluster cumulus over and around the
- * city, casting into the key light's shadow map.
+ * The cloud deck (`clouds.tsx`): a broken sheet of cloud over the city on
+ * the dial's clock, casting into the key light's shadow map.
  */
 export const PARIS_CLOUD_DEFAULTS = {
   clouds: true,
-  /** Cloud slots in use; how many are up on a given day is the weather's call. */
-  cloudCoverage: 0.6,
+  /** Weather bias: 0.5 leaves the day cycle alone, 1 is overcast, 0 clear. */
+  cloudCoverage: 0.5,
   /** City units: ~1.2 km at the default world scale. */
   cloudAltitude: 240,
   cloudSize: 1,
-  cloudDensity: 0.85,
+  cloudDensity: 1,
   cloudSunlight: 1,
   cloudAmbient: 1,
-  // Westward, like the sun: a slow wall-clock drift and two field widths per
-  // day of dial time.
+  // Westward, like the sun: a slow wall-clock drift and a kilometre per hour
+  // of dial time.
   cloudWind: -1,
-  cloudTravel: 2,
+  cloudTravel: 200,
   cloudShadows: true,
 } as const;

@@ -18,7 +18,7 @@ import * as THREE from "three/webgpu";
 import type { HeroGateController } from "@/lib/hero-gate";
 import { Buildings } from "./buildings";
 import { Camera, FramingTools } from "./camera";
-import { Clouds, CLOUD_SHADOW_REACH } from "./clouds";
+import { Clouds } from "./clouds";
 import { FX, type TextLayer } from "./fx";
 import { INTRO_COMPLETE, IntroClock } from "./intro";
 import { KEY_DISTANCE, Lights, MOON_DIRECTION } from "./lights";
@@ -82,12 +82,13 @@ export interface TowerCanvasProps {
   /** Lit windows across the city after dusk. */
   windows?: boolean;
   // clouds
-  /** Sphere-cluster cumulus over and around the city; see `clouds.tsx`. */
+  /** A broken deck of cloud on the dial's clock; see `clouds.tsx`. */
   clouds?: boolean;
-  /** Fraction of the field's cloud slots in use, 0..1. */
+  /** Weather bias, 0..1: 0.5 leaves the day cycle alone, 1 overcast, 0 clear. */
   cloudCoverage?: number;
-  /** Cloud-base altitude in city units. */
+  /** Layer altitude in city units. */
   cloudAltitude?: number;
+  /** Feature size multiplier and opacity of a covered patch. */
   cloudSize?: number;
   cloudDensity?: number;
   /** Direct and sky-ambient strength on the clouds. */
@@ -95,7 +96,7 @@ export interface TowerCanvasProps {
   cloudAmbient?: number;
   /** Wall-clock drift along +x in city units per second; negative is westward. */
   cloudWind?: number;
-  /** Field widths the clouds travel per day of dial time, with the sun. */
+  /** Westward travel per hour of dial time, city units. */
   cloudTravel?: number;
   /** Let the key light see the clouds, so their shade crosses the city. */
   cloudShadows?: boolean;
@@ -364,12 +365,6 @@ export function TowerCanvas({
   const [refitKey, setRefitKey] = useState(0);
   const onTowerReady = useCallback(() => setRefitKey((v) => v + 1), []);
 
-  // With cloud shadows on, the key's frustum has to start far enough behind
-  // the light to see the clouds on the sun side of the city — at a low sun
-  // the one shading the ring is kilometres out.
-  const cloudShadowNear =
-    clouds && cloudShadows ? -CLOUD_SHADOW_REACH * worldScale : 1;
-
   /** Full-resolution scene and camera for lettering and tower depth. */
   const [textLayer] = useState<TextLayer>(() => ({
     scene: new THREE.Scene(),
@@ -462,9 +457,8 @@ export function TowerCanvas({
         </group>
       </group>
 
-      {/* Outside the world-scale group on purpose: the sprites billboard
-          toward whichever camera draws them, and that maths wants an
-          identity model matrix. Positions are pre-scaled instead. */}
+      {/* Outside the world-scale group on purpose: the deck's dome and
+          shadow plane do their maths in world units. */}
       {clouds && (
         <Clouds
           coverage={cloudCoverage}
@@ -504,7 +498,6 @@ export function TowerCanvas({
         environment={environment && !skyEnabled}
         // Reaches the whole Haussmann ring (radius 70).
         shadowRadius={75 * worldScale}
-        shadowNear={cloudShadowNear}
         sunlight={!skyEnabled}
         keyColor={keyLight.color}
         keyIntensity={keyLight.intensity}

@@ -59,8 +59,8 @@ export function HeroDemoScene({
   });
 
   /**
-   * Sphere-cluster cumulus (`clouds.tsx`). Coverage, altitude and size
-   * rebuild the field; everything else is a live uniform.
+   * The cloud deck (`clouds.tsx`). Everything here is a live uniform; the
+   * weather itself follows the dial's clock.
    */
   const {
     clouds,
@@ -75,6 +75,7 @@ export function HeroDemoScene({
     cloudShadows,
   } = useControls("clouds", {
     clouds: PARIS_CLOUD_DEFAULTS.clouds,
+    // Weather bias: 0.5 leaves the day cycle alone, 1 is overcast, 0 clear.
     cloudCoverage: {
       value: PARIS_CLOUD_DEFAULTS.cloudCoverage,
       min: 0,
@@ -84,14 +85,15 @@ export function HeroDemoScene({
     // City units; ~1.2 km at the default world scale.
     cloudAltitude: {
       value: PARIS_CLOUD_DEFAULTS.cloudAltitude,
-      min: 40,
-      max: 500,
-      step: 5,
+      min: 60,
+      max: 600,
+      step: 10,
     },
+    // Feature size multiplier.
     cloudSize: {
       value: PARIS_CLOUD_DEFAULTS.cloudSize,
-      min: 0.4,
-      max: 2.5,
+      min: 0.3,
+      max: 3,
       step: 0.1,
     },
     cloudDensity: {
@@ -119,14 +121,14 @@ export function HeroDemoScene({
       max: 12,
       step: 0.5,
     },
-    // Field widths per day of dial time, westward with the sun.
+    // Westward travel per hour of dial time, city units (200 ≈ 1 km).
     cloudTravel: {
       value: PARIS_CLOUD_DEFAULTS.cloudTravel,
       min: 0,
-      max: 8,
-      step: 0.5,
+      max: 1000,
+      step: 25,
     },
-    // The sprites cast into the key light's map — cloud shade on the city.
+    // The layer casts into the key light's map — cloud shade on the city.
     cloudShadows: PARIS_CLOUD_DEFAULTS.cloudShadows,
   });
 
