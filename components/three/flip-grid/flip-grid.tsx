@@ -7,7 +7,13 @@ import {
   useThree,
   useUniforms,
 } from "@react-three/fiber/webgpu";
-import { useEffect, useMemo, useRef, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type RefObject,
+} from "react";
 import {
   clamp,
   cos,
@@ -209,7 +215,10 @@ export function FlipGrid({
   // the storage path that differs. See pmndrs/react-three-fiber#3848.
   useGPUStorage(() => ({ flipGridTiles: tiles }));
 
-  const nodes = useLocalNodes(() => {
+  // `useLocalNodes` memoizes on the creator's identity: an inline arrow is a
+  // new function every render, which rebuilds the TSL graph and recompiles the
+  // WGSL per render. Same fix as tower.tsx / terrain.tsx.
+  const createNodes = useCallback(() => {
     /** This instance's cell centre, in world units. */
     const cellCentre = () => {
       const ix = float(instanceIndex.mod(cols));
@@ -402,7 +411,8 @@ export function FlipGrid({
       // lighting instead, and metalness routes it through the proper specular
       // path.
     };
-  });
+  }, [cols, count, rows, tiles, u]);
+  const nodes = useLocalNodes(createNodes);
 
   const pointer = useRef(new Vector2(AWAY, AWAY));
   /**
