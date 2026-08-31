@@ -318,7 +318,7 @@ function bakeFieldTexture(renderer: THREE.WebGPURenderer) {
  * fraction blends them, so the field evolves continuously without any
  * runtime noise. Fine and warp come back signed.
  */
-function fieldAt(u: CloudUniforms, qNode: unknown) {
+function fieldAt(u: CloudUniforms, qNode: unknown, vertex = false) {
   const q = qNode as Vec2Node;
   const phase = (u.boil as unknown as FloatNode).mul(BOIL_MORPH_RATE);
   const i0 = TSL.floor(phase);
@@ -333,7 +333,13 @@ function fieldAt(u: CloudUniforms, qNode: unknown) {
   };
   const uv0 = q.add(offsetOf(i0)).div(BAKE_PERIOD);
   const uv1 = q.add(offsetOf(i0.add(1.0))).div(BAKE_PERIOD);
-  const mixed = TSL.mix(fieldTexNode.sample(uv0), fieldTexNode.sample(uv1), blend);
+  // A vertex stage cannot sample with implicit derivatives; pin level 0
+  // there. Fragment consumers keep the mip chain for far-field AA.
+  const tap = (uvNode: unknown) => {
+    const t = fieldTexNode.sample(uvNode as Vec2Node);
+    return vertex ? t.level(TSL.float(0.0)) : t;
+  };
+  const mixed = TSL.mix(tap(uv0), tap(uv1), blend);
   // Blending two independent taps also compresses variance; restore it, or
   // the coverage breathes with the morph phase.
   const rms = TSL.sqrt(blend.mul(blend).add(TSL.float(1.0).sub(blend).pow(2.0)));
@@ -405,10 +411,15 @@ function noiseSpace(u: CloudUniforms, xzNode: unknown, sheet: number) {
  * shade and the puff gate: two boil-morphed taps of the baked tile, no
  * warp, no fray. `cover` is what you see, `thick` how much cloud is above.
  */
-function coverageLiteAt(u: CloudUniforms, xzNode: unknown, sheet: number) {
+function coverageLiteAt(
+  u: CloudUniforms,
+  xzNode: unknown,
+  sheet: number,
+  vertex = false,
+) {
   const q = noiseSpace(u, xzNode, sheet);
-  const f = fieldAt(u, q);
-  const front = fieldAt(u, (q as Vec2Node).mul(0.13)).broad.sub(0.5).mul(2.0);
+  const f = fieldAt(u, q, vertex);
+  const front = fieldAt(u, (q as Vec2Node).mul(0.13), vertex).broad.sub(0.5).mul(2.0);
   const threshold = TSL.mix(1.05, 0.4, u.cloudiness)
     .add(front.mul(0.14))
     .add(sheet * 0.08);
@@ -604,7 +615,7 @@ function makePuffNodes(
 
   // The gate: the sheet's own coverage where this sprite floats. Condense
   // inside a streak, thin out in its saturated core, vanish outside it.
-  const { cover, thick } = coverageLiteAt(u, offset.xz, 0);
+  const { cover, thick } = coverageLiteAt(u, offset.xz, 0, true);
   const gate = TSL.smoothstep(0.22, 0.5, cover).mul(
     TSL.float(1.0).sub(TSL.smoothstep(0.8, 1.0, cover).mul(0.5)),
   );
