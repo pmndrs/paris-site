@@ -22,6 +22,9 @@ export function HeroDemoScene({
     lowRiseCount,
     treeCount,
     treeShadows,
+    grass,
+    grassCount,
+    grassWind,
     river,
     park,
     haussmann,
@@ -46,6 +49,19 @@ export function HeroDemoScene({
       step: 1000,
     },
     treeShadows: PARIS_CITY_DEFAULTS.treeShadows,
+    grass: PARIS_CITY_DEFAULTS.grass,
+    grassCount: {
+      value: PARIS_CITY_DEFAULTS.grassCount,
+      min: 0,
+      max: 20_000,
+      step: 500,
+    },
+    grassWind: {
+      value: PARIS_CITY_DEFAULTS.grassWind,
+      min: 0,
+      max: 2,
+      step: 0.05,
+    },
     // Geography experiments (geography.ts owns the shapes): the Seine-ish
     // spline, the Champ-de-Mars strip, and the stylized near ring. Each
     // toggle drives both its terrain mesh and the scatter exclusion, so
@@ -342,6 +358,9 @@ export function HeroDemoScene({
       lowRiseCount={lowRiseCount}
       treeCount={treeCount}
       treeShadows={treeShadows}
+      grass={grass}
+      grassCount={grassCount}
+      grassWind={grassWind}
       river={river}
       park={park}
       haussmann={haussmann}

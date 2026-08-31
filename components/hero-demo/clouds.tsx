@@ -620,33 +620,42 @@ function makePuffNodes(
     .mul(beer)
     .add((u.moonRadiance as unknown as Vec3Node).mul(0.7))
     .mul(u.sunlight);
-  const skyDir = TSL.normalize(TSL.vec3(rel.x, 0.1, rel.z).add(TSL.vec3(0.0, 0.0, 1e-3)));
-  const skyRadiance = skyEnv
-    ? TSL.pmremTexture(skyEnv, skyDir, TSL.float(1.0))
-    : skyCube
-      ? TSL.cubeTexture(skyCube, skyDir).rgb
-      : TSL.vec3(0.35, 0.45, 0.65);
+  const skyDir = TSL.normalize(
+    TSL.vec3(rel.x, 0.1, rel.z).add(TSL.vec3(0.0, 0.0, 1e-3)),
+  );
   const nearCity = TSL.float(1.0).sub(
     TSL.smoothstep(u.cityRadius, u.cityRadius.mul(3.0), TSL.length(offset.xz)),
   );
   const glow = TSL.vec3(1.0, 0.6, 0.3).mul(nearCity).mul(u.night).mul(0.2);
-  const tint = direct
-    .div(Math.PI)
-    .add(skyRadiance.mul(u.ambient).mul(TSL.mix(1.0, 0.45, thick)))
-    .mul(ALBEDO)
-    .add(glow);
-
-  // Gate and tint are flat across a sprite: hand them to the fragment as
-  // varyings (read there and only there — a varying read back in a
-  // vertex-stage slot comes out of the builder as undefined), so each
-  // fragment is one texture fetch and two multiplies.
+  // Only texture-free terms belong in vertexStage. PMREM uses texture
+  // gradients, which WebGPU cannot generate in a vertex shader; forcing the
+  // old combined tint through here produced an invalid `nodeVar = undefined`
+  // in the CloudPuffs WGSL. Pass the direction and scalar terms as varyings,
+  // then sample the sky in the fragment alongside the puff texture.
   const vGate = TSL.vertexStage(gate) as unknown as FloatNode;
-  const vTint = TSL.vertexStage(tint) as unknown as Vec3Node;
+  const vThick = TSL.vertexStage(thick) as unknown as FloatNode;
+  const vSkyDir = TSL.vertexStage(skyDir) as unknown as Vec3Node;
+  const vDirectGlow = TSL.vertexStage(
+    direct.div(Math.PI).mul(ALBEDO).add(glow),
+  ) as unknown as Vec3Node;
+
+  const skyRadiance = skyEnv
+    ? TSL.pmremTexture(skyEnv, vSkyDir, TSL.float(1.0))
+    : skyCube
+      ? TSL.cubeTexture(skyCube, vSkyDir).rgb
+      : TSL.vec3(0.35, 0.45, 0.65);
+  const tint = vDirectGlow.add(
+    skyRadiance
+      .mul(u.ambient)
+      .mul(TSL.mix(1.0, 0.45, vThick))
+      .mul(ALBEDO),
+  );
+
   const tex = TSL.texture(puffTexture, TSL.uv());
   const colorNode = TSL.Fn(() => {
     const alpha = tex.a.mul(vGate).mul(u.density).mul(PUFF_DENSITY);
     alpha.lessThan(0.004).discard();
-    return TSL.vec4(vTint, alpha);
+    return TSL.vec4(tint, alpha);
   })();
 
   return {

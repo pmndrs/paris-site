@@ -8,10 +8,15 @@ import * as THREE from "three/webgpu";
 
 import {
   PARK,
+  PARK_AXIS_PATH_WIDTH,
+  PARK_RING_PATH_INNER,
+  PARK_RING_PATH_OUTER,
   RIVER_HALF_WIDTH,
   riverCurve,
   TOWER_CLEARING_RADIUS,
 } from "./geography";
+import { Grass } from "./grass";
+import { PARK_COLOR } from "./terrain-palette";
 
 /** The slice of the `Sky` instance the water reflection reads. */
 interface SkyWithBaker {
@@ -35,7 +40,6 @@ interface SkyWithBaker {
  */
 
 const GROUND_COLOR = "#131313";
-const PARK_COLOR = "#26381f";
 const PATH_COLOR = "#716b60";
 const WATER_COLOR = "#0a1622";
 
@@ -45,10 +49,6 @@ const PARK_STRIP_Y = 0.03;
 const PARK_Y = 0.04;
 const PATH_Y = 0.055;
 const WATER_Y = 0.12;
-
-const RING_PATH_INNER = TOWER_CLEARING_RADIUS * 0.56;
-const RING_PATH_OUTER = TOWER_CLEARING_RADIUS * 0.64;
-const AXIS_PATH_WIDTH = 3.6;
 
 function useRiverGeometry() {
   return useMemo(() => {
@@ -161,9 +161,15 @@ function makeWaterNodes(skyCube?: THREE.CubeTexture) {
 export const Terrain = memo(function Terrain({
   river = true,
   park = true,
+  grass = true,
+  grassCount = 4_000,
+  grassWind = 0.65,
 }: {
   river?: boolean;
   park?: boolean;
+  grass?: boolean;
+  grassCount?: number;
+  grassWind?: number;
 }) {
   // Null when sky is disabled — the water then falls back to plain dark.
   const sky = useSky();
@@ -227,7 +233,9 @@ export const Terrain = memo(function Terrain({
 
           {/* A ring and central path define the park layout. */}
           <mesh position={[0, PATH_Y, 0]} rotation-x={-Math.PI / 2}>
-            <ringGeometry args={[RING_PATH_INNER, RING_PATH_OUTER, 64]} />
+            <ringGeometry
+              args={[PARK_RING_PATH_INNER, PARK_RING_PATH_OUTER, 64]}
+            />
             <meshStandardMaterial
               color={PATH_COLOR}
               roughness={1}
@@ -238,12 +246,15 @@ export const Terrain = memo(function Terrain({
             position={[
               0,
               PATH_Y,
-              (PARK.maxZ + RING_PATH_OUTER) / 2,
+              (PARK.maxZ + PARK_RING_PATH_OUTER) / 2,
             ]}
             rotation-x={-Math.PI / 2}
           >
             <planeGeometry
-              args={[AXIS_PATH_WIDTH, PARK.maxZ - RING_PATH_OUTER]}
+              args={[
+                PARK_AXIS_PATH_WIDTH,
+                PARK.maxZ - PARK_RING_PATH_OUTER,
+              ]}
             />
             <meshStandardMaterial
               color={PATH_COLOR}
@@ -251,6 +262,8 @@ export const Terrain = memo(function Terrain({
               metalness={0}
             />
           </mesh>
+
+          {grass && <Grass count={grassCount} wind={grassWind} />}
         </>
       )}
 

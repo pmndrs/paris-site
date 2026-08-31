@@ -76,6 +76,11 @@ export interface TowerCanvasProps {
   lowRiseCount?: number;
   treeCount?: number;
   treeShadows?: boolean;
+  /** Stylized triangular blades on the round lawn around the tower. */
+  grass?: boolean;
+  grassCount?: number;
+  /** Grass motion strength; zero freezes the blades. */
+  grassWind?: number;
   river?: boolean;
   park?: boolean;
   haussmann?: boolean;
@@ -229,6 +234,9 @@ export function TowerCanvas({
   lowRiseCount = PARIS_CITY_DEFAULTS.lowRiseCount,
   treeCount = PARIS_CITY_DEFAULTS.treeCount,
   treeShadows = PARIS_CITY_DEFAULTS.treeShadows,
+  grass = PARIS_CITY_DEFAULTS.grass,
+  grassCount = PARIS_CITY_DEFAULTS.grassCount,
+  grassWind = PARIS_CITY_DEFAULTS.grassWind,
   river = PARIS_CITY_DEFAULTS.river,
   park = PARIS_CITY_DEFAULTS.park,
   haussmann = PARIS_CITY_DEFAULTS.haussmann,
@@ -426,7 +434,13 @@ export function TowerCanvas({
       {/* Everything with a physical size lives under one scale, so the metres
           conversion is a single number rather than sprinkled constants. */}
       <group scale={worldScale}>
-        <Terrain river={river} park={park} />
+        <Terrain
+          river={river}
+          park={park}
+          grass={grass}
+          grassCount={grassCount}
+          grassWind={grassWind}
+        />
 
         {buildings && (
           <Buildings

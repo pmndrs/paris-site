@@ -24,6 +24,11 @@ export const RIVER_TREE_MARGIN = 1.5;
 /** Open area around the tower. */
 export const TOWER_CLEARING_RADIUS = 34;
 
+/** Paths cut into the lawn around and away from the tower. */
+export const PARK_RING_PATH_INNER = TOWER_CLEARING_RADIUS * 0.56;
+export const PARK_RING_PATH_OUTER = TOWER_CLEARING_RADIUS * 0.64;
+export const PARK_AXIS_PATH_WIDTH = 3.6;
+
 export function inTowerClearing(x: number, z: number, margin = 0): boolean {
   return Math.hypot(x, z) < TOWER_CLEARING_RADIUS + margin;
 }
