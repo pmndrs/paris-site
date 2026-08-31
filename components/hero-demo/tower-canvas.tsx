@@ -18,6 +18,7 @@ import * as THREE from "three/webgpu";
 import type { HeroGateController } from "@/lib/hero-gate";
 import { Buildings } from "./buildings";
 import { Camera, FramingTools } from "./camera";
+import { Clouds, CLOUD_SHADOW_REACH } from "./clouds";
 import { FX, type TextLayer } from "./fx";
 import { INTRO_COMPLETE, IntroClock } from "./intro";
 import { KEY_DISTANCE, Lights, MOON_DIRECTION } from "./lights";
@@ -25,6 +26,7 @@ import { Lettering } from "./lettering";
 import {
   PARIS_ATMOSPHERE_DEFAULTS,
   PARIS_CITY_DEFAULTS,
+  PARIS_CLOUD_DEFAULTS,
 } from "./paris-defaults";
 import { PerfProbe, type PerfSample } from "./perf-probe";
 import { Stars } from "./stars";
@@ -79,6 +81,24 @@ export interface TowerCanvasProps {
   haussmann?: boolean;
   /** Lit windows across the city after dusk. */
   windows?: boolean;
+  // clouds
+  /** Sphere-cluster cumulus over and around the city; see `clouds.tsx`. */
+  clouds?: boolean;
+  /** Fraction of the field's cloud slots in use, 0..1. */
+  cloudCoverage?: number;
+  /** Cloud-base altitude in city units. */
+  cloudAltitude?: number;
+  cloudSize?: number;
+  cloudDensity?: number;
+  /** Direct and sky-ambient strength on the clouds. */
+  cloudSunlight?: number;
+  cloudAmbient?: number;
+  /** Wall-clock drift along +x in city units per second; negative is westward. */
+  cloudWind?: number;
+  /** Field widths the clouds travel per day of dial time, with the sun. */
+  cloudTravel?: number;
+  /** Let the key light see the clouds, so their shade crosses the city. */
+  cloudShadows?: boolean;
   // tower
   towerMode?: TowerMode;
   beacon?: boolean;
@@ -210,6 +230,16 @@ export function TowerCanvas({
   park = PARIS_CITY_DEFAULTS.park,
   haussmann = PARIS_CITY_DEFAULTS.haussmann,
   windows = PARIS_CITY_DEFAULTS.windows,
+  clouds = PARIS_CLOUD_DEFAULTS.clouds,
+  cloudCoverage = PARIS_CLOUD_DEFAULTS.cloudCoverage,
+  cloudAltitude = PARIS_CLOUD_DEFAULTS.cloudAltitude,
+  cloudSize = PARIS_CLOUD_DEFAULTS.cloudSize,
+  cloudDensity = PARIS_CLOUD_DEFAULTS.cloudDensity,
+  cloudSunlight = PARIS_CLOUD_DEFAULTS.cloudSunlight,
+  cloudAmbient = PARIS_CLOUD_DEFAULTS.cloudAmbient,
+  cloudWind = PARIS_CLOUD_DEFAULTS.cloudWind,
+  cloudTravel = PARIS_CLOUD_DEFAULTS.cloudTravel,
+  cloudShadows = PARIS_CLOUD_DEFAULTS.cloudShadows,
   towerMode = "glow",
   beacon = false,
   lettering = true,
@@ -334,6 +364,12 @@ export function TowerCanvas({
   const [refitKey, setRefitKey] = useState(0);
   const onTowerReady = useCallback(() => setRefitKey((v) => v + 1), []);
 
+  // With cloud shadows on, the key's frustum has to start far enough behind
+  // the light to see the clouds on the sun side of the city — at a low sun
+  // the one shading the ring is kilometres out.
+  const cloudShadowNear =
+    clouds && cloudShadows ? -CLOUD_SHADOW_REACH * worldScale : 1;
+
   /** Full-resolution scene and camera for lettering and tower depth. */
   const [textLayer] = useState<TextLayer>(() => ({
     scene: new THREE.Scene(),
@@ -426,6 +462,32 @@ export function TowerCanvas({
         </group>
       </group>
 
+      {/* Outside the world-scale group on purpose: the sprites billboard
+          toward whichever camera draws them, and that maths wants an
+          identity model matrix. Positions are pre-scaled instead. */}
+      {clouds && (
+        <Clouds
+          coverage={cloudCoverage}
+          altitude={cloudAltitude}
+          size={cloudSize}
+          density={cloudDensity}
+          sunlight={cloudSunlight}
+          ambient={cloudAmbient}
+          wind={cloudWind}
+          timeOfDay={timeOfDay}
+          travel={cloudTravel}
+          shadows={cloudShadows && shadows}
+          worldScale={worldScale}
+          lightPosition={keyLight.position}
+          lightColor={keyLight.color}
+          lightIntensity={keyLight.intensity}
+          night={skyEnabled ? towerLights : 1}
+          exposure={exposure}
+          fogDensity={skyFog && skyEnabled ? fogDensity : 0}
+          fogHeight={fogHeight}
+        />
+      )}
+
       {/* Lettering applies world scale inside its portal scene. */}
       {lettering && (
         <Lettering
@@ -442,6 +504,7 @@ export function TowerCanvas({
         environment={environment && !skyEnabled}
         // Reaches the whole Haussmann ring (radius 70).
         shadowRadius={75 * worldScale}
+        shadowNear={cloudShadowNear}
         sunlight={!skyEnabled}
         keyColor={keyLight.color}
         keyIntensity={keyLight.intensity}

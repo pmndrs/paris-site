@@ -6,6 +6,7 @@ import { PARIS_LATITUDE, CONFERENCE_DAY_OF_YEAR, TowerCanvas } from "./tower-can
 import {
   PARIS_ATMOSPHERE_DEFAULTS,
   PARIS_CITY_DEFAULTS,
+  PARIS_CLOUD_DEFAULTS,
 } from "./paris-defaults";
 import type { PerfSample } from "./perf-probe";
 import type { TowerMode } from "./tower";
@@ -55,6 +56,78 @@ export function HeroDemoScene({
     // Lit windows after dusk — the emissive the SSGI stage has to bounce.
     // Toggle it with `post/fsr/ssgi` to judge GI against bloom-only.
     windows: PARIS_CITY_DEFAULTS.windows,
+  });
+
+  /**
+   * Sphere-cluster cumulus (`clouds.tsx`). Coverage, altitude and size
+   * rebuild the field; everything else is a live uniform.
+   */
+  const {
+    clouds,
+    cloudCoverage,
+    cloudAltitude,
+    cloudSize,
+    cloudDensity,
+    cloudSunlight,
+    cloudAmbient,
+    cloudWind,
+    cloudTravel,
+    cloudShadows,
+  } = useControls("clouds", {
+    clouds: PARIS_CLOUD_DEFAULTS.clouds,
+    cloudCoverage: {
+      value: PARIS_CLOUD_DEFAULTS.cloudCoverage,
+      min: 0,
+      max: 1,
+      step: 0.05,
+    },
+    // City units; ~1.2 km at the default world scale.
+    cloudAltitude: {
+      value: PARIS_CLOUD_DEFAULTS.cloudAltitude,
+      min: 40,
+      max: 500,
+      step: 5,
+    },
+    cloudSize: {
+      value: PARIS_CLOUD_DEFAULTS.cloudSize,
+      min: 0.4,
+      max: 2.5,
+      step: 0.1,
+    },
+    cloudDensity: {
+      value: PARIS_CLOUD_DEFAULTS.cloudDensity,
+      min: 0.2,
+      max: 1,
+      step: 0.05,
+    },
+    cloudSunlight: {
+      value: PARIS_CLOUD_DEFAULTS.cloudSunlight,
+      min: 0,
+      max: 3,
+      step: 0.05,
+    },
+    cloudAmbient: {
+      value: PARIS_CLOUD_DEFAULTS.cloudAmbient,
+      min: 0,
+      max: 3,
+      step: 0.05,
+    },
+    // Wall-clock drift, city units per second along +x (negative = west).
+    cloudWind: {
+      value: PARIS_CLOUD_DEFAULTS.cloudWind,
+      min: -12,
+      max: 12,
+      step: 0.5,
+    },
+    // Field widths per day of dial time, westward with the sun.
+    cloudTravel: {
+      value: PARIS_CLOUD_DEFAULTS.cloudTravel,
+      min: 0,
+      max: 8,
+      step: 0.5,
+    },
+    // The sprites cast into the key light's map — cloud shade on the city.
+    cloudShadows: PARIS_CLOUD_DEFAULTS.cloudShadows,
   });
 
   const { towerMode, beacon, lettering, letterSize, letterSpread, letterGlow } =
@@ -268,6 +341,16 @@ export function HeroDemoScene({
       park={park}
       haussmann={haussmann}
       windows={windows}
+      clouds={clouds}
+      cloudCoverage={cloudCoverage}
+      cloudAltitude={cloudAltitude}
+      cloudSize={cloudSize}
+      cloudDensity={cloudDensity}
+      cloudSunlight={cloudSunlight}
+      cloudAmbient={cloudAmbient}
+      cloudWind={cloudWind}
+      cloudTravel={cloudTravel}
+      cloudShadows={cloudShadows}
       towerMode={towerMode}
       beacon={beacon}
       lettering={lettering}

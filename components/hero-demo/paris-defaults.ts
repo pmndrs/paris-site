@@ -33,3 +33,24 @@ export const PARIS_ATMOSPHERE_DEFAULTS = {
   fogHeight: 300,
   fogHorizonClamp: true,
 } as const;
+
+/**
+ * The cloud field (`clouds.tsx`): sphere-cluster cumulus over and around the
+ * city, casting into the key light's shadow map.
+ */
+export const PARIS_CLOUD_DEFAULTS = {
+  clouds: true,
+  /** Cloud slots in use; how many are up on a given day is the weather's call. */
+  cloudCoverage: 0.6,
+  /** City units: ~1.2 km at the default world scale. */
+  cloudAltitude: 240,
+  cloudSize: 1,
+  cloudDensity: 0.85,
+  cloudSunlight: 1,
+  cloudAmbient: 1,
+  // Westward, like the sun: a slow wall-clock drift and two field widths per
+  // day of dial time.
+  cloudWind: -1,
+  cloudTravel: 2,
+  cloudShadows: true,
+} as const;

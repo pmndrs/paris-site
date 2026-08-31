@@ -6,6 +6,7 @@ import { useFrame } from "@react-three/fiber/webgpu";
 import { DepthAttachmentSync } from "@/components/three/depth-attachment-sync";
 import {
   PARIS_ATMOSPHERE_DEFAULTS,
+  PARIS_CLOUD_DEFAULTS,
   PARIS_HOMEPAGE_CITY_DEFAULTS,
 } from "@/components/hero-demo/paris-defaults";
 import { TowerCanvas } from "@/components/hero-demo/tower-canvas";
@@ -132,6 +133,9 @@ export function TowerHero({
     <TowerCanvas
       {...PARIS_HOMEPAGE_CITY_DEFAULTS}
       {...PARIS_ATMOSPHERE_DEFAULTS}
+      {...PARIS_CLOUD_DEFAULTS}
+      // Still weather for visitors who asked for reduced motion.
+      cloudWind={reducedMotion ? 0 : PARIS_CLOUD_DEFAULTS.cloudWind}
       canvasId={PRIMARY}
       timeOfDay={hours}
       dayOfYear={HERO_DAY_OF_YEAR}

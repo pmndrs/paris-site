@@ -21,8 +21,17 @@ export const KEY_DISTANCE = 400;
 /** Faraz's moon, as a direction. */
 export const MOON_DIRECTION = new Vector3(-25, 40, -20).normalize();
 
+/**
+ * Depth bias as a world-space offset. Three's `shadow.bias` is in NDC depth,
+ * so a fixed value would grow with the frustum's depth range — and the range
+ * grows when the clouds need the frustum to start kilometres behind the light.
+ * 0.4 is the -0.0005 the ring was tuned with, at its original 800-unit range.
+ */
+const SHADOW_BIAS_WORLD = 0.4;
+
 export function Lights({
   shadowRadius = 60,
+  shadowNear = 1,
   environment = true,
   sunlight = true,
   keyColor = "#aac4ff",
@@ -33,6 +42,12 @@ export function Lights({
   fillIntensity = 0,
 }: {
   shadowRadius?: number;
+  /**
+   * Near plane of the key's ortho frustum, world units. Negative reaches
+   * behind the light — how clouds on the sun side of the city get into the
+   * map at all.
+   */
+  shadowNear?: number;
   environment?: boolean;
   /** The shadow-casting key: sun by day, moon by night. */
   keyColor?: ColorRepresentation;
@@ -51,6 +66,9 @@ export function Lights({
    */
   sunlight?: boolean;
 }) {
+  const shadowFar = KEY_DISTANCE * 2;
+  const shadowBias = -SHADOW_BIAS_WORLD / (shadowFar - shadowNear);
+
   return (
     <>
       {/* Night sky cubemap, image-based lighting only — the sky itself is the
@@ -97,13 +115,13 @@ export function Lights({
         color={keyColor}
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
-        shadow-camera-near={1}
-        shadow-camera-far={KEY_DISTANCE * 2}
+        shadow-camera-near={shadowNear}
+        shadow-camera-far={shadowFar}
         shadow-camera-left={-shadowRadius}
         shadow-camera-right={shadowRadius}
         shadow-camera-top={shadowRadius}
         shadow-camera-bottom={-shadowRadius}
-        shadow-bias={-0.0005}
+        shadow-bias={shadowBias}
         shadow-normalBias={0.05}
       />
     </>
