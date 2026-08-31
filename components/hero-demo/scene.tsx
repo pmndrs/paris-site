@@ -110,13 +110,14 @@ export function HeroDemoScene({
     sun: true,
     sunSize: { value: 2.2, min: 0.5, max: 8, step: 0.1 },
     sunIntensity: { value: 8, min: 0, max: 40, step: 0.5 },
-    // solar = true position (this framing rarely reaches it); arc =
+    // solar = true position, the default so the disc, the sky and the shadows
+    // agree (this framing rarely reaches it); arc =
     // world-anchored arc narrowed to sunArcCenter ± sunArcSweep degrees of
     // bearing and lowered into the frame; framed = composed camera-relative
     // arc centred at sunOffset, ±sunSweep at sunrise/sunset (fractions of
     // the half-width).
     sunPlacement: {
-      value: "arc" as SunPlacement,
+      value: "solar" as SunPlacement,
       options: ["solar", "arc", "framed"] as SunPlacement[],
     },
     sunArcCenter: { value: 180, min: 0, max: 360, step: 5 },

@@ -107,8 +107,9 @@ export interface TowerCanvasProps {
   /** Emissive strength of the sun at high elevation. */
   sunIntensity?: number;
   /**
-   * Where the disc hangs: `solar` is the true position (which this framing
-   * almost never shows); `arc` is a world-anchored arc narrowed to
+   * Where the disc hangs: `solar` is the true position — the default, so the
+   * disc agrees with the sky and the key light's shadows, though this framing
+   * rarely shows it; `arc` is a world-anchored arc narrowed to
    * `sunArcCenter ± sunArcSweep` degrees of bearing and lowered into the
    * frame, so it moves with the orbit but is usually in view; `framed` is a
    * composed camera-relative arc from `sunOffset − sunSweep` at sunrise to
@@ -242,7 +243,7 @@ export function TowerCanvas({
   sun = true,
   sunSize = 2.2,
   sunIntensity = 8,
-  sunPlacement = "arc",
+  sunPlacement = "solar",
   sunArcCenter = 180,
   sunArcSweep = 45,
   sunOffset = 0.2,
