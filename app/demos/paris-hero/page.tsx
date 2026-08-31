@@ -74,6 +74,8 @@ export default function ParisHeroDemoPage() {
               ["tower/towerMode", "glow · metal · sparkle — sparkle is the hourly glitter as a fragment shader."],
               ["tower/beacon", "The summit's rotating double beam, faked with anglePower cones."],
               ["sky/fog/fogDensity", "Extinction per km. 0.3 is a veil; 2 swallows the city."],
+              ["clouds/cloudCoverage", "Weather bias on the deck's day cycle: 0 clear, 1 overcast. Scrub timeOfDay and fronts cross the sky."],
+              ["clouds/cloudShadows", "The key light's shadow filter reads the layer's coverage - graded cloud shade over the ring."],
               ["post/fsr/renderScale", "1 = native AA, 1.5 = Quality, 2 = Performance."],
               ["post/fsr/ssgi", "Screen-space GI replaces GTAO. Judge it against bloom-only."],
               ["world/worldScale", "Metres per unit. Watch the fog become physical as the city grows."],
