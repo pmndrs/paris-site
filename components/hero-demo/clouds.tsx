@@ -265,25 +265,31 @@ function noiseSpace(u: CloudUniforms, xzNode: unknown, sheet: number) {
  * fine octave that fades with distance because it would alias. The fine
  * octave is returned too: the caller re-uses it to erode the edges.
  */
-function densityAt(u: CloudUniforms, qNode: unknown, detailNode: unknown) {
+function densityAt(
+  u: CloudUniforms,
+  qNode: unknown,
+  detailNode: unknown,
+  lite = false,
+) {
   const q0 = qNode as Vec2Node;
   const detail = detailNode as FloatNode;
-  const w1 = TSL.mx_noise_float(
-    TSL.vec3(q0.mul(0.65).add(TSL.vec2(13.7, 7.1)), u.boil.mul(0.9)),
-  );
-  const w2 = TSL.mx_noise_float(
-    TSL.vec3(q0.mul(0.65).add(TSL.vec2(41.3, 23.9)), u.boil.mul(0.9).add(7.0)),
-  );
-  const q = q0.add(TSL.vec2(w1, w2).mul(0.35));
+  // The lite tier serves consumers that only need the broad shape — the
+  // ground shade, the puff gate. It skips the domain warp, the third octave
+  // and the fine one: half the noise for an imperceptible change in a soft
+  // blob.
+  let q = q0;
+  if (!lite) {
+    const w1 = TSL.mx_noise_float(
+      TSL.vec3(q0.mul(0.65).add(TSL.vec2(13.7, 7.1)), u.boil.mul(0.9)),
+    );
+    const w2 = TSL.mx_noise_float(
+      TSL.vec3(q0.mul(0.65).add(TSL.vec2(41.3, 23.9)), u.boil.mul(0.9).add(7.0)),
+    );
+    q = q0.add(TSL.vec2(w1, w2).mul(0.35));
+  }
   const p1 = TSL.mx_noise_float(TSL.vec3(q, u.boil));
   const p2 = TSL.mx_noise_float(
     TSL.vec3(q.mul(2.03).add(TSL.vec2(3.7, 1.9)), u.boil.mul(1.3).add(11.0)),
-  );
-  const p3 = TSL.mx_noise_float(
-    TSL.vec3(q.mul(4.1).add(TSL.vec2(9.1, 5.3)), u.boil.mul(1.7).add(23.0)),
-  );
-  const fine = TSL.mx_noise_float(
-    TSL.vec3(q.mul(8.3).add(TSL.vec2(2.2, 7.7)), u.boil.mul(2.1).add(31.0)),
   );
   // Worley distance is 0 at a cell's centre: inverted, each cell is a dome.
   const cells = TSL.float(1.0).sub(
@@ -294,6 +300,16 @@ function densityAt(u: CloudUniforms, qNode: unknown, detailNode: unknown) {
       .mul(1.1)
       .clamp(0.0, 1.0),
   );
+  if (lite) {
+    const broad = p1.mul(0.55).add(p2.mul(0.28)).mul(0.5).add(0.5);
+    return { d: broad.mul(0.58).add(cells.mul(0.42)), fine: TSL.float(0.0) };
+  }
+  const p3 = TSL.mx_noise_float(
+    TSL.vec3(q.mul(4.1).add(TSL.vec2(9.1, 5.3)), u.boil.mul(1.7).add(23.0)),
+  );
+  const fine = TSL.mx_noise_float(
+    TSL.vec3(q.mul(8.3).add(TSL.vec2(2.2, 7.7)), u.boil.mul(2.1).add(31.0)),
+  );
   const broad = p1.mul(0.55).add(p2.mul(0.28)).add(p3.mul(0.14)).mul(0.5).add(0.5);
   const d = broad
     .mul(0.58)
@@ -301,7 +317,6 @@ function densityAt(u: CloudUniforms, qNode: unknown, detailNode: unknown) {
     .add(fine.mul(0.09).mul(detail));
   return { d, fine };
 }
-
 /**
  * The coverage field on one sheet: density against a threshold the weather
  * sets, with a low-frequency front term so a change of weather crosses the
@@ -314,10 +329,11 @@ function coverageAt(
   xzNode: unknown,
   detailNode: unknown,
   sheet: number,
+  lite = false,
 ) {
   const q = noiseSpace(u, xzNode, sheet);
   const detail = detailNode as FloatNode;
-  const { d, fine } = densityAt(u, q, detail);
+  const { d, fine } = densityAt(u, q, detail, lite);
   const front = TSL.mx_noise_float(
     TSL.vec3(q.mul(0.13), u.boil.mul(0.2).add(41.0)),
   );
@@ -325,41 +341,24 @@ function coverageAt(
   const threshold = TSL.mix(1.05, 0.4, u.cloudiness)
     .add(front.mul(0.14))
     .add(sheet * 0.08);
-  // Tear the rim: erosion scaled by the square of edge-ness, so cores stay
-  // solid while boundaries fray into wisps. The fine octave is already paid
-  // for; near-zero extra cost.
-  const pre = TSL.smoothstep(threshold, threshold.add(0.38), d);
-  const fray = TSL.float(1.0)
-    .sub(pre)
-    .pow(2.0)
-    .mul(fine.mul(0.5).add(0.5))
-    .mul(0.1)
-    .mul(detail.mul(0.7).add(0.3));
-  const eroded = d.sub(fray);
+  let eroded = d;
+  if (!lite) {
+    // Tear the rim: erosion scaled by the square of edge-ness, so cores stay
+    // solid while boundaries fray into wisps. The fine octave is already
+    // paid for; near-zero extra cost.
+    const pre = TSL.smoothstep(threshold, threshold.add(0.38), d);
+    const fray = TSL.float(1.0)
+      .sub(pre)
+      .pow(2.0)
+      .mul(fine.mul(0.5).add(0.5))
+      .mul(0.1)
+      .mul(detail.mul(0.7).add(0.3));
+    eroded = d.sub(fray);
+  }
   const cover = TSL.smoothstep(threshold, threshold.add(0.38), eroded);
   const thick = TSL.smoothstep(threshold, threshold.add(0.6), eroded);
   return { q, d, fine, threshold, cover, thick };
 }
-
-interface PuffSprite {
-  x: number;
-  y: number;
-  z: number;
-  r: number;
-  rx: number;
-  ry: number;
-  rz: number;
-  seed: number;
-}
-
-interface PuffCloudRange {
-  start: number;
-  count: number;
-  cx: number;
-  cy: number;
-  cz: number;
-}
-
 /** Deterministic PRNG (mulberry32) — the scatter must not reshuffle on re-render. */
 function makeRng(seed: number) {
   let s = seed >>> 0;
@@ -527,7 +526,7 @@ function makePuffNodes(
 
   // The gate: the sheet's own coverage where this sprite floats. Condense
   // inside a streak, thin out in its saturated core, vanish outside it.
-  const { cover, thick } = coverageAt(u, offset.xz, TSL.float(0.0), 0);
+  const { cover, thick } = coverageAt(u, offset.xz, TSL.float(0.0), 0, true);
   const gate = TSL.smoothstep(0.22, 0.5, cover).mul(
     TSL.float(1.0).sub(TSL.smoothstep(0.8, 1.0, cover).mul(0.5)),
   );
@@ -559,11 +558,17 @@ function makePuffNodes(
     .mul(ALBEDO)
     .add(glow);
 
+  // Gate and tint are flat across a sprite: hand them to the fragment as
+  // varyings (read there and only there — a varying read back in a
+  // vertex-stage slot comes out of the builder as undefined), so each
+  // fragment is one texture fetch and two multiplies.
+  const vGate = TSL.vertexStage(gate) as unknown as FloatNode;
+  const vTint = TSL.vertexStage(tint) as unknown as Vec3Node;
   const tex = TSL.texture(puffTexture, TSL.uv());
   const colorNode = TSL.Fn(() => {
-    const alpha = tex.a.mul(gate).mul(u.density).mul(PUFF_DENSITY);
+    const alpha = tex.a.mul(vGate).mul(u.density).mul(PUFF_DENSITY);
     alpha.lessThan(0.004).discard();
-    return TSL.vec4(tint, alpha);
+    return TSL.vec4(vTint, alpha);
   })();
 
   return {
@@ -642,7 +647,7 @@ export function cloudShadowFilter(base: ShadowFilter): ShadowFilter {
         const p = TSL.shadowPositionWorld as unknown as Vec3Node;
         const t = u.altitude.sub(p.y).div(dir.y);
         const xz = p.xz.add(TSL.vec2(dir.x, dir.z).mul(t));
-        const { cover } = coverageAt(u, xz, TSL.float(0.0), 0);
+        const { cover } = coverageAt(u, xz, TSL.float(0.0), 0, true);
         lit.mulAssign(TSL.float(1.0).sub(cover.mul(u.shade)));
       });
       return lit;
