@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useFrame, useThree } from "@react-three/fiber/webgpu";
 import { useSky } from "@pmndrs/sky/react";
 import * as TSL from "three/tsl";
@@ -980,7 +980,20 @@ export const Clouds = memo(function Clouds({
 }: CloudsOptions) {
   const sky = useSky() as unknown as SkyLike | null;
   const skyCube = sky?.baker?.texture;
-  const skyEnv = sky?.baker?.environmentTexture ?? undefined;
+  // The baker's PMREM target does not exist until the first bake lands, and
+  // this memoized component gets no re-render from above until the dial first
+  // moves — so reading `environmentTexture` during render would defer the
+  // material rebuild (a synchronous double WGSL compile) into the user's
+  // first gesture. Watch for it in the frame loop instead: the rebuild then
+  // happens moments after load, behind the hero gate's warmup overlay, whose
+  // frame-pacing probe absorbs the compile stall.
+  const [skyEnv, setSkyEnv] = useState<THREE.Texture | null>(
+    () => sky?.baker?.environmentTexture ?? null,
+  );
+  useFrame(() => {
+    const env = sky?.baker?.environmentTexture ?? null;
+    setSkyEnv((prev) => (prev === env ? prev : env));
+  });
   const domeRef = useRef<THREE.Mesh>(null);
   const glowRef = useRef<THREE.HemisphereLight>(null);
   const uniforms = cloudUniforms;

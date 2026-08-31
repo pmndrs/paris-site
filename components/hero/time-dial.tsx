@@ -163,7 +163,15 @@ export function TimeDial({
     valueRef.current = value;
   }, [value]);
 
-  // Create the audio context during a user gesture to satisfy autoplay policy.
+  // Autoplay policy gates `resume()`, not construction: a context created
+  // outside a gesture just starts "suspended". Spinning up the audio thread
+  // is the expensive part (it showed up as a main-thread stall on the first
+  // detent), so do it at first intent — hover or focus — where nothing is
+  // animating yet, and keep the in-gesture create as a fallback.
+  const warmAudio = useCallback(() => {
+    audioRef.current ??= createDialAudio();
+  }, []);
+
   const tick = useCallback(() => {
     const audio = audioRef.current ?? createDialAudio();
     if (!audio) return;
@@ -270,6 +278,11 @@ export function TimeDial({
       ).toLowerCase()}`}
       aria-orientation="vertical"
       {...aria}
+      // Every input path passes through one of these before its first detent:
+      // hover before click, focus before arrow keys, and touch-down before a
+      // drag has moved far enough to click.
+      onPointerEnter={warmAudio}
+      onFocus={warmAudio}
       onPointerDown={(e) => {
         e.preventDefault();
         const rect = ref.current!.getBoundingClientRect();
