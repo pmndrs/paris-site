@@ -54,6 +54,55 @@ function useIdleWhenHidden(paused: boolean) {
   }, [paused, scheduler]);
 }
 
+/**
+ * The scheduler's fps-cap tolerance: a tick is due when at least
+ * `minInterval - 1` ms have passed, so a 120Hz display runs every 2nd tick
+ * (true 60) and a 60Hz display runs every tick (a no-op).
+ */
+const STEP_MIN_MS = 1000 / 60 - 1;
+
+/**
+ * Drive the shared frame loop at 60Hz instead of the display's refresh rate.
+ *
+ * The render job is already fps-capped at 60, but the scheduler's own rAF
+ * loop still ticks at the display rate — on ProMotion phones every update
+ * job runs twice per presented frame, for CPU (and battery) that never
+ * reaches the screen. Capping update jobs per-job is not safe: they receive
+ * the global loop delta and would animate in slow motion. Stepping the whole
+ * loop is: `scheduler.step(t)` derives delta from the timestamps it is
+ * handed, so skipping ticks yields correct wall-clock deltas for every job.
+ *
+ * The canvas passes `frameloop="never"` while this drives (the reduced-motion
+ * path keeps "demand" and this hook stays disarmed). Section canvases pass no
+ * `frameloop`, and r3f only writes the scheduler singleton when the prop is
+ * explicitly set — so nothing restarts the built-in loop, and their jobs are
+ * simply driven by this stepper.
+ */
+function useSixtyHzLoop(enabled: boolean) {
+  const { scheduler } = useFrame();
+
+  useEffect(() => {
+    if (!enabled) return;
+    let raf = 0;
+    let last = -Infinity;
+    const loop = (t: number) => {
+      raf = requestAnimationFrame(loop);
+      if (t - last < STEP_MIN_MS) return;
+      last = t;
+      scheduler.step(t);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => {
+      cancelAnimationFrame(raf);
+      // Hand the loop back on unmount — pages without the hero (the demos)
+      // pass no `frameloop` and would otherwise stay frozen. When this
+      // cleanup runs because reduced motion flipped, the canvas (a child,
+      // whose effects run first) has already written "demand"; leave it.
+      if (scheduler.frameloop === "never") scheduler.frameloop = "always";
+    };
+  }, [enabled, scheduler]);
+}
+
 /** Static fallback shown when WebGPU is unavailable. */
 function FallbackPoster() {
   return (
@@ -99,6 +148,8 @@ export function TowerHero({
 }) {
   useIdleWhenHidden(paused);
   const support = useWebGPU();
+  // Matches the canvas's `frameloop`: "never" is only passed when this arms.
+  useSixtyHzLoop(!reducedMotion && support === "yes");
 
   useEffect(() => {
     if (support !== "no") return;
@@ -157,7 +208,8 @@ export function TowerHero({
       // The shared demo keeps its neutral 0° default.
       initialAzimuthDegrees={268}
       autoRotateSpeed={reducedMotion ? 0 : 1}
-      frameloop={reducedMotion ? "demand" : "always"}
+      // "never": useSixtyHzLoop drives the scheduler manually at 60Hz.
+      frameloop={reducedMotion ? "demand" : "never"}
       intro={!reducedMotion}
       dpr={[1, 2]}
       renderScale={1.5}
