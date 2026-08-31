@@ -156,6 +156,12 @@ export function SectionCanvas({
       // attachment. Snapping to even integers makes the measured size stable,
       // and since these canvases are pointer-events: none, re-measuring on
       // scroll buys us nothing to begin with.
+      // The WebGPU renderer is shared by every canvas on the page, and
+      // `shadows` writes its global `shadowMap.enabled` — the last canvas to
+      // mount wins, and three only builds a light's shadow node if the flag is
+      // on when the light is set up. The hero needs it on, so every canvas
+      // keeps it on; without a caster it costs nothing.
+      shadows
       forceEven
       // Interactive canvases keep it: R3F maps pointer coordinates through
       // size.top/left, which goes stale the moment the page scrolls.
