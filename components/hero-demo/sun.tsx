@@ -22,7 +22,7 @@ interface SkyWithSun {
  *
  * - `solar`: the true solar position. Honest, and practically never on
  *   screen: the June sun over Paris tops out at 64° while a 30° fov reaches
- *   ~12° above the horizon.
+ *   ~18° above the horizon.
  * - `arc`: a world-anchored arc — it moves with the orbit like a real sun
  *   and can leave the frame — but narrower and lower than the true path:
  *   the bearing sweeps from `arcCenter − arcSweep` at sunrise to
@@ -87,9 +87,10 @@ const HORIZON_FADE_END = -1.4;
  * Lowered elevation: below `FRAME_KNEE` the disc keeps its real elevation so
  * rising and setting behind the skyline stay honest; above it the rest of
  * the day is squeezed into the band up to `FRAME_PEAK`. The frame's top
- * edge is ~12° above the horizon at the hero's 93° polar angle, so at high
- * noon the disc's centre just touches it — the natural-looking end of the
- * trade between height and staying in the picture. `FRAME_SOFTNESS` sets
+ * edge is ~18° above the horizon at the hero's 93° polar angle, so at high
+ * noon the disc sits well inside it while still reading as a low sun — the
+ * natural-looking end of the trade between height and staying in the
+ * picture. `FRAME_SOFTNESS` sets
  * how quickly the climb saturates: smaller reaches the peak earlier and
  * plateaus through midday, larger keeps it rising and falling all day.
  */
@@ -137,7 +138,7 @@ const scratchDirection = new THREE.Vector3();
 
 /**
  * Disc colour by elevation. With a 30° fov the sun only ever shares the
- * frame with the tower below ~12°, so the ramp is tuned for the golden
+ * frame with the tower below ~18°, so the ramp is tuned for the golden
  * band: warm white overhead, gold through the low teens, orange-red at the
  * horizon.
  */
