@@ -131,11 +131,14 @@ function playClick(audio: DialAudio, speed: number) {
 export function TimeDial({
   value,
   onValueChange,
+  onValueCommit,
   className,
   ...aria
 }: {
   value: number;
   onValueChange: (value: number) => void;
+  /** Called when a pointer or keyboard gesture has chosen its final value. */
+  onValueCommit: (value: number) => void;
   className?: string;
   "aria-label"?: string;
   "aria-labelledby"?: string;
@@ -185,10 +188,33 @@ export function TimeDial({
         lastDetent.current = detent;
         tick();
       }
-      // Preserve whole turns for delayed replay.
+      // Keep pointer motion continuous across whole turns during the gesture.
+      // The committed value is rebased below.
       onValueChange(next);
     },
     [onValueChange, tick],
+  );
+
+  const commitValue = useCallback(
+    (next: number) => {
+      const normalized = wrapValue(next);
+      // Rebase after every gesture so repeated spins never grow the dial's
+      // internal value without bound. The visual angle is unchanged.
+      valueRef.current = normalized;
+      lastDetent.current = Math.round(normalized / DETENT);
+      onValueCommit(normalized);
+    },
+    [onValueCommit],
+  );
+
+  const finishDrag = useCallback(
+    (next?: number) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      dragRef.current = null;
+      commitValue(next ?? drag.value);
+    },
+    [commitValue],
   );
 
   const updateFromPointer = useCallback(
@@ -278,21 +304,33 @@ export function TimeDial({
       }}
       onPointerUp={(e) => {
         const drag = dragRef.current;
-        if (!drag || drag.moved) return;
+        if (!drag) return;
+        if (drag.moved) {
+          finishDrag();
+          return;
+        }
 
         const dx = e.clientX - drag.x;
         const dy = e.clientY - drag.y;
-        if (Math.hypot(dx, dy) < 4) return;
+        if (Math.hypot(dx, dy) < 4) {
+          finishDrag();
+          return;
+        }
 
         const degrees = (Math.atan2(dx, -dy) * 180) / Math.PI;
         const clicked = wrapValue((degrees / FULL_TURN) * 100);
-        // Select the reading nearest the current unwrapped turn.
+        // Select the reading nearest the current unwrapped turn so clicking
+        // across midnight does not accidentally queue almost a whole day.
         const next =
           clicked + Math.round((drag.value - clicked) / 100) * 100;
         setValue(next);
+        finishDrag(next);
       }}
       onLostPointerCapture={() => {
-        dragRef.current = null;
+        finishDrag();
+      }}
+      onPointerCancel={() => {
+        finishDrag();
       }}
       onKeyDown={(e) => {
         const steps: Record<string, number | undefined> = {
@@ -318,7 +356,9 @@ export function TimeDial({
               Math.round((current - wrappedJump) / 100) * 100;
         if (step === undefined && jump === undefined) return;
         e.preventDefault();
-        setValue(jump ?? current + (step ?? 0));
+        const next = jump ?? current + (step ?? 0);
+        setValue(next);
+        commitValue(next);
       }}
       className={cn(
         "relative isolate size-[72px] shrink-0 cursor-pointer touch-none rounded-full border border-white/25 bg-white/5 select-none sm:size-20",

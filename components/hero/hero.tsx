@@ -45,21 +45,30 @@ const MAX_FRAME_MS = 40;
 const wrapTimeOfDay = (value: number) =>
   ((value % DAY_CYCLE) + DAY_CYCLE) % DAY_CYCLE;
 
-/** Drops completed turns that cannot change the cyclic scene state. */
-const collapseCompletedTurns = (next: number, current: number) =>
-  next - Math.trunc((next - current) / DAY_CYCLE) * DAY_CYCLE;
+/** Smallest phase correction from one cyclic value to another. */
+const timeOfDayCorrection = (current: number, next: number) => {
+  const wrappedNext = wrapTimeOfDay(next);
+  const wrappedCurrent = wrapTimeOfDay(current);
+  let distance = wrappedNext - wrappedCurrent;
+  if (distance > DAY_CYCLE / 2) distance -= DAY_CYCLE;
+  if (distance < -DAY_CYCLE / 2) distance += DAY_CYCLE;
+  return distance;
+};
 
 /**
  * Replays unwrapped dial input as an overdamped spring. Velocity survives
  * target changes, while the per-frame cap prevents a slow atmosphere frame
- * from becoming a visible jump. Completed turns are visually identical, so
- * they are collapsed before they can build an unbounded replay backlog.
+ * from becoming a visible jump. Every dial delta is accumulated, including
+ * completed turns, so spinning through a whole day always replays that day.
+ * The input and replay representatives are tracked separately: the dial can
+ * rebase after a gesture without discarding the scene's queued travel.
  */
 function useTimeOfDayReplay(initial: number, instant: boolean) {
   const [value, setValue] = useState(initial);
   const state = useRef({
     value: initial,
     target: initial,
+    input: initial,
     velocity: 0,
     lastFrame: 0,
     frame: 0,
@@ -96,6 +105,16 @@ function useTimeOfDayReplay(initial: number, instant: boolean) {
       s.value += s.velocity * seconds;
     }
 
+    // Keep the replay representatives bounded. Moving both endpoints by a
+    // whole cycle preserves every queued turn and the rendered time. `input`
+    // is deliberately separate because it is rebased when a gesture ends.
+    const completedTurns = Math.floor(s.value / DAY_CYCLE);
+    if (completedTurns !== 0) {
+      const offset = completedTurns * DAY_CYCLE;
+      s.value -= offset;
+      s.target -= offset;
+    }
+
     setValue(s.value);
     if (
       Math.abs(s.target - s.value) > REPLAY_POSITION_EPSILON ||
@@ -107,40 +126,77 @@ function useTimeOfDayReplay(initial: number, instant: boolean) {
     }
   }, []);
 
+  const settleImmediately = useCallback((next: number) => {
+    if (!Number.isFinite(next)) return;
+    const s = state.current;
+    const value = wrapTimeOfDay(next);
+    cancelAnimationFrame(s.frame);
+    s.frame = 0;
+    s.target = value;
+    s.value = value;
+    s.input = value;
+    s.velocity = 0;
+    setValue(value);
+  }, []);
+
   const enqueue = useCallback(
     (next: number) => {
       const s = state.current;
       if (instant) {
-        cancelAnimationFrame(s.frame);
-        s.frame = 0;
-        s.target = next;
-        s.value = next;
-        s.velocity = 0;
-        setValue(next);
+        settleImmediately(next);
         return;
       }
+      if (!Number.isFinite(next)) return;
 
-      const target = collapseCompletedTurns(next, s.value);
-      if (Math.abs(target - s.target) < Number.EPSILON) return;
-      s.target = target;
+      // Accumulate input deltas instead of assigning the raw dial value. The
+      // dial rebases to 0..100 after every gesture, while the replay may still
+      // owe one or more complete days; adding the delta preserves that trail.
+      const delta = next - s.input;
+      s.input = next;
+      if (Math.abs(delta) < Number.EPSILON) return;
+      s.target += delta;
 
       if (!s.frame) {
         s.lastFrame = performance.now();
         s.frame = requestAnimationFrame(step);
       }
     },
-    [instant, step],
+    [instant, settleImmediately, step],
+  );
+
+  /**
+   * Rebase the dial input and correct only its final clock phase. This never
+   * moves the live scene or removes complete turns already queued in `target`.
+   */
+  const commit = useCallback(
+    (next: number) => {
+      if (!Number.isFinite(next)) return;
+      if (instant) {
+        settleImmediately(next);
+        return;
+      }
+
+      const s = state.current;
+      const normalized = wrapTimeOfDay(next);
+      s.input = normalized;
+      s.target += timeOfDayCorrection(s.target, normalized);
+
+      if (
+        !s.frame &&
+        (Math.abs(s.target - s.value) > REPLAY_POSITION_EPSILON ||
+          Math.abs(s.velocity) > REPLAY_VELOCITY_EPSILON)
+      ) {
+        s.lastFrame = performance.now();
+        s.frame = requestAnimationFrame(step);
+      }
+    },
+    [instant, settleImmediately, step],
   );
 
   useEffect(() => {
     if (!instant) return;
-    const s = state.current;
-    cancelAnimationFrame(s.frame);
-    s.frame = 0;
-    s.value = s.target;
-    s.velocity = 0;
-    setValue(s.target);
-  }, [instant]);
+    settleImmediately(state.current.target);
+  }, [instant, settleImmediately]);
 
   useEffect(() => {
     const s = state.current;
@@ -150,13 +206,15 @@ function useTimeOfDayReplay(initial: number, instant: boolean) {
     };
   }, []);
 
-  return { value, enqueue };
+  return { value, enqueue, commit };
 }
 
 const HeroTimeDial = memo(function HeroTimeDial({
   onValueChange,
+  onValueCommit,
 }: {
   onValueChange: (value: number) => void;
+  onValueCommit: (value: number) => void;
 }) {
   const [value, setValue] = useState(INITIAL_TIME_OF_DAY);
   const handleValueChange = useCallback(
@@ -165,6 +223,14 @@ const HeroTimeDial = memo(function HeroTimeDial({
       onValueChange(next);
     },
     [onValueChange],
+  );
+  const handleValueCommit = useCallback(
+    (next: number) => {
+      const normalized = wrapTimeOfDay(next);
+      setValue(normalized);
+      onValueCommit(normalized);
+    },
+    [onValueCommit],
   );
 
   return (
@@ -178,6 +244,7 @@ const HeroTimeDial = memo(function HeroTimeDial({
         <TimeDial
           value={value}
           onValueChange={handleValueChange}
+          onValueCommit={handleValueCommit}
           aria-label="Time of day"
         />
       </div>
@@ -196,7 +263,7 @@ function TimeOfDayExperience({
   onUiReveal: () => void;
   showBottomGradient: boolean;
 }) {
-  const { value: tod, enqueue } = useTimeOfDayReplay(
+  const { value: tod, enqueue, commit } = useTimeOfDayReplay(
     INITIAL_TIME_OF_DAY,
     reducedMotion,
   );
@@ -232,7 +299,10 @@ function TimeOfDayExperience({
 
       {/* The dial alone stays pinned to the hero and fades on scroll. */}
       <div className="hero-dial-layer pointer-events-none sticky top-0 z-40 col-start-1 row-start-1 h-svh min-h-[500px] self-start">
-        <HeroTimeDial onValueChange={enqueue} />
+        <HeroTimeDial
+          onValueChange={enqueue}
+          onValueCommit={commit}
+        />
       </div>
     </>
   );
