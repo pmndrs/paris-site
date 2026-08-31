@@ -23,10 +23,12 @@ import {
   hash,
   If,
   max,
+  min,
   mix,
   normalGeometry,
   positionGeometry,
   positionLocal,
+  pow,
   select,
   sin,
   smoothstep,
@@ -191,22 +193,34 @@ function useWindowEmissive(lightLevel: THREE.UniformNode<"float", number>) {
           select(n.z.greaterThan(0), float(2), float(3)),
         );
 
+        // The tall blocks are dense apartment towers on the far skyline:
+        // small windows, most of them lit but dim, warm throughout. Height is
+        // the only cue the instance carries.
+        const towerness = smoothstep(6, 12, size.y);
+
+        // A rhythm per building, so the far skyline is not one lattice.
+        const pitchScale = mix(float(0.85), float(1.15), hash(seed.add(7)));
+        const pitchX = pitchScale.mul(WINDOW_PITCH_X);
+        const pitchY = pitchScale.mul(WINDOW_PITCH_Y);
+        const dutyX = mix(float(WINDOW_PANE_X), float(0.45), towerness);
+        const dutyY = mix(float(WINDOW_PANE_Y), float(0.5), towerness);
+
         // Metric coordinates across and up the face, origin at ground level.
         const across = select(onX, p.z.mul(size.z), p.x.mul(size.x));
         const width = select(onX, size.z, size.x);
-        const cols = floor(width.div(WINDOW_PITCH_X));
+        const cols = floor(width.div(pitchX));
         const rows = floor(
           size.y
             .sub(WINDOW_GROUND_CLEARANCE + WINDOW_TOP_CLEARANCE)
-            .div(WINDOW_PITCH_Y),
+            .div(pitchY),
         );
         const cell = vec2(
-          across.add(cols.mul(WINDOW_PITCH_X * 0.5)).div(WINDOW_PITCH_X),
+          across.add(cols.mul(pitchX).mul(0.5)).div(pitchX),
           p.y
             .add(0.5)
             .mul(size.y)
             .sub(WINDOW_GROUND_CLEARANCE)
-            .div(WINDOW_PITCH_Y),
+            .div(pitchY),
         );
         const id = floor(cell);
         const inside = step(0, id.x)
@@ -220,43 +234,114 @@ function useWindowEmissive(lightLevel: THREE.UniformNode<"float", number>) {
         const footprint = max(fwidth(cell), vec2(1e-4));
         const filteredPane = (
           x: typeof cell.x,
-          duty: number,
-          width: typeof cell.x,
+          duty: typeof cell.x,
+          span: typeof cell.x,
         ) => {
-          const margin = (1 - duty) / 2;
+          const margin = float(1).sub(duty).mul(0.5);
           const integral = (t: typeof cell.x) =>
             floor(t).mul(duty).add(clamp(fract(t).sub(margin), 0, duty));
-          const half = width.mul(0.5);
-          return integral(x.add(half)).sub(integral(x.sub(half))).div(width);
+          const half = span.mul(0.5);
+          return integral(x.add(half)).sub(integral(x.sub(half))).div(span);
         };
-        const pane = filteredPane(cell.x, WINDOW_PANE_X, footprint.x).mul(
-          filteredPane(cell.y, WINDOW_PANE_Y, footprint.y),
+        const pane = filteredPane(cell.x, dutyX, footprint.x).mul(
+          filteredPane(cell.y, dutyY, footprint.y),
         );
 
         // Chained hashes: `hash` truncates its seed to an integer, so
-        // fractional salts would collapse onto the same value.
+        // fractional salts would collapse onto the same value. Floor and
+        // group keys sit millions apart from the window keys.
         const key = id.x.add(id.y.mul(131)).add(faceId.mul(7919)).add(seed);
         const r = hash(key);
         const r2 = hash(r.mul(1048576));
         const r3 = hash(r2.mul(1048576));
+        const occupancyR = hash(seed.add(faceId.mul(31)));
         const occupancy = mix(
-          float(0.2),
-          float(0.55),
-          hash(seed.add(faceId.mul(31))),
+          mix(float(0.2), float(0.55), occupancyR),
+          mix(float(0.4), float(0.75), occupancyR),
+          towerness,
         );
-        const lit = step(r, lightLevel.mul(occupancy));
-        const brightness = mix(float(0.45), float(1.25), r2);
-        const tint = mix(vec3(1.0, 0.58, 0.25), vec3(1.0, 0.82, 0.58), r3);
+
+        // Gentle floor-to-floor and stack-to-stack variation: the bands and
+        // stripes a facade has without ever reading as a lit/dark floor.
+        const floorR = hash(id.y.mul(131).add(seed).add(1e6));
+        const floorFactor = mix(
+          mix(float(0.6), float(1.4), floorR),
+          mix(float(0.85), float(1.15), floorR),
+          towerness,
+        );
+        const stackR = hash(id.x.add(faceId.mul(7919)).add(seed).add(3e6));
+        const stackFactor = mix(
+          float(1),
+          mix(float(0.45), float(1.55), stackR),
+          towerness,
+        );
+
+        // A home spans a few windows of one floor and lights together.
+        const groupWidth = float(2).add(floor(hash(seed.add(11)).mul(3)));
+        const groupR = hash(
+          floor(id.x.div(groupWidth))
+            .add(id.y.mul(131))
+            .add(faceId.mul(7919))
+            .add(seed)
+            .add(2e6),
+        );
+        const groupR2 = hash(groupR.mul(1048576));
+        const groupR3 = hash(groupR2.mul(1048576));
+        const homeGroup = mix(
+          float(0.3),
+          float(1.7),
+          smoothstep(0.35, 0.65, groupR),
+        );
+        const towerGroup = mix(float(0.7), float(1.3), groupR);
+        const groupFactor = mix(homeGroup, towerGroup, towerness);
+
+        const chance = lightLevel
+          .mul(occupancy)
+          .mul(floorFactor)
+          .mul(stackFactor)
+          .mul(groupFactor);
+        const lit = step(r, chance);
+
+        // Homes vary by household; towers are mostly dim with a few bright
+        // rooms, which is what keeps a dense lattice from reading as a grid.
+        const homeBright = mix(float(0.5), float(1.3), groupR2).mul(
+          mix(float(0.75), float(1.15), r2),
+        );
+        const towerBright = mix(float(0.15), float(1.6), pow(r2, 2.2)).mul(
+          mix(float(0.8), float(1.2), groupR2),
+        );
+        const brightness = mix(homeBright, towerBright, towerness);
+        const tint = mix(
+          vec3(1.0, 0.58, 0.25),
+          vec3(1.0, 0.84, 0.6),
+          mix(groupR3, r3, towerness),
+        );
 
         // Past one cell per pixel the filtered pane is flat and only the
-        // per-cell on/off is left to alias, so hand over to the mean there.
-        const lod = smoothstep(0.35, 1.0, max(footprint.x, footprint.y));
-        const mean = lightLevel
-          .mul(occupancy)
-          .mul(WINDOW_PANE_X * WINDOW_PANE_Y * 0.85);
-        const glow = mix(pane.mul(lit).mul(brightness), mean, lod);
+        // per-cell on/off is left to alias, so hand over to the expected
+        // value there — per axis. A face at a grazing angle packs many
+        // windows into a pixel across while its floors still resolve; if
+        // each pixel kept one window's on/off the face would smear into
+        // horizontal streaks, so the across direction averages to its row
+        // first, and floors only collapse once they are sub-pixel too.
+        const lodX = smoothstep(0.35, 1.0, footprint.x);
+        const lodY = smoothstep(0.35, 1.0, footprint.y);
+        const meanBright = mix(float(0.85), float(0.6), towerness);
+        const rowMean = min(lightLevel.mul(occupancy).mul(floorFactor), 1.0)
+          .mul(meanBright);
+        const faceMean = min(lightLevel.mul(occupancy), 1.0).mul(meanBright);
+        const light = mix(
+          mix(lit.mul(brightness), rowMean, lodX),
+          faceMean,
+          lodY,
+        );
 
-        return tint.mul(WINDOW_INTENSITY).mul(glow).mul(inside).mul(side);
+        return tint
+          .mul(WINDOW_INTENSITY)
+          .mul(pane)
+          .mul(light)
+          .mul(inside)
+          .mul(side);
       })(),
     };
   }, [lightLevel]);
