@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber/webgpu";
+import { useFrame, useThree } from "@react-three/fiber/webgpu";
 import { useSky } from "@pmndrs/sky/react";
 import * as TSL from "three/tsl";
 import * as THREE from "three/webgpu";
@@ -139,6 +139,11 @@ const STEP_EXTINCTION = 2.0;
 const GLOW_GAIN = 0.6;
 /** Base-octave noise frequency, per city unit: lumps a few hundred metres across. */
 const NOISE_FREQUENCY = 1 / 380;
+/** The baked field tile: noise units per side, and texels per side. */
+const BAKE_PERIOD = 8;
+const BAKE_SIZE = 512;
+/** How fast the two-tap morph steps through the tile, per boil unit. */
+const BOIL_MORPH_RATE = 0.5;
 /** How far up-sun the self-shadow sample is taken, in base-octave features. */
 const SUN_STEP = 0.38;
 /** City radius, for the night glow falloff. */
@@ -203,6 +208,129 @@ function cloudinessAt(hours: number) {
   return THREE.MathUtils.clamp(0.5 + 0.5 * (0.6 * a + 0.4 * b), 0, 1);
 }
 
+/**
+ * The field, baked. Every channel of one tileable RGBA16F tile carries a
+ * band of the cloud field at its own frequency — R the three Perlin
+ * octaves pre-summed, G the inverted Worley domes, B the fine octave, A
+ * the warp — so a single filtered fetch replaces up to five ALU noise
+ * evaluations, and mipmaps anti-alias the far field for free. Baked once
+ * per renderer with a quad pass; tiling comes from a torus blend across
+ * the tile's edges.
+ */
+let bakedFor: unknown = null;
+
+/**
+ * The one texture node every consumer samples through. It starts on a 1×1
+ * mid-grey placeholder so materials that compile before the bake (the key
+ * light's shadow filter lives inside every receiving material) bind
+ * something valid; the bake swaps `.value` in place and every binding
+ * follows, no recompiles.
+ */
+const fieldPlaceholder = new THREE.DataTexture(
+  new Uint8Array([128, 128, 128, 128]),
+  1,
+  1,
+);
+fieldPlaceholder.wrapS = THREE.RepeatWrapping;
+fieldPlaceholder.wrapT = THREE.RepeatWrapping;
+fieldPlaceholder.needsUpdate = true;
+const fieldTexNode = TSL.texture(fieldPlaceholder);
+
+function bakeFieldTexture(renderer: THREE.WebGPURenderer) {
+  if (bakedFor === renderer) return;
+
+  const target = new THREE.RenderTarget(BAKE_SIZE, BAKE_SIZE, {
+    depthBuffer: false,
+    type: THREE.HalfFloatType,
+  });
+  target.texture.name = "CloudFieldBake";
+  target.texture.wrapS = THREE.RepeatWrapping;
+  target.texture.wrapT = THREE.RepeatWrapping;
+  target.texture.minFilter = THREE.LinearMipmapLinearFilter;
+  target.texture.magFilter = THREE.LinearFilter;
+  target.texture.generateMipmaps = true;
+
+  const P = BAKE_PERIOD;
+  const pos = TSL.uv().mul(P);
+  /** Evaluate a field on the torus: blend the four period-shifted reads. */
+  const tiled = (f: (q: Vec2Node) => FloatNode) => {
+    const q = pos as unknown as Vec2Node;
+    const n00 = f(q);
+    const n10 = f(q.sub(TSL.vec2(P, 0)) as unknown as Vec2Node);
+    const n01 = f(q.sub(TSL.vec2(0, P)) as unknown as Vec2Node);
+    const n11 = f(q.sub(TSL.vec2(P, P)) as unknown as Vec2Node);
+    const wx = TSL.uv().x;
+    const wy = TSL.uv().y;
+    return TSL.mix(TSL.mix(n00, n10, wx), TSL.mix(n01, n11, wx), wy);
+  };
+
+  const broad = tiled((q) =>
+    TSL.mx_noise_float(TSL.vec3(q, 0.0))
+      .mul(0.55)
+      .add(TSL.mx_noise_float(TSL.vec3(q.mul(2.03).add(TSL.vec2(3.7, 1.9)), 11.0)).mul(0.28))
+      .add(TSL.mx_noise_float(TSL.vec3(q.mul(4.1).add(TSL.vec2(9.1, 5.3)), 23.0)).mul(0.14))
+      .mul(0.5)
+      .add(0.5) as unknown as FloatNode,
+  );
+  const cells = tiled((q) =>
+    TSL.float(1.0).sub(
+      TSL.mx_worley_noise_float(q.mul(1.15), 1.0).mul(1.1).clamp(0.0, 1.0),
+    ) as unknown as FloatNode,
+  );
+  const fine = tiled((q) =>
+    TSL.mx_noise_float(TSL.vec3(q.mul(8.3).add(TSL.vec2(2.2, 7.7)), 31.0))
+      .mul(0.5)
+      .add(0.5) as unknown as FloatNode,
+  );
+  const warp = tiled((q) =>
+    TSL.mx_noise_float(TSL.vec3(q.mul(0.65).add(TSL.vec2(13.7, 7.1)), 5.0))
+      .mul(0.5)
+      .add(0.5) as unknown as FloatNode,
+  );
+
+  const material = new THREE.NodeMaterial();
+  material.colorNode = TSL.vec4(broad, cells, fine, warp);
+  const quad = new THREE.QuadMesh(material);
+  const previous = renderer.getRenderTarget();
+  renderer.setRenderTarget(target);
+  quad.render(renderer);
+  renderer.setRenderTarget(previous);
+  material.dispose();
+
+  bakedFor = renderer;
+  fieldTexNode.value = target.texture;
+}
+
+/**
+ * Two boil-morphed taps of the baked tile at a point in noise space: the
+ * integer boil phase picks two golden-ratio offsets into the tile and the
+ * fraction blends them, so the field evolves continuously without any
+ * runtime noise. Fine and warp come back signed.
+ */
+function fieldAt(u: CloudUniforms, qNode: unknown) {
+  const q = qNode as Vec2Node;
+  const phase = (u.boil as unknown as FloatNode).mul(BOIL_MORPH_RATE);
+  const i0 = TSL.floor(phase);
+  const f = TSL.fract(phase);
+  const blend = f.mul(f).mul(TSL.float(3.0).sub(f.mul(2.0)));
+  const offsetOf = (iNode: unknown) => {
+    const i = iNode as FloatNode;
+    return TSL.vec2(
+      TSL.fract(i.mul(0.7548776662)),
+      TSL.fract(i.mul(0.5698402911)),
+    ).mul(BAKE_PERIOD);
+  };
+  const uv0 = q.add(offsetOf(i0)).div(BAKE_PERIOD);
+  const uv1 = q.add(offsetOf(i0.add(1.0))).div(BAKE_PERIOD);
+  const sample = TSL.mix(fieldTexNode.sample(uv0), fieldTexNode.sample(uv1), blend);
+  return {
+    broad: sample.r,
+    cells: sample.g,
+    fine: sample.b.mul(2.0).sub(1.0),
+    warpTap: sample.a.mul(2.0).sub(1.0),
+  };
+}
+
 function makeUniforms() {
   return {
     sunDir: TSL.uniform(new THREE.Vector3(0, 1, 0)),
@@ -257,108 +385,23 @@ function noiseSpace(u: CloudUniforms, xzNode: unknown, sheet: number) {
 }
 
 /**
- * Density at a point in noise space: the space itself is first bent by a
- * low-frequency warp — a smoothstepped boundary through warped coordinates
- * meanders and curls the way a cloud edge does, where the same boundary
- * through straight coordinates traces an airbrushed blob. Then three Perlin
- * octaves for the broad shape, inverted Worley cells for the domes, and a
- * fine octave that fades with distance because it would alias. The fine
- * octave is returned too: the caller re-uses it to erode the edges.
+ * The broad coverage at a point — the lite tier that serves the ground
+ * shade and the puff gate: two boil-morphed taps of the baked tile, no
+ * warp, no fray. `cover` is what you see, `thick` how much cloud is above.
  */
-function densityAt(
-  u: CloudUniforms,
-  qNode: unknown,
-  detailNode: unknown,
-  lite = false,
-) {
-  const q0 = qNode as Vec2Node;
-  const detail = detailNode as FloatNode;
-  // The lite tier serves consumers that only need the broad shape — the
-  // ground shade, the puff gate. It skips the domain warp, the third octave
-  // and the fine one: half the noise for an imperceptible change in a soft
-  // blob.
-  let q: Vec2Node = q0;
-  if (!lite) {
-    const w1 = TSL.mx_noise_float(
-      TSL.vec3(q0.mul(0.65).add(TSL.vec2(13.7, 7.1)), u.boil.mul(0.9)),
-    );
-    const w2 = TSL.mx_noise_float(
-      TSL.vec3(q0.mul(0.65).add(TSL.vec2(41.3, 23.9)), u.boil.mul(0.9).add(7.0)),
-    );
-    q = q0.add(TSL.vec2(w1, w2).mul(0.35)) as unknown as Vec2Node;
-  }
-  const p1 = TSL.mx_noise_float(TSL.vec3(q, u.boil));
-  const p2 = TSL.mx_noise_float(
-    TSL.vec3(q.mul(2.03).add(TSL.vec2(3.7, 1.9)), u.boil.mul(1.3).add(11.0)),
-  );
-  // Worley distance is 0 at a cell's centre: inverted, each cell is a dome.
-  const cells = TSL.float(1.0).sub(
-    TSL.mx_worley_noise_float(
-      q.mul(1.15).add(TSL.vec2(u.boil.mul(0.15), u.boil.mul(0.1))),
-      1.0,
-    )
-      .mul(1.1)
-      .clamp(0.0, 1.0),
-  );
-  if (lite) {
-    const broad = p1.mul(0.55).add(p2.mul(0.28)).mul(0.5).add(0.5);
-    return { d: broad.mul(0.58).add(cells.mul(0.42)), fine: TSL.float(0.0) };
-  }
-  const p3 = TSL.mx_noise_float(
-    TSL.vec3(q.mul(4.1).add(TSL.vec2(9.1, 5.3)), u.boil.mul(1.7).add(23.0)),
-  );
-  const fine = TSL.mx_noise_float(
-    TSL.vec3(q.mul(8.3).add(TSL.vec2(2.2, 7.7)), u.boil.mul(2.1).add(31.0)),
-  );
-  const broad = p1.mul(0.55).add(p2.mul(0.28)).add(p3.mul(0.14)).mul(0.5).add(0.5);
-  const d = broad
-    .mul(0.58)
-    .add(cells.mul(0.42))
-    .add(fine.mul(0.09).mul(detail));
-  return { d, fine };
-}
-/**
- * The coverage field on one sheet: density against a threshold the weather
- * sets, with a low-frequency front term so a change of weather crosses the
- * sky rather than fading in everywhere at once. `cover` is what you see,
- * `thick` how much cloud is above the point. Shared by the visible dome and
- * the ground shade, so the shade is the shape overhead.
- */
-function coverageAt(
-  u: CloudUniforms,
-  xzNode: unknown,
-  detailNode: unknown,
-  sheet: number,
-  lite = false,
-) {
+function coverageLiteAt(u: CloudUniforms, xzNode: unknown, sheet: number) {
   const q = noiseSpace(u, xzNode, sheet);
-  const detail = detailNode as FloatNode;
-  const { d, fine } = densityAt(u, q, detail, lite);
-  const front = TSL.mx_noise_float(
-    TSL.vec3(q.mul(0.13), u.boil.mul(0.2).add(41.0)),
-  );
-  // At zero cloudiness the threshold clears the density's ceiling: no wisps.
+  const f = fieldAt(u, q);
+  const front = fieldAt(u, (q as Vec2Node).mul(0.13)).broad.sub(0.5).mul(2.0);
   const threshold = TSL.mix(1.05, 0.4, u.cloudiness)
     .add(front.mul(0.14))
     .add(sheet * 0.08);
-  let eroded = d;
-  if (!lite) {
-    // Tear the rim: erosion scaled by the square of edge-ness, so cores stay
-    // solid while boundaries fray into wisps. The fine octave is already
-    // paid for; near-zero extra cost.
-    const pre = TSL.smoothstep(threshold, threshold.add(0.38), d);
-    const fray = TSL.float(1.0)
-      .sub(pre)
-      .pow(2.0)
-      .mul(fine.mul(0.5).add(0.5))
-      .mul(0.1)
-      .mul(detail.mul(0.7).add(0.3));
-    eroded = d.sub(fray);
-  }
-  const cover = TSL.smoothstep(threshold, threshold.add(0.38), eroded);
-  const thick = TSL.smoothstep(threshold, threshold.add(0.6), eroded);
-  return { q, d, fine, threshold, cover, thick };
+  const d = f.broad.mul(0.58).add(f.cells.mul(0.42));
+  const cover = TSL.smoothstep(threshold, threshold.add(0.38), d);
+  const thick = TSL.smoothstep(threshold, threshold.add(0.6), d);
+  return { q, threshold, cover, thick };
 }
+
 interface PuffSprite {
   x: number;
   y: number;
@@ -545,7 +588,7 @@ function makePuffNodes(
 
   // The gate: the sheet's own coverage where this sprite floats. Condense
   // inside a streak, thin out in its saturated core, vanish outside it.
-  const { cover, thick } = coverageAt(u, offset.xz, TSL.float(0.0), 0, true);
+  const { cover, thick } = coverageLiteAt(u, offset.xz, 0);
   const gate = TSL.smoothstep(0.22, 0.5, cover).mul(
     TSL.float(1.0).sub(TSL.smoothstep(0.8, 1.0, cover).mul(0.5)),
   );
@@ -666,7 +709,7 @@ export function cloudShadowFilter(base: ShadowFilter): ShadowFilter {
         const p = TSL.shadowPositionWorld as unknown as Vec3Node;
         const t = u.altitude.sub(p.y).div(dir.y);
         const xz = p.xz.add(TSL.vec2(dir.x, dir.z).mul(t));
-        const { cover } = coverageAt(u, xz, TSL.float(0.0), 0, true);
+        const { cover } = coverageLiteAt(u, xz, 0);
         lit.mulAssign(TSL.float(1.0).sub(cover.mul(u.shade)));
       });
       return lit;
@@ -703,61 +746,34 @@ function makeDeckNodes(
     // octaves, so the samples share them. This is where most of the noise
     // budget went.
     const qMid = noiseSpace(u, mid.xz, 0);
-    const w1 = TSL.mx_noise_float(
-      TSL.vec3(qMid.mul(0.65).add(TSL.vec2(13.7, 7.1)), u.boil.mul(0.9)),
-    );
-    const w2 = TSL.mx_noise_float(
-      TSL.vec3(qMid.mul(0.65).add(TSL.vec2(41.3, 23.9)), u.boil.mul(0.9).add(7.0)),
-    );
+    // The warp's two axes come from the same baked channel read at the
+    // midpoint and at swapped coordinates — decorrelated for free.
+    const w1 = fieldAt(u, qMid.mul(0.65)).warpTap;
+    const w2 = fieldAt(u, qMid.yx.mul(0.65).add(TSL.vec2(27.6, 16.2))).warpTap;
     const warp = TSL.vec2(w1, w2).mul(0.35);
-    const front = TSL.mx_noise_float(
-      TSL.vec3(qMid.mul(0.13), u.boil.mul(0.2).add(41.0)),
-    );
+    const front = fieldAt(u, qMid.mul(0.13)).broad.sub(0.5).mul(2.0);
     const threshold = TSL.mix(1.05, 0.4, u.cloudiness).add(front.mul(0.14));
-    const qMidWarped = qMid.add(warp);
-    const cells = TSL.float(1.0).sub(
-      TSL.mx_worley_noise_float(
-        qMidWarped.mul(1.15).add(TSL.vec2(u.boil.mul(0.15), u.boil.mul(0.1))),
-        1.0,
-      )
-        .mul(1.1)
-        .clamp(0.0, 1.0),
-    );
+    const cells = fieldAt(u, qMid.add(warp)).cells;
 
     const dist = tEnter.add(span.mul(0.5));
     const detail = TSL.float(1.0).sub(
       TSL.smoothstep(u.detailNear, u.detailFar, dist),
     );
-    const nearField = detail.greaterThan(0.02);
-
-    // Density along the march: three octaves in the shared warped space,
-    // over the shared domes, frayed by the fine octave only where the fine
-    // octave can be seen.
+    // Density along the march: one boil-morphed rgba tap per sample carries
+    // the octaves, the shared domes and the fine octave in one fetch; the
+    // fray is pure arithmetic on channels already paid for.
     const densityOnRay = (xzNode: unknown) => {
       const q = (noiseSpace(u, xzNode, 0) as Vec2Node).add(warp);
-      const p1 = TSL.mx_noise_float(TSL.vec3(q, u.boil));
-      const p2 = TSL.mx_noise_float(
-        TSL.vec3(q.mul(2.03).add(TSL.vec2(3.7, 1.9)), u.boil.mul(1.3).add(11.0)),
-      );
-      const p3 = TSL.mx_noise_float(
-        TSL.vec3(q.mul(4.1).add(TSL.vec2(9.1, 5.3)), u.boil.mul(1.7).add(23.0)),
-      );
-      const broad = p1.mul(0.55).add(p2.mul(0.28)).add(p3.mul(0.14)).mul(0.5).add(0.5);
-      const d = TSL.float(broad.mul(0.58).add(cells.mul(0.42))).toVar();
-      TSL.If(nearField, () => {
-        const fine = TSL.mx_noise_float(
-          TSL.vec3(q.mul(8.3).add(TSL.vec2(2.2, 7.7)), u.boil.mul(2.1).add(31.0)),
-        );
-        const pre = TSL.smoothstep(threshold, threshold.add(0.38), d);
-        const fray = TSL.float(1.0)
-          .sub(pre)
-          .pow(2.0)
-          .mul(fine.mul(0.5).add(0.5))
-          .mul(0.1)
-          .mul(detail.mul(0.7).add(0.3));
-        d.addAssign(fine.mul(0.09).mul(detail).sub(fray));
-      });
-      return d;
+      const f = fieldAt(u, q);
+      const base = f.broad.mul(0.58).add(cells.mul(0.42));
+      const pre = TSL.smoothstep(threshold, threshold.add(0.38), base);
+      const fray = TSL.float(1.0)
+        .sub(pre)
+        .pow(2.0)
+        .mul(f.fine.mul(0.5).add(0.5))
+        .mul(0.1)
+        .mul(detail.mul(0.7).add(0.3));
+      return base.add(f.fine.mul(0.09).mul(detail)).sub(fray);
     };
 
     // Sun terms shared by every sample.
@@ -774,12 +790,8 @@ function makeDeckNodes(
     // Up-sun occlusion for the column the ray meets: the lite density tier
     // is plenty for a soft cloud-scale shade.
     const dMid = densityOnRay(mid.xz);
-    const dSun = densityAt(
-      u,
-      noiseSpace(u, mid.xz.add(sunStep), 0),
-      TSL.float(0.0),
-      true,
-    ).d;
+    const fSun = fieldAt(u, noiseSpace(u, mid.xz.add(sunStep), 0));
+    const dSun = fSun.broad.mul(0.58).add(fSun.cells.mul(0.42));
     const thickMid = TSL.smoothstep(threshold, threshold.add(0.6), dMid);
     const thickSun = TSL.smoothstep(threshold, threshold.add(0.6), dSun);
     const occlusion = TSL.smoothstep(-0.15, 0.35, thickSun.sub(thickMid));
@@ -936,6 +948,13 @@ export const Clouds = memo(function Clouds({
   const domeRef = useRef<THREE.Mesh>(null);
   const glowRef = useRef<THREE.HemisphereLight>(null);
   const uniforms = cloudUniforms;
+
+  // Bake the field tile before the first frame; every sampler follows the
+  // shared texture node when its value swaps over.
+  const renderer = useThree((state) => state.gl) as unknown as THREE.WebGPURenderer;
+  useEffect(() => {
+    bakeFieldTexture(renderer);
+  }, [renderer]);
 
   // The sprite hybrid: cluster scatter, baked texture, sorted buffers.
   const puffField = useMemo(() => {
