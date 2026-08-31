@@ -49,13 +49,13 @@ const HERO_SOLAR_HOURS = {
 } as const;
 
 /**
- * Start half a turn before the midpoint of morning golden hour. A clockwise
- * day cycle therefore reaches golden hour at roughly its halfway mark.
+ * Open just after sunset. This is only about five minutes earlier than the
+ * previous dusk baseline, preserving its mood while leaving a little more
+ * light on the city and tower.
  */
-const MORNING_GOLDEN_MIDPOINT =
-  (HERO_SOLAR_HOURS.sunrise + HERO_SOLAR_HOURS.morningGoldenEnd) / 2;
+const HERO_INITIAL_SOLAR_HOUR = HERO_SOLAR_HOURS.sunset + 0.23;
 export const HERO_INITIAL_TIME_OF_DAY =
-  (((MORNING_GOLDEN_MIDPOINT / DAY_HOURS) * 100 - 50) % 100 + 100) % 100;
+  (HERO_INITIAL_SOLAR_HOUR / DAY_HOURS) * 100;
 
 /** Wraps an hour into [0, 24). */
 const wrapHours = (h: number) => ((h % DAY_HOURS) + DAY_HOURS) % DAY_HOURS;
