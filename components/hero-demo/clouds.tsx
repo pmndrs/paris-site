@@ -553,18 +553,15 @@ function makePuffNodes(
     TSL.smoothstep(u.cityRadius, u.cityRadius.mul(3.0), TSL.length(offset.xz)),
   );
   const glow = TSL.vec3(1.0, 0.6, 0.3).mul(nearCity).mul(u.night).mul(0.2);
-  const tint = TSL.vertexStage(
-    direct
-      .div(Math.PI)
-      .add(skyRadiance.mul(u.ambient).mul(TSL.mix(1.0, 0.45, thick)))
-      .mul(ALBEDO)
-      .add(glow),
-  ) as unknown as Vec3Node;
-  const vGate = TSL.vertexStage(gate) as unknown as FloatNode;
+  const tint = direct
+    .div(Math.PI)
+    .add(skyRadiance.mul(u.ambient).mul(TSL.mix(1.0, 0.45, thick)))
+    .mul(ALBEDO)
+    .add(glow);
 
   const tex = TSL.texture(puffTexture, TSL.uv());
   const colorNode = TSL.Fn(() => {
-    const alpha = tex.a.mul(vGate).mul(u.density).mul(PUFF_DENSITY);
+    const alpha = tex.a.mul(gate).mul(u.density).mul(PUFF_DENSITY);
     alpha.lessThan(0.004).discard();
     return TSL.vec4(tint, alpha);
   })();
@@ -574,7 +571,7 @@ function makePuffNodes(
     scaleNode: TSL.vec2(
       radius.mul(PUFF_STRETCH_X),
       radius.mul(PUFF_STRETCH_Y),
-    ).mul(TSL.float(0.85).add(vGate.mul(0.3))),
+    ).mul(TSL.float(0.85).add(gate.mul(0.3))),
     rotationNode: rel.w.sub(0.5).mul(0.5),
     colorNode,
   };
