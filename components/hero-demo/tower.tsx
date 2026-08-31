@@ -408,12 +408,16 @@ export function Tower({
         scale={TOWER_MODEL_SCALE}
         rotation-y={TOWER_MODEL_YAW}
       >
-        {/* Keep the light mounted so mode changes do not rebuild shaders. */}
+        {/* Keep the light mounted so mode changes do not rebuild shaders.
+            Group scale × world scale is 1, so these are world units: the
+            floodlight sits up in the arches and reaches past the feet to
+            the ring path, rather than a hotspot under the centre that has
+            died out by the time it meets the legs. */}
         <pointLight
-          position={[0, 10, 0]}
+          position={[0, 55, 0]}
           color="#ffb35c"
-          intensity={mode === "glow" ? 400 * lightLevel : 0}
-          distance={100}
+          intensity={mode === "glow" ? 7000 * lightLevel : 0}
+          distance={300}
           decay={2}
         />
 
