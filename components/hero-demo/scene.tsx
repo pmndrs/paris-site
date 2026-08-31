@@ -24,6 +24,7 @@ export function HeroDemoScene({
     river,
     park,
     haussmann,
+    windows,
   } = useControls("city", {
     highRiseCount: {
       value: PARIS_CITY_DEFAULTS.highRiseCount,
@@ -51,6 +52,9 @@ export function HeroDemoScene({
     river: PARIS_CITY_DEFAULTS.river,
     park: PARIS_CITY_DEFAULTS.park,
     haussmann: PARIS_CITY_DEFAULTS.haussmann,
+    // Lit windows after dusk — the emissive the SSGI stage has to bounce.
+    // Toggle it with `post/fsr/ssgi` to judge GI against bloom-only.
+    windows: PARIS_CITY_DEFAULTS.windows,
   });
 
   const { towerMode, beacon, lettering, letterSize, letterSpread, letterGlow } =
@@ -255,6 +259,7 @@ export function HeroDemoScene({
       river={river}
       park={park}
       haussmann={haussmann}
+      windows={windows}
       towerMode={towerMode}
       beacon={beacon}
       lettering={lettering}

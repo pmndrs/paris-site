@@ -10,15 +10,28 @@ import {
 } from "react";
 import { useFrame, useLocalNodes } from "@react-three/fiber/webgpu";
 import {
+  abs,
   attribute,
   cos,
   exp,
   float,
+  floor,
   Fn,
+  fract,
+  fwidth,
+  hash,
   If,
+  max,
+  mix,
+  normalGeometry,
+  positionGeometry,
   positionLocal,
+  select,
   sin,
+  smoothstep,
+  step,
   uniform,
+  vec2,
   vec3,
 } from "three/tsl";
 import * as THREE from "three/webgpu";
@@ -97,8 +110,16 @@ type BuildingsProps = {
    * before.
    */
   haussmann?: boolean;
+  /** Lit windows on the blocks and Haussmann bodies after dusk. */
+  windows?: boolean;
   /** Render-time clock shared with the tower lettering. */
   introClock: RefObject<number>;
+  /**
+   * Tower light level, 0 by day and 1 at night, read per frame like the
+   * clock. A ref rather than a number so dragging the time dial never
+   * invalidates the memo below.
+   */
+  lightLevel: RefObject<number>;
 };
 
 /** Builds a stable radial delay without consuming the scatter RNG. */
@@ -108,6 +129,120 @@ function buildDelay(x: number, z: number, outerRadius: number, phase = 0) {
     Math.sin(x * 12.9898 + z * 78.233) * 43758.5453 -
     Math.floor(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453);
   return 0.35 + radial * 1.55 + jitter * 0.24 + phase;
+}
+
+/**
+ * Per-instance window seed from the footprint, like `buildDelay`: drawing it
+ * from the scatter RNG would shift every later placement and reshuffle the
+ * authored city.
+ */
+function facadeSeed(x: number, z: number) {
+  const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+/** Window grid pitch and lit pane size, in scene units (5 m each). */
+const WINDOW_PITCH_X = 0.55;
+const WINDOW_PITCH_Y = 0.62;
+const WINDOW_PANE_X = 0.42;
+const WINDOW_PANE_Y = 0.58;
+/** Facade band without windows at the ground and under the roofline. */
+const WINDOW_GROUND_CLEARANCE = 0.35;
+const WINDOW_TOP_CLEARANCE = 0.2;
+/** Peak radiance of a lit pane, HDR: this is what bloom and SSGI gather. */
+const WINDOW_INTENSITY = 2.2;
+
+/**
+ * Lit-window emissive for the instanced boxes.
+ *
+ * Screen-space GI can only bounce what is on screen, and the unlit city gave
+ * it nothing: this is the bright, scattered, large-area source it needs. The
+ * grid is laid out in metres over each side face using `positionGeometry` and
+ * `normalGeometry` — the raw attributes, not `positionLocal`, which the
+ * intro's `positionNode` squashes — so windows ride the facade as it grows
+ * instead of sliding through it. Rows and columns that would be cut by a
+ * corner or the roofline are dropped rather than clipped.
+ *
+ * Each pane keeps a fixed random value and lights when it drops below the
+ * light level times the facade's occupancy, so windows come on one by one
+ * across the city as the dial passes dusk. Where a cell shrinks under a
+ * couple of pixels the pattern blends to its mean radiance, which keeps far
+ * facades from shimmering through the temporal resolver.
+ */
+function useWindowEmissive(lightLevel: THREE.UniformNode<"float", number>) {
+  const createWindowNodes = useCallback(() => {
+    return {
+      emissiveNode: Fn(() => {
+        const facade = attribute<"vec4">("facade", "vec4");
+        const size = facade.xyz;
+        const seed = facade.w.mul(1e5);
+        const n = normalGeometry;
+        const p = positionGeometry;
+
+        // Side faces only; the object-space normal picks the facade axis.
+        const side = step(abs(n.y), 0.5);
+        const onX = abs(n.x).greaterThan(0.5);
+        const faceId = select(
+          onX,
+          select(n.x.greaterThan(0), float(0), float(1)),
+          select(n.z.greaterThan(0), float(2), float(3)),
+        );
+
+        // Metric coordinates across and up the face, origin at ground level.
+        const across = select(onX, p.z.mul(size.z), p.x.mul(size.x));
+        const width = select(onX, size.z, size.x);
+        const cols = floor(width.div(WINDOW_PITCH_X));
+        const rows = floor(
+          size.y
+            .sub(WINDOW_GROUND_CLEARANCE + WINDOW_TOP_CLEARANCE)
+            .div(WINDOW_PITCH_Y),
+        );
+        const cell = vec2(
+          across.add(cols.mul(WINDOW_PITCH_X * 0.5)).div(WINDOW_PITCH_X),
+          p.y
+            .add(0.5)
+            .mul(size.y)
+            .sub(WINDOW_GROUND_CLEARANCE)
+            .div(WINDOW_PITCH_Y),
+        );
+        const id = floor(cell);
+        const f = fract(cell);
+        const inside = step(0, id.x)
+          .mul(step(id.x, cols.sub(1)))
+          .mul(step(0, id.y))
+          .mul(step(id.y, rows.sub(1)));
+        const pane = step(abs(f.x.sub(0.5)), WINDOW_PANE_X * 0.5).mul(
+          step(abs(f.y.sub(0.5)), WINDOW_PANE_Y * 0.5),
+        );
+
+        // Chained hashes: `hash` truncates its seed to an integer, so
+        // fractional salts would collapse onto the same value.
+        const key = id.x.add(id.y.mul(131)).add(faceId.mul(7919)).add(seed);
+        const r = hash(key);
+        const r2 = hash(r.mul(1048576));
+        const r3 = hash(r2.mul(1048576));
+        const occupancy = mix(
+          float(0.2),
+          float(0.55),
+          hash(seed.add(faceId.mul(31))),
+        );
+        const lit = step(r, lightLevel.mul(occupancy));
+        const brightness = mix(float(0.45), float(1.25), r2);
+        const tint = mix(vec3(1.0, 0.58, 0.25), vec3(1.0, 0.82, 0.58), r3);
+
+        const footprint = fwidth(cell);
+        const lod = smoothstep(0.3, 0.9, max(footprint.x, footprint.y));
+        const mean = lightLevel
+          .mul(occupancy)
+          .mul(WINDOW_PANE_X * WINDOW_PANE_Y * 0.85);
+        const glow = mix(pane.mul(lit).mul(brightness), mean, lod);
+
+        return tint.mul(WINDOW_INTENSITY).mul(glow).mul(inside).mul(side);
+      })(),
+    };
+  }, [lightLevel]);
+
+  return useLocalNodes(createWindowNodes).emissiveNode;
 }
 
 /** Animates each instance from its radial delay on the GPU. */
@@ -218,16 +353,26 @@ export const Buildings = memo(function Buildings({
   river = true,
   park = true,
   haussmann = true,
+  windows = true,
   introClock,
+  lightLevel,
 }: BuildingsProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const treeRef = useRef<THREE.InstancedMesh>(null);
+
+  const [uLights] = useState(() => uniform(lightLevel.current));
+  useFrame(() => {
+    if (uLights.value !== lightLevel.current) {
+      uLights.value = lightLevel.current;
+    }
+  });
 
   const instances = useMemo(() => {
     const random = makeRng(CITY_SEED);
     const dummy = new THREE.Object3D();
     const matrices: THREE.Matrix4[] = [];
     const delays: number[] = [];
+    const facades: number[] = [];
 
     const spanRadius = (bias: number) => {
       const angle = random() * Math.PI * 2;
@@ -277,6 +422,7 @@ export const Buildings = memo(function Buildings({
       dummy.updateMatrix();
       matrices.push(dummy.matrix.clone());
       delays.push(buildDelay(x, z, outerRadius));
+      facades.push(width, height, depth, facadeSeed(x, z));
     }
 
     // Haussmann-style low-rise: dense carpet of small, uniform-height blocks.
@@ -304,9 +450,14 @@ export const Buildings = memo(function Buildings({
       dummy.updateMatrix();
       matrices.push(dummy.matrix.clone());
       delays.push(buildDelay(x, z, outerRadius));
+      facades.push(width, height, depth, facadeSeed(x, z));
     }
 
-    return { matrices, delays: new Float32Array(delays) };
+    return {
+      matrices,
+      delays: new Float32Array(delays),
+      facades: new Float32Array(facades),
+    };
   }, [count, lowRiseCount, innerRadius, outerRadius, river, park, haussmann]);
 
   const trees = useMemo(() => {
@@ -363,6 +514,7 @@ export const Buildings = memo(function Buildings({
 
   const blockPosition = useBuildPosition(introClock, -0.5);
   const treePosition = useBuildPosition(introClock, -1, "tree");
+  const blockWindows = useWindowEmissive(uLights);
 
   const setMatrices = useMemo(() => {
     const upload = instanceMatrixRef(instances.matrices);
@@ -400,6 +552,10 @@ export const Buildings = memo(function Buildings({
             attach="attributes-introDelay"
             args={[instances.delays, 1]}
           />
+          <instancedBufferAttribute
+            attach="attributes-facade"
+            args={[instances.facades, 4]}
+          />
         </boxGeometry>
         {/* `color` prop deliberately unused, as in the original: the materials
             are white and the near-black defaults are dead. Keeping his rendered
@@ -409,6 +565,9 @@ export const Buildings = memo(function Buildings({
           roughness={0.85}
           metalness={0.1}
           positionNode={blockPosition}
+          // Explicit null: R3F diffs props on the same material instance, so
+          // an omitted node would linger after the toggle.
+          emissiveNode={windows ? blockWindows : null}
         />
       </instancedMesh>
 
@@ -444,7 +603,9 @@ export const Buildings = memo(function Buildings({
           river={river}
           park={park}
           outerRadius={outerRadius}
+          windows={windows}
           introClock={introClock}
+          lightLevel={uLights}
         />
       )}
     </>
@@ -466,12 +627,16 @@ function HaussmannRing({
   river,
   park,
   outerRadius,
+  windows,
   introClock,
+  lightLevel,
 }: {
   river: boolean;
   park: boolean;
   outerRadius: number;
+  windows: boolean;
   introClock: RefObject<number>;
+  lightLevel: THREE.UniformNode<"float", number>;
 }) {
   const placements = useMemo(() => {
     const random = makeRng(0xc0ffee11);
@@ -480,6 +645,7 @@ function HaussmannRing({
     const roofs: THREE.Matrix4[] = [];
     const bodyDelays: number[] = [];
     const roofDelays: number[] = [];
+    const facades: number[] = [];
 
     const INNER = park ? TOWER_CLEARING_RADIUS + 4 : 16;
     for (let ringR = INNER; ringR < HAUSSMANN_RADIUS; ringR += 9) {
@@ -507,6 +673,7 @@ function HaussmannRing({
         bodies.push(dummy.matrix.clone());
         const delay = buildDelay(x, z, outerRadius);
         bodyDelays.push(delay);
+        facades.push(width, height, depth, facadeSeed(x, z));
 
         dummy.position.set(x, height + roofHeight / 2, z);
         dummy.scale.set(width, roofHeight, depth);
@@ -522,11 +689,13 @@ function HaussmannRing({
       roofs,
       bodyDelays: new Float32Array(bodyDelays),
       roofDelays: new Float32Array(roofDelays),
+      facades: new Float32Array(facades),
     };
   }, [river, park, outerRadius]);
 
   const bodyPosition = useBuildPosition(introClock, -0.5);
   const roofPosition = useBuildPosition(introClock, -0.5);
+  const bodyWindows = useWindowEmissive(lightLevel);
 
   const roofGeometry = useMemo(() => {
     const geometry = new THREE.CylinderGeometry(0.34, Math.SQRT1_2, 1, 4, 1);
@@ -558,12 +727,17 @@ function HaussmannRing({
             attach="attributes-introDelay"
             args={[placements.bodyDelays, 1]}
           />
+          <instancedBufferAttribute
+            attach="attributes-facade"
+            args={[placements.facades, 4]}
+          />
         </boxGeometry>
         <meshStandardNodeMaterial
           color="#cfc5b4"
           roughness={0.9}
           metalness={0.05}
           positionNode={bodyPosition}
+          emissiveNode={windows ? bodyWindows : null}
         />
       </instancedMesh>
       <instancedMesh

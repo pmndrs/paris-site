@@ -7,6 +7,7 @@ export const PARIS_CITY_DEFAULTS = {
   river: true,
   park: true,
   haussmann: true,
+  windows: true,
 } as const;
 
 /** The homepage uses lighter density. Geography and layout stay unchanged. */

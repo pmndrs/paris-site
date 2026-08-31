@@ -3,6 +3,7 @@
 import {
   Suspense,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -69,6 +70,8 @@ export interface TowerCanvasProps {
   river?: boolean;
   park?: boolean;
   haussmann?: boolean;
+  /** Lit windows across the city after dusk. */
+  windows?: boolean;
   // tower
   towerMode?: TowerMode;
   beacon?: boolean;
@@ -187,6 +190,7 @@ export function TowerCanvas({
   river = PARIS_CITY_DEFAULTS.river,
   park = PARIS_CITY_DEFAULTS.park,
   haussmann = PARIS_CITY_DEFAULTS.haussmann,
+  windows = PARIS_CITY_DEFAULTS.windows,
   towerMode = "glow",
   beacon = false,
   lettering = true,
@@ -258,6 +262,12 @@ export function TowerCanvas({
   // Begin gated warmup at the final pose.
   const introClock = useRef(intro && !gate ? 0 : INTRO_COMPLETE);
   const towerLights = towerLightLevel({ timeOfDay, latitude, dayOfYear });
+  // The city reads this per frame; the memoized `Buildings` must not see the
+  // dial's per-frame re-renders as a prop change.
+  const cityLights = useRef(towerLights);
+  useEffect(() => {
+    cityLights.current = towerLights;
+  }, [towerLights]);
   const sunLight = useMemo(() => {
     const { elevation, azimuth } = solarPosition({
       timeOfDay,
@@ -350,7 +360,9 @@ export function TowerCanvas({
             river={river}
             park={park}
             haussmann={haussmann}
+            windows={windows}
             introClock={introClock}
+            lightLevel={cityLights}
           />
         )}
 
