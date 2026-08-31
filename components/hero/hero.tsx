@@ -17,7 +17,11 @@ import { RevealGroup } from "@/components/motion/reveal";
 import { TimeDial } from "@/components/hero/time-dial";
 import { Instructors } from "@/components/sections/instructors";
 import { HERO, REGISTER_URL } from "@/lib/content";
-import { skyGradient, todAt } from "@/lib/time-of-day";
+import {
+  HERO_INITIAL_TIME_OF_DAY,
+  skyGradient,
+  todAt,
+} from "@/lib/time-of-day";
 
 // WebGPU has no business running during SSR, and the scene is the heaviest
 // thing on the page — keep it out of the server bundle entirely.
@@ -32,7 +36,6 @@ const TowerHero = dynamic(
 );
 
 const DAY_CYCLE = 100;
-const INITIAL_TIME_OF_DAY = 85;
 /** Replay limits keep expensive atmosphere updates smooth on missed frames. */
 const REPLAY_UNITS_PER_SECOND = 42;
 const REPLAY_SPRING_STIFFNESS = 144;
@@ -216,7 +219,7 @@ const HeroTimeDial = memo(function HeroTimeDial({
   onValueChange: (value: number) => void;
   onValueCommit: (value: number) => void;
 }) {
-  const [value, setValue] = useState(INITIAL_TIME_OF_DAY);
+  const [value, setValue] = useState(HERO_INITIAL_TIME_OF_DAY);
   const handleValueChange = useCallback(
     (next: number) => {
       setValue(next);
@@ -264,7 +267,7 @@ function TimeOfDayExperience({
   showBottomGradient: boolean;
 }) {
   const { value: tod, enqueue, commit } = useTimeOfDayReplay(
-    INITIAL_TIME_OF_DAY,
+    HERO_INITIAL_TIME_OF_DAY,
     reducedMotion,
   );
   const palette = useMemo(() => todAt(tod / DAY_CYCLE), [tod]);

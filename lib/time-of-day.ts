@@ -35,37 +35,64 @@ export interface TodKeyframe extends Palette {
 
 const DAY_HOURS = 24;
 
+/** Homepage solar date: the vernal equinox, centering dawn and dusk on the dial. */
+export const HERO_DAY_OF_YEAR = 80;
+
+/** Paris equinox crossings at -6°, 0°, and 6° solar elevation. */
+const HERO_SOLAR_HOURS = {
+  dawnStart: 5.5362,
+  sunrise: 6.1446,
+  morningGoldenEnd: 6.7533,
+  eveningGoldenStart: 17.5223,
+  sunset: 18.1323,
+  duskEnd: 18.7424,
+} as const;
+
+/**
+ * Start half a turn before the midpoint of morning golden hour. A clockwise
+ * day cycle therefore reaches golden hour at roughly its halfway mark.
+ */
+const MORNING_GOLDEN_MIDPOINT =
+  (HERO_SOLAR_HOURS.sunrise + HERO_SOLAR_HOURS.morningGoldenEnd) / 2;
+export const HERO_INITIAL_TIME_OF_DAY =
+  (((MORNING_GOLDEN_MIDPOINT / DAY_HOURS) * 100 - 50) % 100 + 100) % 100;
+
 /** Wraps an hour into [0, 24). */
 const wrapHours = (h: number) => ((h % DAY_HOURS) + DAY_HOURS) % DAY_HOURS;
 
-/** Named solar intervals shared by the dial and phase labels. */
+/**
+ * Named solar intervals shared by the dial and phase labels.
+ *
+ * These are the Paris equinox crossings used by the hero atmosphere:
+ * dawn/dusk span -6°..0° elevation and golden hour spans 0°..6°.
+ */
 export const SOLAR_ZONES = [
   {
     label: "Dawn",
     phase: "DUSK",
-    startHour: 3.24,
-    endHour: 4.05,
+    startHour: HERO_SOLAR_HOURS.dawnStart,
+    endHour: HERO_SOLAR_HOURS.sunrise,
     color: "#c4b5fd",
   },
   {
     label: "Morning golden hour",
     phase: "GOLDEN",
-    startHour: 4.05,
-    endHour: 4.78,
+    startHour: HERO_SOLAR_HOURS.sunrise,
+    endHour: HERO_SOLAR_HOURS.morningGoldenEnd,
     color: "#fde68a",
   },
   {
     label: "Evening golden hour",
     phase: "GOLDEN",
-    startHour: 19.29,
-    endHour: 20.02,
+    startHour: HERO_SOLAR_HOURS.eveningGoldenStart,
+    endHour: HERO_SOLAR_HOURS.sunset,
     color: "#f59e0b",
   },
   {
     label: "Dusk",
     phase: "DUSK",
-    startHour: 20.02,
-    endHour: 20.84,
+    startHour: HERO_SOLAR_HOURS.sunset,
+    endHour: HERO_SOLAR_HOURS.duskEnd,
     color: "#a78bfa",
   },
 ] as const satisfies ReadonlyArray<{
@@ -99,13 +126,13 @@ export function phaseFor(hour: number): Phase {
 /** Cyclic palette keyframes in solar-hour order. */
 const KEYFRAMES: (Palette & { hour: number })[] = [
   {
-    // Deep night from 22:12 through 02:12.
-    hour: 2.2,
+    // End of deep night, as the sun reaches -14° elevation.
+    hour: 4.71,
     skyTop: [7, 11, 24],
     skyMid: [11, 18, 38],
     skyBottom: [0, 0, 0],
     sunElevation: -14,
-    sunAzimuth: 20,
+    sunAzimuth: 74,
     sunColor: [150, 170, 220],
     sunIntensity: 0.35,
     ambientColor: [30, 40, 70],
@@ -117,12 +144,12 @@ const KEYFRAMES: (Palette & { hour: number })[] = [
   },
   {
     // Dawn twilight.
-    hour: 3.65,
+    hour: 5.84,
     skyTop: [20, 26, 56],
     skyMid: [30, 38, 74],
     skyBottom: [5, 7, 15],
     sunElevation: -3,
-    sunAzimuth: 42,
+    sunAzimuth: 87,
     sunColor: [170, 165, 205],
     sunIntensity: 0.9,
     ambientColor: [45, 52, 90],
@@ -134,12 +161,12 @@ const KEYFRAMES: (Palette & { hour: number })[] = [
   },
   {
     // Morning golden hour with cooler tones.
-    hour: 4.42,
+    hour: 6.55,
     skyTop: [54, 50, 92],
     skyMid: [132, 96, 96],
     skyBottom: [20, 16, 26],
     sunElevation: 4,
-    sunAzimuth: 55,
+    sunAzimuth: 95,
     sunColor: [255, 184, 136],
     sunIntensity: 2.1,
     ambientColor: [92, 78, 94],
@@ -150,13 +177,13 @@ const KEYFRAMES: (Palette & { hour: number })[] = [
     towerColor: [126, 116, 122],
   },
   {
-    // Hold the daylight palette across the middle hours.
+    // Hold the daylight palette across the equinox day.
     hour: 8,
     skyTop: [76, 124, 184],
     skyMid: [143, 178, 214],
     skyBottom: [26, 36, 48],
-    sunElevation: 26,
-    sunAzimuth: 90,
+    sunElevation: 18,
+    sunAzimuth: 112,
     sunColor: [255, 246, 232],
     sunIntensity: 2.5,
     ambientColor: [150, 175, 205],
@@ -167,12 +194,12 @@ const KEYFRAMES: (Palette & { hour: number })[] = [
     towerColor: [150, 152, 168],
   },
   {
-    hour: 13,
+    hour: 12,
     skyTop: [82, 132, 192],
     skyMid: [150, 185, 220],
     skyBottom: [28, 38, 50],
-    sunElevation: 62,
-    sunAzimuth: 175,
+    sunElevation: 41,
+    sunAzimuth: 177,
     sunColor: [255, 250, 240],
     sunIntensity: 2.6,
     ambientColor: [158, 182, 210],
@@ -183,12 +210,12 @@ const KEYFRAMES: (Palette & { hour: number })[] = [
     towerColor: [154, 156, 172],
   },
   {
-    hour: 18,
+    hour: 16,
     skyTop: [76, 124, 184],
     skyMid: [143, 178, 214],
     skyBottom: [26, 36, 48],
-    sunElevation: 26,
-    sunAzimuth: 265,
+    sunElevation: 20,
+    sunAzimuth: 245,
     sunColor: [255, 246, 232],
     sunIntensity: 2.5,
     ambientColor: [150, 175, 205],
@@ -200,12 +227,12 @@ const KEYFRAMES: (Palette & { hour: number })[] = [
   },
   {
     // Evening golden hour.
-    hour: 19.66,
+    hour: 17.73,
     skyTop: [59, 47, 86],
     skyMid: [140, 90, 83],
     skyBottom: [22, 15, 24],
     sunElevation: 4,
-    sunAzimuth: 300,
+    sunAzimuth: 265,
     sunColor: [255, 176, 118],
     sunIntensity: 2.1,
     ambientColor: [96, 74, 86],
@@ -216,12 +243,12 @@ const KEYFRAMES: (Palette & { hour: number })[] = [
     towerColor: [128, 114, 116],
   },
   {
-    hour: 20.43,
+    hour: 18.44,
     skyTop: [20, 26, 56],
     skyMid: [27, 34, 68],
     skyBottom: [5, 7, 15],
     sunElevation: -3,
-    sunAzimuth: 312,
+    sunAzimuth: 274,
     sunColor: [190, 150, 190],
     sunIntensity: 0.9,
     ambientColor: [45, 52, 90],
@@ -232,12 +259,12 @@ const KEYFRAMES: (Palette & { hour: number })[] = [
     towerColor: [96, 98, 120],
   },
   {
-    hour: 22.2,
+    hour: 19.57,
     skyTop: [7, 11, 24],
     skyMid: [11, 18, 38],
     skyBottom: [0, 0, 0],
     sunElevation: -14,
-    sunAzimuth: 340,
+    sunAzimuth: 287,
     sunColor: [150, 170, 220],
     sunIntensity: 0.35,
     ambientColor: [30, 40, 70],

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useFrame } from "@react-three/fiber/webgpu";
+import { solarPosition } from "@pmndrs/sky";
 
 import { DepthAttachmentSync } from "@/components/three/depth-attachment-sync";
 import {
@@ -9,8 +10,12 @@ import {
   PARIS_CLOUD_DEFAULTS,
   PARIS_HOMEPAGE_CITY_DEFAULTS,
 } from "@/components/hero-demo/paris-defaults";
-import { TowerCanvas } from "@/components/hero-demo/tower-canvas";
+import {
+  PARIS_LATITUDE,
+  TowerCanvas,
+} from "@/components/hero-demo/tower-canvas";
 import { heroGate } from "@/lib/hero-gate";
+import { HERO_DAY_OF_YEAR } from "@/lib/time-of-day";
 import { useWebGPU } from "@/lib/use-webgpu";
 
 /** This canvas's id, which is also the id of the render job r3f registers. */
@@ -19,9 +24,6 @@ const PRIMARY = "main";
 // Dark blue ground reflectance keeps the horizon saturated.
 // Stable identity prevents unnecessary sky rebakes.
 const HERO_GROUND_ALBEDO = { x: 0.025, y: 0.075, z: 0.18 } as const;
-/** Winter-solstice arc: a low sun that stays close to the Paris horizon. */
-const HERO_DAY_OF_YEAR = 355;
-
 /**
  * Idle this canvas without touching the frame loop.
  *
@@ -124,8 +126,15 @@ export function TowerHero({
   // Slider fraction → solar hours for the sky.
   const hours = (value / 100) * 24;
 
-  // Hold a low daytime exposure, then fade to the night grade at dawn and dusk.
-  const t = Math.min(1, Math.max(0, (8 - Math.abs(hours - 12)) / 3));
+  // Drive exposure from the same solar elevation as the sky. The old
+  // hour-based curve followed summer sunrise and sunset, so its golden-hour
+  // grade no longer lined up with the dial after the solar date changed.
+  const { elevation } = solarPosition({
+    timeOfDay: hours,
+    latitude: PARIS_LATITUDE,
+    dayOfYear: HERO_DAY_OF_YEAR,
+  });
+  const t = Math.min(1, Math.max(0, elevation / 24));
   const daylight = t * t * (3 - 2 * t);
   const exposure = 40 + (6 - 40) * daylight;
 
@@ -143,10 +152,10 @@ export function TowerHero({
       // A clear, saturated "bleu nuit" horizon lets the stars stay crisp.
       turbidity={0}
       groundAlbedo={HERO_GROUND_ALBEDO}
-      // Begin just before the winter sunset arc so the slow rotation approaches
+      // Begin just before the equinox sunset arc so the slow rotation approaches
       // and passes the sun instead of starting with it already centered.
       // The shared demo keeps its neutral 0° default.
-      initialAzimuthDegrees={36}
+      initialAzimuthDegrees={74}
       autoRotateSpeed={reducedMotion ? 0 : 1}
       frameloop={reducedMotion ? "demand" : "always"}
       intro={!reducedMotion}
