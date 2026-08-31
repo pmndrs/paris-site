@@ -161,8 +161,8 @@ export function TowerHero({
       intro={!reducedMotion}
       dpr={[1, 2]}
       renderScale={1.5}
-      // The homepage never enables SSGI, so don't let the widened device
-      // limit it needs fail canvas creation on adapters that lack it.
+      // No SSGI on the homepage: the buildings use a cheaper analytic ground
+      // lookup, so adapters do not need the widened MRT device limit.
       reserveSsgiHeadroom={false}
       onUiReveal={onUiReveal}
       gate={heroGate}

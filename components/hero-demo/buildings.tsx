@@ -47,6 +47,7 @@ import {
   inTowerClearing,
   TOWER_CLEARING_RADIUS,
 } from "./geography";
+import { useGroundBounceColor } from "./ground-bounce";
 import { INTRO_COMPLETE } from "./intro";
 
 /**
@@ -619,6 +620,7 @@ export const Buildings = memo(function Buildings({
   const blockPosition = useBuildPosition(introClock, -0.5);
   const treePosition = useBuildPosition(introClock, -1, "tree");
   const blockWindows = useWindowEmissive(uLights);
+  const whiteBounceColor = useGroundBounceColor("#ffffff");
 
   const setMatrices = useMemo(() => {
     const upload = instanceMatrixRef(instances.matrices);
@@ -666,6 +668,7 @@ export const Buildings = memo(function Buildings({
             look, not his intended one — Stage 1 relights this anyway. */}
         <meshStandardNodeMaterial
           color="white"
+          colorNode={whiteBounceColor}
           roughness={0.85}
           metalness={0.1}
           positionNode={blockPosition}
@@ -696,6 +699,7 @@ export const Buildings = memo(function Buildings({
         </icosahedronGeometry>
         <meshStandardNodeMaterial
           color="white"
+          colorNode={whiteBounceColor}
           roughness={0.95}
           metalness={0}
           positionNode={treePosition}
@@ -800,6 +804,7 @@ function HaussmannRing({
   const bodyPosition = useBuildPosition(introClock, -0.5);
   const roofPosition = useBuildPosition(introClock, -0.5);
   const bodyWindows = useWindowEmissive(lightLevel);
+  const bodyBounceColor = useGroundBounceColor("#cfc5b4");
 
   const roofGeometry = useMemo(() => {
     const geometry = new THREE.CylinderGeometry(0.34, Math.SQRT1_2, 1, 4, 1);
@@ -838,6 +843,7 @@ function HaussmannRing({
         </boxGeometry>
         <meshStandardNodeMaterial
           color="#cfc5b4"
+          colorNode={bodyBounceColor}
           roughness={0.9}
           metalness={0.05}
           positionNode={bodyPosition}
