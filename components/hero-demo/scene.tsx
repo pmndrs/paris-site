@@ -72,6 +72,7 @@ export function HeroDemoScene({
     cloudAmbient,
     cloudWind,
     cloudTravel,
+    cloudPuffs,
     cloudShadows,
   } = useControls("clouds", {
     clouds: PARIS_CLOUD_DEFAULTS.clouds,
@@ -128,6 +129,8 @@ export function HeroDemoScene({
       max: 1000,
       step: 25,
     },
+    // Sprite clusters condensing inside the sheet's streaks.
+    cloudPuffs: PARIS_CLOUD_DEFAULTS.cloudPuffs,
     // The layer casts into the key light's map — cloud shade on the city.
     cloudShadows: PARIS_CLOUD_DEFAULTS.cloudShadows,
   });
@@ -352,6 +355,7 @@ export function HeroDemoScene({
       cloudAmbient={cloudAmbient}
       cloudWind={cloudWind}
       cloudTravel={cloudTravel}
+      cloudPuffs={cloudPuffs}
       cloudShadows={cloudShadows}
       towerMode={towerMode}
       beacon={beacon}

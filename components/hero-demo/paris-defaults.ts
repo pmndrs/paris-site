@@ -52,5 +52,6 @@ export const PARIS_CLOUD_DEFAULTS = {
   // of dial time.
   cloudWind: -1,
   cloudTravel: 200,
+  cloudPuffs: true,
   cloudShadows: true,
 } as const;

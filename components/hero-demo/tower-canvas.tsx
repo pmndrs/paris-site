@@ -98,6 +98,8 @@ export interface TowerCanvasProps {
   cloudWind?: number;
   /** Westward travel per hour of dial time, city units. */
   cloudTravel?: number;
+  /** Sprite clusters condensing inside the sheet's streaks. */
+  cloudPuffs?: boolean;
   /** Let the key light see the clouds, so their shade crosses the city. */
   cloudShadows?: boolean;
   // tower
@@ -240,6 +242,7 @@ export function TowerCanvas({
   cloudAmbient = PARIS_CLOUD_DEFAULTS.cloudAmbient,
   cloudWind = PARIS_CLOUD_DEFAULTS.cloudWind,
   cloudTravel = PARIS_CLOUD_DEFAULTS.cloudTravel,
+  cloudPuffs = PARIS_CLOUD_DEFAULTS.cloudPuffs,
   cloudShadows = PARIS_CLOUD_DEFAULTS.cloudShadows,
   towerMode = "glow",
   beacon = false,
@@ -470,6 +473,7 @@ export function TowerCanvas({
           wind={cloudWind}
           timeOfDay={timeOfDay}
           travel={cloudTravel}
+          puffs={cloudPuffs}
           shadows={cloudShadows && shadows}
           worldScale={worldScale}
           lightPosition={keyLight.position}

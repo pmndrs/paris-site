@@ -56,6 +56,14 @@ import { MOON_DIRECTION } from "./lights";
  * city overwrites the buildings' depth, and their shadows vanish under
  * every thin patch.)
  *
+ * A subtle hybrid rides inside the sheet: a sparse scatter of Felix
+ * Westin-style sphere clusters (spawn on shells, never inside, flattened
+ * hard), each sphere a wind-stretched sprite of a canvas-baked puff
+ * texture. Their alpha is gated by the very coverage field the sheet
+ * samples, so they condense only inside the streaks that are already
+ * there, thicken as a streak thickens and dissolve with it — a little
+ * volume in the wind-swept layer rather than a second cloud system.
+ *
  * Weather runs on the sky's clock, not the wall clock. The dial is a
  * time-lapse — the sun sweeps, the stars wheel — so the sheet keeps pace: it
  * streams westward with the sun, the noise boils, and a cloudiness curve a
@@ -99,6 +107,8 @@ export interface CloudsOptions {
   timeOfDay?: number;
   /** Westward travel in city units per hour of dial time. */
   travel?: number;
+  /** The sprite-cluster hybrid inside the sheet's streaks. */
+  puffs?: boolean;
   /** Shade the city under the layer. */
   shadows?: boolean;
   /** Metres per city unit. */
@@ -138,6 +148,21 @@ const ALBEDO = 0.92;
 const DOME_RADIUS = 1300;
 /** How dark the ground gets under a fully covered patch. */
 const SHADE_STRENGTH = 0.85;
+/** Sprite-puff scatter: cluster slots in the visible ring, and their sizes. */
+const PUFF_CLOUDS = 12;
+const PUFF_MIN_R = 500;
+const PUFF_MAX_R = 1150;
+const PUFF_SIZE_MIN = 60;
+const PUFF_SIZE_MAX = 130;
+/** Puffs sit in the slab's lower half, among the streaks. */
+const PUFF_DROP = 60;
+/** How hard the clusters are flattened; sprites stretch along the wind. */
+const PUFF_FLATNESS = 0.8;
+const PUFF_STRETCH_X = 3.4;
+const PUFF_STRETCH_Y = 1.5;
+/** Base opacity of one sprite — wisps, not balls. */
+const PUFF_DENSITY = 0.38;
+const PUFF_SEED = 0x51a7b3;
 
 /**
  * The cloudiness curve: two incommensurate swings, a day and a half and
@@ -314,6 +339,279 @@ function coverageAt(
   const cover = TSL.smoothstep(threshold, threshold.add(0.38), eroded);
   const thick = TSL.smoothstep(threshold, threshold.add(0.6), eroded);
   return { q, d, fine, threshold, cover, thick };
+}
+
+interface PuffSprite {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  rx: number;
+  ry: number;
+  rz: number;
+  seed: number;
+}
+
+interface PuffCloudRange {
+  start: number;
+  count: number;
+  cx: number;
+  cy: number;
+  cz: number;
+}
+
+/** Deterministic PRNG (mulberry32) — the scatter must not reshuffle on re-render. */
+function makeRng(seed: number) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Felix Westin's rules, flattened to this sheet: spawn on the shell of an
+ * existing sphere, never inside one, big cores then mid lumps, height pulled
+ * hard toward the parent so each cluster is a wind-swept lens rather than a
+ * tower. Positions are city units; the caller scales to world.
+ */
+function buildPuffs(altitude: number) {
+  const rng = makeRng(PUFF_SEED);
+  const specs: { cx: number; cz: number; size: number; base: number }[] = [];
+  for (let tries = 0; specs.length < PUFF_CLOUDS && tries < PUFF_CLOUDS * 80; tries++) {
+    const a = rng() * Math.PI * 2;
+    const rr = Math.sqrt(
+      PUFF_MIN_R * PUFF_MIN_R +
+        (PUFF_MAX_R * PUFF_MAX_R - PUFF_MIN_R * PUFF_MIN_R) * rng(),
+    );
+    const cx = Math.cos(a) * rr;
+    const cz = Math.sin(a) * rr;
+    const size = PUFF_SIZE_MIN + (PUFF_SIZE_MAX - PUFF_SIZE_MIN) * rng() ** 2;
+    if (specs.some((c) => Math.hypot(c.cx - cx, c.cz - cz) < (c.size + size) * 1.2)) {
+      continue;
+    }
+    specs.push({
+      cx,
+      cz,
+      size,
+      base: altitude - PUFF_DROP + (rng() - 0.5) * 40,
+    });
+  }
+
+  const sprites: PuffSprite[] = [];
+  const clouds: PuffCloudRange[] = [];
+  for (const spec of specs) {
+    const start = sprites.length;
+    const { cx, cz, size, base } = spec;
+    const local: { x: number; y: number; z: number; r: number }[] = [];
+    const angle = rng() * Math.PI * 2;
+    const ex = Math.cos(angle);
+    const ez = Math.sin(angle);
+    const r0 = size * 0.5;
+    const cores = 2 + Math.floor(rng() * 2);
+    for (let i = 0; i < cores; i++) {
+      const t = (i / (cores - 1)) * 2 - 1;
+      const r = r0 * (0.7 + rng() * 0.35);
+      local.push({
+        x: cx + ex * t * size * 0.45 + (rng() - 0.5) * r0 * 0.3,
+        y: base + r * 0.25,
+        z: cz + ez * t * size * 0.45 + (rng() - 0.5) * r0 * 0.3,
+        r,
+      });
+    }
+    const n = 5 + Math.floor(rng() * 4);
+    let placed = 0;
+    for (let tries = 0; placed < n && tries < n * 14; tries++) {
+      const parent = local[Math.floor(rng() * local.length)];
+      let dx = rng() * 2 - 1;
+      let dy = rng() * 2 - 1;
+      let dz = rng() * 2 - 1;
+      const len = Math.hypot(dx, dy, dz) || 1;
+      dx /= len;
+      dy /= len;
+      dz /= len;
+      const r = r0 * 0.5 * (0.7 + rng() * 0.6);
+      const reach = (parent.r + r) * 0.6;
+      const x = parent.x + dx * reach;
+      let y = parent.y + dy * reach;
+      const z = parent.z + dz * reach;
+      y = parent.y + (y - parent.y) * (1 - PUFF_FLATNESS);
+      if (local.some((q) => Math.hypot(q.x - x, q.y - y, q.z - z) < q.r * 0.9)) {
+        continue;
+      }
+      if (Math.hypot(x - cx, z - cz) > size * 1.1) continue;
+      local.push({ x, y, z, r });
+      placed++;
+    }
+    let mx = 0;
+    let my = 0;
+    let mz = 0;
+    for (const q of local) {
+      mx += q.x;
+      my += q.y;
+      mz += q.z;
+    }
+    mx /= local.length;
+    my /= local.length;
+    mz /= local.length;
+    for (const q of local) {
+      sprites.push({
+        x: q.x,
+        y: q.y,
+        z: q.z,
+        r: q.r,
+        rx: (q.x - mx) / size,
+        ry: (q.y - my) / size,
+        rz: (q.z - mz) / size,
+        seed: rng(),
+      });
+    }
+    clouds.push({ start, count: local.length, cx, cy: base, cz });
+  }
+  return { sprites, clouds };
+}
+
+/**
+ * A soft puff, baked once onto a canvas in the drei-clouds spirit — no
+ * asset, no network. A handful of elliptical blobs, brighter toward the
+ * middle, so the sprite already looks wind-stretched before scaling.
+ */
+function bakePuffTexture() {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, size, size);
+  const rng = makeRng(0xb10b5);
+  for (let i = 0; i < 9; i++) {
+    const cx = size * (0.22 + rng() * 0.56);
+    const cy = size * (0.34 + rng() * 0.32);
+    const rx = size * (0.16 + rng() * 0.2);
+    const ry = rx * (0.45 + rng() * 0.3);
+    const a = 0.16 + rng() * 0.2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(1, ry / rx);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+    g.addColorStop(0, `rgba(255,255,255,${a})`);
+    g.addColorStop(0.6, `rgba(255,255,255,${a * 0.5})`);
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, rx, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  return texture;
+}
+
+/**
+ * The sprite graph. Everything smooth is computed per vertex — the local
+ * coverage gate, the light — and only the baked texture is fetched per
+ * fragment, so eighty sprites cost next to nothing.
+ */
+function makePuffNodes(
+  u: CloudUniforms,
+  puffTexture: THREE.Texture,
+  skyCube?: THREE.CubeTexture,
+  skyEnv?: THREE.Texture | null,
+) {
+  const offset = TSL.attribute("aOffset", "vec4") as unknown as ReturnType<typeof TSL.vec4>;
+  const rel = TSL.attribute("aRel", "vec4") as unknown as ReturnType<typeof TSL.vec4>;
+  const radius = offset.w;
+
+  // The gate: the sheet's own coverage where this sprite floats. Condense
+  // inside a streak, thin out in its saturated core, vanish outside it.
+  const { cover, thick } = coverageAt(u, offset.xz, TSL.float(0.0));
+  const gate = TSL.smoothstep(0.22, 0.5, cover).mul(
+    TSL.float(1.0).sub(TSL.smoothstep(0.8, 1.0, cover).mul(0.5)),
+  );
+
+  // Light, per vertex: the shared sun on the cluster's sun side, the sky's
+  // PMREM as ambient, the city glow at night.
+  const L = u.sunDir as unknown as Vec3Node;
+  const sunAbove = TSL.smoothstep(-0.1, 0.5, L.y);
+  const shade = TSL.smoothstep(-0.6, 0.5, rel.xyz.dot(L));
+  const beer = TSL.exp(thick.mul(TSL.mix(0.5, 2.2, sunAbove)).negate());
+  const direct = (u.sunRadiance as unknown as Vec3Node)
+    .mul(TSL.mix(0.2, 1.0, shade))
+    .mul(beer)
+    .add((u.moonRadiance as unknown as Vec3Node).mul(0.7))
+    .mul(u.sunlight);
+  const skyDir = TSL.normalize(TSL.vec3(rel.x, 0.1, rel.z).add(TSL.vec3(0.0, 0.0, 1e-3)));
+  const skyRadiance = skyEnv
+    ? TSL.pmremTexture(skyEnv, skyDir, TSL.float(1.0))
+    : skyCube
+      ? TSL.cubeTexture(skyCube, skyDir).rgb
+      : TSL.vec3(0.35, 0.45, 0.65);
+  const nearCity = TSL.float(1.0).sub(
+    TSL.smoothstep(u.cityRadius, u.cityRadius.mul(3.0), TSL.length(offset.xz)),
+  );
+  const glow = TSL.vec3(1.0, 0.6, 0.3).mul(nearCity).mul(u.night).mul(0.2);
+  const tint = TSL.vertexStage(
+    direct
+      .div(Math.PI)
+      .add(skyRadiance.mul(u.ambient).mul(TSL.mix(1.0, 0.45, thick)))
+      .mul(ALBEDO)
+      .add(glow),
+  ) as unknown as Vec3Node;
+  const vGate = TSL.vertexStage(gate) as unknown as FloatNode;
+
+  const tex = TSL.texture(puffTexture, TSL.uv());
+  const colorNode = TSL.Fn(() => {
+    const alpha = tex.a.mul(vGate).mul(u.density).mul(PUFF_DENSITY);
+    alpha.lessThan(0.004).discard();
+    return TSL.vec4(tint, alpha);
+  })();
+
+  return {
+    positionNode: offset.xyz,
+    scaleNode: TSL.vec2(
+      radius.mul(PUFF_STRETCH_X),
+      radius.mul(PUFF_STRETCH_Y),
+    ).mul(TSL.float(0.85).add(vGate.mul(0.3))),
+    rotationNode: rel.w.sub(0.5).mul(0.5),
+    colorNode,
+  };
+}
+
+const _puffForward = new THREE.Vector3();
+
+/** Back-to-front by cluster; within one, generation order. Static positions. */
+function sortPuffs(
+  clouds: PuffCloudRange[],
+  order: Uint32Array,
+  keys: Float32Array,
+  master: { offsets: Float32Array; rels: Float32Array },
+  offsetAttr: THREE.InstancedBufferAttribute,
+  relAttr: THREE.InstancedBufferAttribute,
+  camera: THREE.Camera,
+) {
+  const cam = camera.position;
+  for (let i = 0; i < clouds.length; i++) {
+    const c = clouds[i];
+    keys[i] =
+      (c.cx - cam.x) * _puffForward.x +
+      (c.cy - cam.y) * _puffForward.y +
+      (c.cz - cam.z) * _puffForward.z;
+  }
+  order.sort((a, b) => keys[b] - keys[a]);
+  const oa = offsetAttr.array as Float32Array;
+  const ra = relAttr.array as Float32Array;
+  let k = 0;
+  for (let n = 0; n < clouds.length; n++) {
+    const c = clouds[order[n]];
+    oa.set(master.offsets.subarray(c.start * 4, (c.start + c.count) * 4), k * 4);
+    ra.set(master.rels.subarray(c.start * 4, (c.start + c.count) * 4), k * 4);
+    k += c.count;
+  }
+  offsetAttr.needsUpdate = true;
+  relAttr.needsUpdate = true;
 }
 
 /** The inputs three hands a shadow filter; `shadow` is the light's LightShadow. */
@@ -542,6 +840,7 @@ export const Clouds = memo(function Clouds({
   wind = 0,
   timeOfDay = WEATHER_EPOCH,
   travel = 0,
+  puffs = true,
   shadows = true,
   worldScale = 5,
   lightPosition,
@@ -558,6 +857,82 @@ export const Clouds = memo(function Clouds({
   const domeRef = useRef<THREE.Mesh>(null);
   const glowRef = useRef<THREE.HemisphereLight>(null);
   const uniforms = cloudUniforms;
+
+  // The sprite hybrid: cluster scatter, baked texture, sorted buffers.
+  const puffField = useMemo(() => {
+    const { sprites, clouds } = buildPuffs(altitude);
+    const count = sprites.length;
+    const offsets = new Float32Array(count * 4);
+    const rels = new Float32Array(count * 4);
+    sprites.forEach((q, i) => {
+      offsets[i * 4] = q.x * worldScale;
+      offsets[i * 4 + 1] = q.y * worldScale;
+      offsets[i * 4 + 2] = q.z * worldScale;
+      offsets[i * 4 + 3] = q.r * worldScale;
+      rels[i * 4] = q.rx;
+      rels[i * 4 + 1] = q.ry;
+      rels[i * 4 + 2] = q.rz;
+      rels[i * 4 + 3] = q.seed;
+    });
+    for (const c of clouds) {
+      c.cx *= worldScale;
+      c.cy *= worldScale;
+      c.cz *= worldScale;
+    }
+    const quad = new THREE.PlaneGeometry(1, 1);
+    const geometry = new THREE.InstancedBufferGeometry();
+    geometry.index = quad.index;
+    geometry.setAttribute("position", quad.attributes.position);
+    geometry.setAttribute("uv", quad.attributes.uv);
+    quad.dispose();
+    const offsetAttr = new THREE.InstancedBufferAttribute(
+      new Float32Array(offsets),
+      4,
+    ).setUsage(THREE.DynamicDrawUsage);
+    const relAttr = new THREE.InstancedBufferAttribute(
+      new Float32Array(rels),
+      4,
+    ).setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute("aOffset", offsetAttr);
+    geometry.setAttribute("aRel", relAttr);
+    geometry.instanceCount = count;
+    const order = new Uint32Array(clouds.length);
+    for (let i = 0; i < clouds.length; i++) order[i] = i;
+    return {
+      geometry,
+      offsetAttr,
+      relAttr,
+      master: { offsets, rels },
+      clouds,
+      order,
+      keys: new Float32Array(clouds.length),
+    };
+  }, [altitude, worldScale]);
+
+  const puffTexture = useMemo(bakePuffTexture, []);
+
+  const puffMaterial = useMemo(() => {
+    const nodes = makePuffNodes(uniforms, puffTexture, skyCube, skyEnv);
+    const material = new THREE.SpriteNodeMaterial();
+    material.name = "CloudPuffs";
+    material.positionNode = nodes.positionNode;
+    material.scaleNode = nodes.scaleNode as unknown as THREE.Node;
+    material.rotationNode = nodes.rotationNode as unknown as THREE.Node;
+    material.colorNode = nodes.colorNode;
+    material.transparent = true;
+    material.depthWrite = false;
+    material.depthTest = true;
+    material.blending = THREE.NormalBlending;
+    material.fog = false;
+    material.toneMapped = true;
+    return material;
+  }, [uniforms, puffTexture, skyCube, skyEnv]);
+
+  useEffect(() => () => puffField.geometry.dispose(), [puffField]);
+  useEffect(() => () => puffMaterial.dispose(), [puffMaterial]);
+  useEffect(() => () => puffTexture.dispose(), [puffTexture]);
+
+  const puffSort = useRef({ forward: new THREE.Vector3(), field: null as object | null });
 
   const domeGeometry = useMemo(() => new THREE.SphereGeometry(1, 48, 24), []);
 
@@ -680,6 +1055,26 @@ export const Clouds = memo(function Clouds({
     // Sampling offset grows as the sheet moves west: features slide to -x.
     uniforms.windOffset.value = hours * travel - c.drift;
     uniforms.boil.value = hours * BOIL_RATE + elapsed * BOIL_IDLE;
+
+    // Keep the sprite clusters painted back to front as the orbit turns.
+    const state = puffSort.current;
+    camera.getWorldDirection(_puffForward);
+    if (
+      state.field !== puffField ||
+      _puffForward.dot(state.forward) < Math.cos(THREE.MathUtils.degToRad(2))
+    ) {
+      state.field = puffField;
+      state.forward.copy(_puffForward);
+      sortPuffs(
+        puffField.clouds,
+        puffField.order,
+        puffField.keys,
+        puffField.master,
+        puffField.offsetAttr,
+        puffField.relAttr,
+        camera,
+      );
+    }
   });
 
   return (
@@ -693,6 +1088,15 @@ export const Clouds = memo(function Clouds({
         // After the stars and the sun disc, which sit on their own dome.
         renderOrder={1}
       />
+      {puffs && (
+        <mesh
+          geometry={puffField.geometry}
+          material={puffMaterial}
+          frustumCulled={false}
+          // Over the sheet: the clusters float in its lower streaks.
+          renderOrder={2}
+        />
+      )}
       {/* The deck's light on the city; colour and strength set per frame. */}
       <hemisphereLight ref={glowRef} intensity={0} groundColor="#000000" />
     </>
