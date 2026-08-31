@@ -6,6 +6,8 @@ import { useSky } from "@pmndrs/sky/react";
 import * as TSL from "three/tsl";
 import * as THREE from "three/webgpu";
 
+import { HERO_INITIAL_TIME_OF_DAY } from "@/lib/time-of-day";
+
 import { MOON_DIRECTION } from "./lights";
 
 /**
@@ -145,7 +147,8 @@ const SHADE_STRENGTH = 0.85;
  */
 const WEATHER_PERIOD_A = 24 * 1.4;
 const WEATHER_PERIOD_B = 24 * 3.1;
-const WEATHER_EPOCH = 20.4;
+/** The hour the dial opens on — wherever that moves, the sky loads clear. */
+const WEATHER_EPOCH = (HERO_INITIAL_TIME_OF_DAY / 100) * 24;
 /** Noise evolution per hour of dial time, and per wall-clock second at rest. */
 const BOIL_RATE = 0.06;
 const BOIL_IDLE = 0.004;
