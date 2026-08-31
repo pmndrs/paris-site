@@ -132,9 +132,9 @@ export interface CloudsOptions {
 /** Slab depth, city units: how far a fully thick column hangs below the layer top. */
 const DECK_THICKNESS = 150;
 /** Samples per view ray through the slab. */
-const MARCH_STEPS = 8;
+const MARCH_STEPS = 6;
 /** Extinction per step through a fully dense sample. */
-const STEP_EXTINCTION = 1.6;
+const STEP_EXTINCTION = 2.0;
 /** How much of the deck's underside radiance comes back down as fill. */
 const GLOW_GAIN = 0.6;
 /** Base-octave noise frequency, per city unit: lumps a few hundred metres across. */
@@ -277,7 +277,7 @@ function densityAt(
   // ground shade, the puff gate. It skips the domain warp, the third octave
   // and the fine one: half the noise for an imperceptible change in a soft
   // blob.
-  let q = q0;
+  let q: Vec2Node = q0;
   if (!lite) {
     const w1 = TSL.mx_noise_float(
       TSL.vec3(q0.mul(0.65).add(TSL.vec2(13.7, 7.1)), u.boil.mul(0.9)),
@@ -285,7 +285,7 @@ function densityAt(
     const w2 = TSL.mx_noise_float(
       TSL.vec3(q0.mul(0.65).add(TSL.vec2(41.3, 23.9)), u.boil.mul(0.9).add(7.0)),
     );
-    q = q0.add(TSL.vec2(w1, w2).mul(0.35));
+    q = q0.add(TSL.vec2(w1, w2).mul(0.35)) as unknown as Vec2Node;
   }
   const p1 = TSL.mx_noise_float(TSL.vec3(q, u.boil));
   const p2 = TSL.mx_noise_float(
@@ -359,6 +359,25 @@ function coverageAt(
   const thick = TSL.smoothstep(threshold, threshold.add(0.6), eroded);
   return { q, d, fine, threshold, cover, thick };
 }
+interface PuffSprite {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  rx: number;
+  ry: number;
+  rz: number;
+  seed: number;
+}
+
+interface PuffCloudRange {
+  start: number;
+  count: number;
+  cx: number;
+  cy: number;
+  cz: number;
+}
+
 /** Deterministic PRNG (mulberry32) — the scatter must not reshuffle on re-render. */
 function makeRng(seed: number) {
   let s = seed >>> 0;
@@ -664,6 +683,9 @@ function makeDeckNodes(
   skyEnv?: THREE.Texture | null,
 ) {
   const colorNode = TSL.Fn(() => {
+    // A clear sky pays nothing: the landing state is exactly this.
+    u.cloudiness.lessThan(0.005).discard();
+
     const V = TSL.normalize(TSL.positionWorld.sub(TSL.cameraPosition));
     V.y.lessThan(0.015).discard();
     const rayY = TSL.max(V.y, 1e-3);
@@ -674,6 +696,69 @@ function makeDeckNodes(
     const tEnter = bottom.sub(cam.y).div(rayY);
     const tExit = top.sub(cam.y).div(rayY);
     const span = tExit.sub(tEnter);
+    const mid = cam.add(V.mul(tEnter.add(span.mul(0.5))));
+
+    // Hoisted once per pixel, at the ray's midpoint: the domain warp, the
+    // weather front and the Worley domes all vary far more slowly than the
+    // octaves, so the samples share them. This is where most of the noise
+    // budget went.
+    const qMid = noiseSpace(u, mid.xz, 0);
+    const w1 = TSL.mx_noise_float(
+      TSL.vec3(qMid.mul(0.65).add(TSL.vec2(13.7, 7.1)), u.boil.mul(0.9)),
+    );
+    const w2 = TSL.mx_noise_float(
+      TSL.vec3(qMid.mul(0.65).add(TSL.vec2(41.3, 23.9)), u.boil.mul(0.9).add(7.0)),
+    );
+    const warp = TSL.vec2(w1, w2).mul(0.35);
+    const front = TSL.mx_noise_float(
+      TSL.vec3(qMid.mul(0.13), u.boil.mul(0.2).add(41.0)),
+    );
+    const threshold = TSL.mix(1.05, 0.4, u.cloudiness).add(front.mul(0.14));
+    const qMidWarped = qMid.add(warp);
+    const cells = TSL.float(1.0).sub(
+      TSL.mx_worley_noise_float(
+        qMidWarped.mul(1.15).add(TSL.vec2(u.boil.mul(0.15), u.boil.mul(0.1))),
+        1.0,
+      )
+        .mul(1.1)
+        .clamp(0.0, 1.0),
+    );
+
+    const dist = tEnter.add(span.mul(0.5));
+    const detail = TSL.float(1.0).sub(
+      TSL.smoothstep(u.detailNear, u.detailFar, dist),
+    );
+    const nearField = detail.greaterThan(0.02);
+
+    // Density along the march: three octaves in the shared warped space,
+    // over the shared domes, frayed by the fine octave only where the fine
+    // octave can be seen.
+    const densityOnRay = (xzNode: unknown) => {
+      const q = (noiseSpace(u, xzNode, 0) as Vec2Node).add(warp);
+      const p1 = TSL.mx_noise_float(TSL.vec3(q, u.boil));
+      const p2 = TSL.mx_noise_float(
+        TSL.vec3(q.mul(2.03).add(TSL.vec2(3.7, 1.9)), u.boil.mul(1.3).add(11.0)),
+      );
+      const p3 = TSL.mx_noise_float(
+        TSL.vec3(q.mul(4.1).add(TSL.vec2(9.1, 5.3)), u.boil.mul(1.7).add(23.0)),
+      );
+      const broad = p1.mul(0.55).add(p2.mul(0.28)).add(p3.mul(0.14)).mul(0.5).add(0.5);
+      const d = TSL.float(broad.mul(0.58).add(cells.mul(0.42))).toVar();
+      TSL.If(nearField, () => {
+        const fine = TSL.mx_noise_float(
+          TSL.vec3(q.mul(8.3).add(TSL.vec2(2.2, 7.7)), u.boil.mul(2.1).add(31.0)),
+        );
+        const pre = TSL.smoothstep(threshold, threshold.add(0.38), d);
+        const fray = TSL.float(1.0)
+          .sub(pre)
+          .pow(2.0)
+          .mul(fine.mul(0.5).add(0.5))
+          .mul(0.1)
+          .mul(detail.mul(0.7).add(0.3));
+        d.addAssign(fine.mul(0.09).mul(detail).sub(fray));
+      });
+      return d;
+    };
 
     // Sun terms shared by every sample.
     const L = u.sunDir as unknown as Vec3Node;
@@ -681,8 +766,25 @@ function makeDeckNodes(
     const under = TSL.float(1.0).sub(TSL.smoothstep(-0.2, 0.35, L.y));
     const forward = TSL.pow(TSL.max(V.dot(L), 0.0), 5.0);
     const lateral = TSL.normalize(TSL.vec2(L.x, L.z).add(TSL.vec2(1e-4, 0.0)));
-    const sunStep = lateral.mul(
-      TSL.float(SUN_STEP).mul(TSL.float(1.0).sub(sunAbove.mul(0.7))),
+    const sunStep = lateral
+      .mul(TSL.float(SUN_STEP).mul(TSL.float(1.0).sub(sunAbove.mul(0.7))))
+      .div(u.noiseScale)
+      .mul(u.worldScale);
+
+    // Up-sun occlusion for the column the ray meets: the lite density tier
+    // is plenty for a soft cloud-scale shade.
+    const dMid = densityOnRay(mid.xz);
+    const dSun = densityAt(
+      u,
+      noiseSpace(u, mid.xz.add(sunStep), 0),
+      TSL.float(0.0),
+      true,
+    ).d;
+    const thickMid = TSL.smoothstep(threshold, threshold.add(0.6), dMid);
+    const thickSun = TSL.smoothstep(threshold, threshold.add(0.6), dSun);
+    const occlusion = TSL.smoothstep(-0.15, 0.35, thickSun.sub(thickMid));
+    const shade = TSL.float(1.0).sub(
+      occlusion.mul(TSL.mix(0.88, 0.6, sunAbove)),
     );
 
     // Ambient: the sky's PMREM read just above the horizon — what a cloud
@@ -694,41 +796,23 @@ function makeDeckNodes(
         ? TSL.cubeTexture(skyCube, skyDir).rgb
         : TSL.vec3(0.35, 0.45, 0.65);
 
-    // Up-sun occlusion for the column the ray meets first: how much cloud
-    // lies between it and the sun along the sheet.
-    const entry = cam.add(V.mul(tEnter.add(span.mul(0.5))));
-    const entryDetail = TSL.float(1.0).sub(
-      TSL.smoothstep(u.detailNear, u.detailFar, tEnter),
-    );
-    const column = coverageAt(u, entry.xz, entryDetail, 0);
-    const dSun = densityAt(u, column.q.add(sunStep), entryDetail).d;
-    const thickSun = TSL.smoothstep(column.threshold, column.threshold.add(0.6), dSun);
-    const occlusion = TSL.smoothstep(-0.15, 0.35, thickSun.sub(column.thick));
-    const shade = TSL.float(1.0).sub(
-      occlusion.mul(TSL.mix(0.88, 0.6, sunAbove)),
-    );
-
-    // City glow on the underside at night, by the entry column.
+    // City glow on the underside at night, by the ray's column.
     const nearCity = TSL.float(1.0).sub(
-      TSL.smoothstep(u.cityRadius, u.cityRadius.mul(3.0), TSL.length(entry.xz)),
+      TSL.smoothstep(u.cityRadius, u.cityRadius.mul(3.0), TSL.length(mid.xz)),
     );
     const glow = TSL.vec3(1.0, 0.6, 0.3).mul(nearCity).mul(u.night).mul(0.25);
 
-    // No dither: FSR treats per-pixel noise as instability and clamps it in
-    // visible tiles. Six mid-point samples through transitions this soft
-    // band less than the noise cost.
     const transmittance = TSL.float(1.0).toVar();
     const accumulated = TSL.vec3(0.0).toVar();
 
     for (let i = 0; i < MARCH_STEPS; i++) {
       const t = tEnter.add(span.mul((i + 0.5) / MARCH_STEPS));
-      const p = cam.add(V.mul(t));
+      const pos = cam.add(V.mul(t));
       // Height within the slab: 0 at the bottom, 1 at the top.
-      const h = p.y.sub(bottom).div(u.thickness);
-      const detail = TSL.float(1.0).sub(
-        TSL.smoothstep(u.detailNear, u.detailFar, t),
-      );
-      const { cover, thick, fine } = coverageAt(u, p.xz, detail, 0);
+      const h = pos.y.sub(bottom).div(u.thickness);
+      const d = densityOnRay(pos.xz);
+      const cover = TSL.smoothstep(threshold, threshold.add(0.38), d);
+      const thick = TSL.smoothstep(threshold, threshold.add(0.6), d);
 
       // A thick column hangs to the slab's bottom; a thin one only fills the
       // top. The sample is inside the cloud above that column's base.
@@ -741,13 +825,11 @@ function makeDeckNodes(
       const overhead = TSL.float(1.0).sub(h).mul(thick);
       const fromAbove = TSL.exp(overhead.mul(-3.2)).mul(shade);
       const fromBelow = shade.mul(TSL.exp(h.sub(base).max(0.0).mul(-2.0)));
-      const sun = u.sunRadiance.mul(TSL.mix(fromAbove.mul(TSL.mix(0.35, 1.0, sunAbove)), fromBelow, under));
+      const sun = u.sunRadiance.mul(
+        TSL.mix(fromAbove.mul(TSL.mix(0.35, 1.0, sunAbove)), fromBelow, under),
+      );
       const moon = u.moonRadiance.mul(TSL.exp(overhead.mul(-2.0)).mul(0.6));
-      // The powder term: multiple scattering has not built up in the outer
-      // skin, so it darkens just inside the bright rim — the signature
-      // volumetric cue.
-      const powder = TSL.float(1.0).sub(TSL.exp(inside.mul(-5.0)));
-      const direct = sun.add(moon).mul(u.sunlight).mul(TSL.mix(1.0, powder, 0.55));
+      const direct = sun.add(moon).mul(u.sunlight);
 
       // Thin cloud between here and the sun glows with forward scatter.
       const silver = u.sunRadiance
@@ -760,10 +842,7 @@ function makeDeckNodes(
         .mul(u.ambient)
         .mul(TSL.mix(1.0, 0.2, thick))
         .mul(TSL.mix(0.38, 1.0, h))
-        .mul(TSL.float(1.0).sub(occlusion.mul(0.3)))
-        // Mottle the big faces and lift the thin rim, so no area is airbrushed.
-        .mul(fine.mul(0.3).add(0.9))
-        .mul(TSL.float(1.0).add(TSL.exp(inside.mul(-3.0)).mul(0.25)));
+        .mul(TSL.float(1.0).sub(occlusion.mul(0.3)));
 
       const sample = direct
         .div(Math.PI)
@@ -786,7 +865,6 @@ function makeDeckNodes(
     // The same exponential height fog the post pass applies to the city,
     // at the layer's distance. The dome writes no depth, so that pass sees
     // sky here and skips it.
-    const dist = tEnter.add(span.mul(0.5));
     const H = u.fogHeight;
     const sigma = u.fogDensity.div(1000.0);
     const xx = dist.mul(rayY).div(H);
@@ -813,7 +891,6 @@ function makeDeckNodes(
 
   return { colorNode };
 }
-
 /**
  * The sun as the clouds see it: colour by elevation on the same bands as the
  * visible disc, dimmed toward the horizon, alive until a degree below it (a
