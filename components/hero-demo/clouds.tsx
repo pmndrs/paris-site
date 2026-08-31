@@ -120,11 +120,11 @@ export interface CloudsOptions {
 }
 
 /** Slab depth, city units: how far a fully thick column hangs below the layer top. */
-const DECK_THICKNESS = 90;
+const DECK_THICKNESS = 150;
 /** Samples per view ray through the slab. */
-const MARCH_STEPS = 6;
+const MARCH_STEPS = 8;
 /** Extinction per step through a fully dense sample. */
-const STEP_EXTINCTION = 2.0;
+const STEP_EXTINCTION = 1.6;
 /** How much of the deck's underside radiance comes back down as fill. */
 const GLOW_GAIN = 0.6;
 /** Base-octave noise frequency, per city unit: lumps a few hundred metres across. */
@@ -252,7 +252,7 @@ function densityAt(u: CloudUniforms, qNode: unknown, detailNode: unknown) {
   // Worley distance is 0 at a cell's centre: inverted, each cell is a dome.
   const cells = TSL.float(1.0).sub(
     TSL.mx_worley_noise_float(
-      q.mul(1.4).add(TSL.vec2(u.boil.mul(0.15), u.boil.mul(0.1))),
+      q.mul(1.15).add(TSL.vec2(u.boil.mul(0.15), u.boil.mul(0.1))),
       1.0,
     )
       .mul(1.1)
@@ -260,9 +260,9 @@ function densityAt(u: CloudUniforms, qNode: unknown, detailNode: unknown) {
   );
   const broad = p1.mul(0.55).add(p2.mul(0.28)).add(p3.mul(0.14)).mul(0.5).add(0.5);
   return broad
-    .mul(0.68)
-    .add(cells.mul(0.32))
-    .add(fine.mul(0.06).mul(detail));
+    .mul(0.58)
+    .add(cells.mul(0.42))
+    .add(fine.mul(0.09).mul(detail));
 }
 
 /**
@@ -284,10 +284,10 @@ function coverageAt(
     TSL.vec3(q.mul(0.13), u.boil.mul(0.2).add(41.0)),
   );
   // At zero cloudiness the threshold clears the density's ceiling: no wisps.
-  const threshold = TSL.mix(1.05, 0.3, u.cloudiness)
+  const threshold = TSL.mix(1.05, 0.4, u.cloudiness)
     .add(front.mul(0.14))
     .add(sheet * 0.08);
-  const cover = TSL.smoothstep(threshold, threshold.add(0.3), d);
+  const cover = TSL.smoothstep(threshold, threshold.add(0.38), d);
   const thick = TSL.smoothstep(threshold, threshold.add(0.6), d);
   return { q, d, threshold, cover, thick };
 }
@@ -415,7 +415,7 @@ function makeDeckNodes(
       // under the layer reaches the base straight on, shaded by the lumps
       // up-sun of it.
       const overhead = TSL.float(1.0).sub(h).mul(thick);
-      const fromAbove = TSL.exp(overhead.mul(-2.6)).mul(shade);
+      const fromAbove = TSL.exp(overhead.mul(-3.2)).mul(shade);
       const fromBelow = shade.mul(TSL.exp(h.sub(base).max(0.0).mul(-2.0)));
       const sun = u.sunRadiance.mul(TSL.mix(fromAbove.mul(TSL.mix(0.35, 1.0, sunAbove)), fromBelow, under));
       const moon = u.moonRadiance.mul(TSL.exp(overhead.mul(-2.0)).mul(0.6));
@@ -430,8 +430,8 @@ function makeDeckNodes(
 
       const ambient = skyRadiance
         .mul(u.ambient)
-        .mul(TSL.mix(1.0, 0.25, thick))
-        .mul(TSL.mix(0.55, 1.0, h))
+        .mul(TSL.mix(1.0, 0.2, thick))
+        .mul(TSL.mix(0.38, 1.0, h))
         .mul(TSL.float(1.0).sub(occlusion.mul(0.3)));
 
       const sample = direct
