@@ -249,7 +249,7 @@ function densityAt(u: CloudUniforms, qNode: unknown, detailNode: unknown) {
   const w2 = TSL.mx_noise_float(
     TSL.vec3(q0.mul(0.65).add(TSL.vec2(41.3, 23.9)), u.boil.mul(0.9).add(7.0)),
   );
-  const q = q0.add(TSL.vec2(w1, w2).mul(0.45));
+  const q = q0.add(TSL.vec2(w1, w2).mul(0.35));
   const p1 = TSL.mx_noise_float(TSL.vec3(q, u.boil));
   const p2 = TSL.mx_noise_float(
     TSL.vec3(q.mul(2.03).add(TSL.vec2(3.7, 1.9)), u.boil.mul(1.3).add(11.0)),
@@ -308,7 +308,7 @@ function coverageAt(
     .sub(pre)
     .pow(2.0)
     .mul(fine.mul(0.5).add(0.5))
-    .mul(0.16)
+    .mul(0.1)
     .mul(detail.mul(0.7).add(0.3));
   const eroded = d.sub(fray);
   const cover = TSL.smoothstep(threshold, threshold.add(0.38), eroded);
