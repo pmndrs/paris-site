@@ -11,33 +11,40 @@ import { HERO_INITIAL_TIME_OF_DAY } from "@/lib/time-of-day";
 import { MOON_DIRECTION } from "./lights";
 
 /**
- * A broken deck of cloud over Paris — flat patches spread across the whole
- * sky, thinning toward the horizon, undersides lit gold by a low sun.
+ * A broken deck of cloud over Paris — the stratocumulus sheet of a Paris
+ * sunset photo, flat patches spread across the whole sky, thinning to
+ * streaks at the horizon, undersides lit gold by a low sun.
  *
- * The deck is a height field, and that is the point. Every cloud in this
- * frame sits 5–18° above the horizon, seen nearly edge-on from below, and
- * at that grazing angle no amount of shading on a flat sheet reads as
- * volume — fluffy is a silhouette property. So the layer is a real
- * displaced surface: a large grid whose vertices hang below the cloud
- * altitude by the local density (thick columns reach deep, thin ones barely
- * dent), giving true 3D lobes that bulge, overlap and occlude each other
- * with real perspective, and a genuine surface normal to light. The mesh
- * writes depth, so lobes sort against each other and the city, the post
- * pass fogs them like any other geometry, and FSR gets honest motion.
+ * We only ever see it from below, and only between 5° and 18° up — the
+ * hero's frame stops there — so it is a dome around the camera whose
+ * fragment shader marches each view ray through a slab at cloud altitude:
+ * five samples between the layer's bottom and its top. The density is
+ * Perlin octaves for the sheet's broad shape with inverted Worley cells on
+ * top — domed cells are what make lumps round instead of blotchy — against
+ * a coverage threshold the weather sets, and a thick column hangs lower in
+ * the slab than a thin one. That vertical relief is what the march buys: at
+ * these grazing angles a flat sheet can only ever be streaks, while lumps
+ * that hang down occlude each other, show their flanks and fade at the
+ * edges like the real thing.
  *
- * The density field is Perlin octaves for the broad shape with inverted
- * Worley cells for the domes, the space bent by a low-frequency warp so
- * boundaries meander, and rims eroded by the fine octave squared toward the
- * edge — cores solid, edges fraying to wisps. Lighting is a soft-wrapped
- * dot with the real normal (a low sun lights hanging bases by itself, no
- * special case), Beer's law darkening under thickness, a powder term just
- * inside bright rims, an up-sun density tap for cloud-scale shade, forward
- * scatter through thin edges, and the sky's own PMREM as ambient.
+ * The shading is the cheap volumetric kind. Light reaching a sample falls
+ * off with the cloud above it (Beer's law — a long path when the sun is
+ * high, none when it is under the layer at dusk, so the whole base catches
+ * fire then), and the column is darkened by how much cloud lies toward the
+ * sun from it, read by sampling the density a step up-sun. Thin edges
+ * transmit forward scatter, the glow around the holes near the sun. Ambient
+ * is the sky's own PMREM read at the horizon, which is what a cloud base
+ * actually sees, and thick cores fall toward the grey of a real one.
  *
  * The layer lights the city back: a hemisphere light carries the deck's own
  * sun colour times how much sky it covers — strong when a low sun lights
  * the undersides, a flat grey lift on an overcast noon — so a red sky warms
  * the roofs and streets under it instead of floating over a neutral scene.
+ *
+ * The clouds carry their own sun rather than the city's key light. The key
+ * hands over to the moon from 6° elevation, but a layer at a kilometre still
+ * sees the sun until it is a degree under the horizon, and that last stretch
+ * is the one that sets it on fire.
  *
  * Shadows are cast on the receiving side, not through the shadow map: the
  * key light's shadow filter (`cloudShadowFilter`, installed by `Lights`)
@@ -53,8 +60,8 @@ import { MOON_DIRECTION } from "./lights";
  * time-lapse — the sun sweeps, the stars wheel — so the sheet keeps pace: it
  * streams westward with the sun, the noise boils, and a cloudiness curve a
  * day or two long moves the coverage threshold. It is anchored at the
- * dial's opening hour so the page always loads to a clear sky, and clouds
- * build as the dial moves forward from there — into a partly cloudy
+ * homepage's opening hour so the page always loads to a clear night, and
+ * clouds build as the dial moves forward from there — into a partly cloudy
  * morning, an overcast afternoon, a clearing the next night — with a slower
  * swing on top so no two days match. A low-frequency noise on the threshold
  * turns each change into fronts crossing the sky rather than a uniform
@@ -107,22 +114,19 @@ export interface CloudsOptions {
   night?: number;
   /** The sky's exposure; the sun term tracks it partway, as the sky does fully. */
   exposure?: number;
-  /**
-   * Accepted for compatibility; the field writes depth now, so the post
-   * pass's own sky fog hazes it like the rest of the scene.
-   */
+  /** The post pass's sky fog, so the clouds sit in the same haze as the city. */
   fogDensity?: number;
   fogHeight?: number;
 }
 
-/** Half-width of the height-field grid, city units — just inside the far plane. */
-const FIELD_RADIUS = 1350;
-/** Where the field starts dissolving toward its rim, city units. */
-const FIELD_FADE = 1100;
-/** Grid resolution: cells of ~10 city units, far finer than the smallest lobe. */
-const GRID_SEGMENTS = 256;
-/** Slab depth, city units: how deep a fully thick column hangs below the top. */
+/** Slab depth, city units: how far a fully thick column hangs below the layer top. */
 const DECK_THICKNESS = 150;
+/** Samples per view ray through the slab. */
+const MARCH_STEPS = 8;
+/** Extinction per step through a fully dense sample. */
+const STEP_EXTINCTION = 1.6;
+/** How much of the deck's underside radiance comes back down as fill. */
+const GLOW_GAIN = 0.6;
 /** Base-octave noise frequency, per city unit: lumps a few hundred metres across. */
 const NOISE_FREQUENCY = 1 / 380;
 /** How far up-sun the self-shadow sample is taken, in base-octave features. */
@@ -130,16 +134,16 @@ const SUN_STEP = 0.38;
 /** City radius, for the night glow falloff. */
 const CITY_RADIUS = 400;
 const ALBEDO = 0.92;
+/** Dome radius as a fraction of the camera's far plane (1400 × worldScale). */
+const DOME_RADIUS = 1300;
 /** How dark the ground gets under a fully covered patch. */
 const SHADE_STRENGTH = 0.85;
-/** How much of the deck's underside radiance comes back down as fill. */
-const GLOW_GAIN = 0.6;
 
 /**
  * The cloudiness curve: two incommensurate swings, a day and a half and
- * three days long, both at their trough at the epoch — the dial's opening
- * hour — so the page loads to a clear sky and clouds build from there,
- * whichever way the dial turns.
+ * three days long, both at their trough at the epoch — the homepage's
+ * opening hour — so the page loads to a clear night and clouds build from
+ * there, whichever way the dial turns.
  */
 const WEATHER_PERIOD_A = 24 * 1.4;
 const WEATHER_PERIOD_B = 24 * 3.1;
@@ -203,6 +207,8 @@ function makeUniforms() {
     /** Where the finest octave fades out along the view ray, world units. */
     detailNear: TSL.uniform(800 * 5),
     detailFar: TSL.uniform(2400 * 5),
+    fogDensity: TSL.uniform(0.3),
+    fogHeight: TSL.uniform(300),
   };
 }
 
@@ -215,23 +221,24 @@ type CloudUniforms = ReturnType<typeof makeUniforms>;
  */
 const cloudUniforms = makeUniforms();
 
-/** Noise space for a world-space point on the layer. */
-function noiseSpace(u: CloudUniforms, xzNode: unknown) {
+/** Noise space for a world-space point on the layer, plus the sheet's own offset. */
+function noiseSpace(u: CloudUniforms, xzNode: unknown, sheet: number) {
   const xz = xzNode as Vec2Node;
   return xz
     .div(u.worldScale)
     .add(TSL.vec2(u.windOffset, 0.0))
-    .mul(u.noiseScale);
+    .mul(u.noiseScale)
+    .add(TSL.vec2(sheet * 17.3, sheet * 29.1));
 }
 
 /**
  * Density at a point in noise space: the space itself is first bent by a
- * low-frequency warp — a boundary through warped coordinates meanders and
- * curls the way a cloud edge does, where the same boundary through straight
- * coordinates traces an airbrushed blob. Then three Perlin octaves for the
- * broad shape, inverted Worley cells for the domes, and a fine octave that
- * fades with distance because it would alias. The fine octave is returned
- * too: the caller re-uses it to erode the edges.
+ * low-frequency warp — a smoothstepped boundary through warped coordinates
+ * meanders and curls the way a cloud edge does, where the same boundary
+ * through straight coordinates traces an airbrushed blob. Then three Perlin
+ * octaves for the broad shape, inverted Worley cells for the domes, and a
+ * fine octave that fades with distance because it would alias. The fine
+ * octave is returned too: the caller re-uses it to erode the edges.
  */
 function densityAt(u: CloudUniforms, qNode: unknown, detailNode: unknown) {
   const q0 = qNode as Vec2Node;
@@ -271,17 +278,19 @@ function densityAt(u: CloudUniforms, qNode: unknown, detailNode: unknown) {
 }
 
 /**
- * The coverage field at a world-space point on the layer: density against a
- * threshold the weather sets, with a low-frequency front term so a change
- * of weather crosses the sky rather than fading in everywhere at once, and
- * the rim eroded by the fine octave squared toward the edge — cores stay
- * solid, boundaries fray into wisps. `cover` is what you see, `thick` how
- * much cloud is above the point. Shared by the visible field, the vertex
- * displacement and the ground shade, so what hangs, shows and shades is one
- * shape.
+ * The coverage field on one sheet: density against a threshold the weather
+ * sets, with a low-frequency front term so a change of weather crosses the
+ * sky rather than fading in everywhere at once. `cover` is what you see,
+ * `thick` how much cloud is above the point. Shared by the visible dome and
+ * the ground shade, so the shade is the shape overhead.
  */
-function coverageAt(u: CloudUniforms, xzNode: unknown, detailNode: unknown) {
-  const q = noiseSpace(u, xzNode);
+function coverageAt(
+  u: CloudUniforms,
+  xzNode: unknown,
+  detailNode: unknown,
+  sheet: number,
+) {
+  const q = noiseSpace(u, xzNode, sheet);
   const detail = detailNode as FloatNode;
   const { d, fine } = densityAt(u, q, detail);
   const front = TSL.mx_noise_float(
@@ -290,7 +299,10 @@ function coverageAt(u: CloudUniforms, xzNode: unknown, detailNode: unknown) {
   // At zero cloudiness the threshold clears the density's ceiling: no wisps.
   const threshold = TSL.mix(1.05, 0.4, u.cloudiness)
     .add(front.mul(0.14))
-    .add(0.0);
+    .add(sheet * 0.08);
+  // Tear the rim: erosion scaled by the square of edge-ness, so cores stay
+  // solid while boundaries fray into wisps. The fine octave is already paid
+  // for; near-zero extra cost.
   const pre = TSL.smoothstep(threshold, threshold.add(0.38), d);
   const fray = TSL.float(1.0)
     .sub(pre)
@@ -335,7 +347,7 @@ export function cloudShadowFilter(base: ShadowFilter): ShadowFilter {
         const p = TSL.shadowPositionWorld as unknown as Vec3Node;
         const t = u.altitude.sub(p.y).div(dir.y);
         const xz = p.xz.add(TSL.vec2(dir.x, dir.z).mul(t));
-        const { cover } = coverageAt(u, xz, TSL.float(0.0));
+        const { cover } = coverageAt(u, xz, TSL.float(0.0), 0);
         lit.mulAssign(TSL.float(1.0).sub(cover.mul(u.shade)));
       });
       return lit;
@@ -343,147 +355,163 @@ export function cloudShadowFilter(base: ShadowFilter): ShadowFilter {
 }
 
 /**
- * The height field's shader graph. The vertex stage samples the field to
- * hang the surface and take its analytic normal (forward differences, one
- * grid cell apart); the fragment stage re-reads the field at full detail
- * for coverage, texture and light.
+ * The dome's shader graph: march the view ray through the slab from its
+ * bottom to its top, lighting each sample, and composite front to back.
  */
-function makeFieldNodes(
+function makeDeckNodes(
   u: CloudUniforms,
   skyCube?: THREE.CubeTexture,
   skyEnv?: THREE.Texture | null,
 ) {
-  // ---- vertex stage: displacement and normal ----
-  const xz = TSL.positionGeometry.xz;
-  const eps = TSL.float((FIELD_RADIUS * 2) / GRID_SEGMENTS).mul(u.worldScale);
-  const t0 = coverageAt(u, xz, TSL.float(0.0)).thick;
-  const tx = coverageAt(u, xz.add(TSL.vec2(eps, 0.0)), TSL.float(0.0)).thick;
-  const tz = coverageAt(u, xz.add(TSL.vec2(0.0, eps)), TSL.float(0.0)).thick;
-
-  const positionNode = TSL.vec3(
-    xz.x,
-    u.altitude.sub(t0.mul(u.thickness)),
-    xz.y,
-  );
-
-  // Surface y = altitude − thick·T; the outward (downward) normal.
-  const grad = TSL.vec2(tx.sub(t0), tz.sub(t0)).div(eps).mul(u.thickness);
-  const downNormal = TSL.normalize(
-    TSL.vec3(grad.x.negate(), -1.0, grad.y.negate()),
-  );
-  const vNormal = TSL.vertexStage(downNormal) as unknown as Vec3Node;
-
-  // ---- fragment stage ----
   const colorNode = TSL.Fn(() => {
-    const N = TSL.normalize(vNormal);
-    const toHere = TSL.positionWorld.sub(TSL.cameraPosition);
-    const dist = TSL.length(toHere);
-    const V = toHere.div(TSL.max(dist, 1e-4));
+    const V = TSL.normalize(TSL.positionWorld.sub(TSL.cameraPosition));
+    V.y.lessThan(0.015).discard();
+    const rayY = TSL.max(V.y, 1e-3);
+    const cam = TSL.cameraPosition;
 
-    const detail = TSL.float(1.0).sub(
-      TSL.smoothstep(u.detailNear, u.detailFar, dist),
-    );
-    const { q, cover, thick, fine, threshold } = coverageAt(
-      u,
-      TSL.positionWorld.xz,
-      detail,
-    );
+    const top = u.altitude;
+    const bottom = u.altitude.sub(u.thickness);
+    const tEnter = bottom.sub(cam.y).div(rayY);
+    const tExit = top.sub(cam.y).div(rayY);
+    const span = tExit.sub(tEnter);
 
-    // Up-sun occlusion: how much cloud lies between this column and the sun.
+    // Sun terms shared by every sample.
     const L = u.sunDir as unknown as Vec3Node;
     const sunAbove = TSL.smoothstep(-0.1, 0.5, L.y);
+    const under = TSL.float(1.0).sub(TSL.smoothstep(-0.2, 0.35, L.y));
+    const forward = TSL.pow(TSL.max(V.dot(L), 0.0), 5.0);
     const lateral = TSL.normalize(TSL.vec2(L.x, L.z).add(TSL.vec2(1e-4, 0.0)));
     const sunStep = lateral.mul(
       TSL.float(SUN_STEP).mul(TSL.float(1.0).sub(sunAbove.mul(0.7))),
     );
-    const dSun = densityAt(u, q.add(sunStep), detail).d;
-    const thickSun = TSL.smoothstep(threshold, threshold.add(0.6), dSun);
-    const occlusion = TSL.smoothstep(-0.15, 0.35, thickSun.sub(thick));
-    const shade = TSL.float(1.0).sub(
-      occlusion.mul(TSL.mix(0.85, 0.6, sunAbove)),
-    );
 
-    // The real normal does the work: a low sun lights the hanging bases on
-    // its own. Beer's law darkens under thickness, the powder term darkens
-    // just inside bright rims — the signature volumetric cue.
-    const litBy = (dirNode: unknown, radianceNode: unknown, extinct: unknown) => {
-      const dir = dirNode as Vec3Node;
-      const radiance = radianceNode as Vec3Node;
-      const wrap = TSL.clamp(N.dot(dir).add(0.5).div(1.5), 0.0, 1.0);
-      return radiance.mul(wrap).mul(extinct as FloatNode);
-    };
-    const beer = TSL.exp(thick.mul(TSL.mix(0.5, 2.6, sunAbove)).negate());
-    const powder = TSL.float(1.0).sub(TSL.exp(cover.mul(-5.0)));
-    const direct = litBy(u.sunDir, u.sunRadiance, beer.mul(shade))
-      .add(litBy(u.moonDir, u.moonRadiance, TSL.exp(thick.mul(-1.5)).mul(0.8)))
-      .mul(u.sunlight)
-      .mul(TSL.mix(1.0, powder, 0.5));
-
-    // Forward scatter through the thin edges toward the sun.
-    const forward = TSL.pow(TSL.max(V.dot(L), 0.0), 5.0);
-    const silver = u.sunRadiance
-      .mul(forward)
-      .mul(TSL.exp(thick.mul(-4.0)))
-      .mul(u.sunlight)
-      .mul(0.9);
-
-    // Ambient: the sky's PMREM along the normal, clamped just above the
-    // horizon (the bake is black below it) — sideways-facing lobe flanks
-    // pick their own patch of sky. Mottled so big faces keep tonal life.
-    const skyDir = TSL.normalize(TSL.vec3(N.x, TSL.max(N.y, 0.04), N.z));
+    // Ambient: the sky's PMREM read just above the horizon — what a cloud
+    // base sees all round.
+    const skyDir = TSL.normalize(TSL.vec3(V.x, 0.08, V.z));
     const skyRadiance = skyEnv
       ? TSL.pmremTexture(skyEnv, skyDir, TSL.float(1.0))
       : skyCube
         ? TSL.cubeTexture(skyCube, skyDir).rgb
         : TSL.vec3(0.35, 0.45, 0.65);
-    const ambientLight = skyRadiance
-      .mul(u.ambient)
-      .mul(TSL.mix(1.0, 0.22, thick))
-      .mul(TSL.float(1.0).sub(occlusion.mul(0.3)))
-      .mul(fine.mul(0.3).add(0.9));
 
-    // At night the city lights the underside warm — the sodium wash every
-    // overcast Paris night has. The downward normal gates it for free.
+    // Up-sun occlusion for the column the ray meets first: how much cloud
+    // lies between it and the sun along the sheet.
+    const entry = cam.add(V.mul(tEnter.add(span.mul(0.5))));
+    const entryDetail = TSL.float(1.0).sub(
+      TSL.smoothstep(u.detailNear, u.detailFar, tEnter),
+    );
+    const column = coverageAt(u, entry.xz, entryDetail, 0);
+    const dSun = densityAt(u, column.q.add(sunStep), entryDetail).d;
+    const thickSun = TSL.smoothstep(column.threshold, column.threshold.add(0.6), dSun);
+    const occlusion = TSL.smoothstep(-0.15, 0.35, thickSun.sub(column.thick));
+    const shade = TSL.float(1.0).sub(
+      occlusion.mul(TSL.mix(0.88, 0.6, sunAbove)),
+    );
+
+    // City glow on the underside at night, by the entry column.
     const nearCity = TSL.float(1.0).sub(
-      TSL.smoothstep(
-        u.cityRadius,
-        u.cityRadius.mul(3.0),
-        TSL.length(TSL.positionWorld.xz),
-      ),
+      TSL.smoothstep(u.cityRadius, u.cityRadius.mul(3.0), TSL.length(entry.xz)),
     );
-    const glow = TSL.vec3(1.0, 0.6, 0.3)
-      .mul(TSL.max(N.y.negate(), 0.0))
-      .mul(nearCity)
-      .mul(u.night)
-      .mul(0.28)
-      .mul(TSL.mix(1.0, 0.5, thick));
+    const glow = TSL.vec3(1.0, 0.6, 0.3).mul(nearCity).mul(u.night).mul(0.25);
 
-    const rgb = direct
-      .div(Math.PI)
-      .add(ambientLight)
-      .mul(ALBEDO)
-      .add(silver)
-      .add(glow);
+    // No dither: FSR treats per-pixel noise as instability and clamps it in
+    // visible tiles. Six mid-point samples through transitions this soft
+    // band less than the noise cost.
+    const transmittance = TSL.float(1.0).toVar();
+    const accumulated = TSL.vec3(0.0).toVar();
 
-    // No fog here: the field writes depth, so the post pass's sky fog hazes
-    // it with the rest of the scene. The rim fade keeps the mesh edge from
-    // ever showing.
-    const radial = TSL.length(TSL.positionWorld.xz);
-    const rim = TSL.float(1.0).sub(
-      TSL.smoothstep(
-        TSL.float(FIELD_FADE).mul(u.worldScale),
-        TSL.float(FIELD_RADIUS - 40).mul(u.worldScale),
-        radial,
-      ),
+    for (let i = 0; i < MARCH_STEPS; i++) {
+      const t = tEnter.add(span.mul((i + 0.5) / MARCH_STEPS));
+      const p = cam.add(V.mul(t));
+      // Height within the slab: 0 at the bottom, 1 at the top.
+      const h = p.y.sub(bottom).div(u.thickness);
+      const detail = TSL.float(1.0).sub(
+        TSL.smoothstep(u.detailNear, u.detailFar, t),
+      );
+      const { cover, thick, fine } = coverageAt(u, p.xz, detail, 0);
+
+      // A thick column hangs to the slab's bottom; a thin one only fills the
+      // top. The sample is inside the cloud above that column's base.
+      const base = TSL.float(1.0).sub(thick);
+      const inside = TSL.smoothstep(base.sub(0.15), base.add(0.18), h).mul(cover);
+
+      // Light from above falls off through the cloud overhead; light from
+      // under the layer reaches the base straight on, shaded by the lumps
+      // up-sun of it.
+      const overhead = TSL.float(1.0).sub(h).mul(thick);
+      const fromAbove = TSL.exp(overhead.mul(-3.2)).mul(shade);
+      const fromBelow = shade.mul(TSL.exp(h.sub(base).max(0.0).mul(-2.0)));
+      const sun = u.sunRadiance.mul(TSL.mix(fromAbove.mul(TSL.mix(0.35, 1.0, sunAbove)), fromBelow, under));
+      const moon = u.moonRadiance.mul(TSL.exp(overhead.mul(-2.0)).mul(0.6));
+      // The powder term: multiple scattering has not built up in the outer
+      // skin, so it darkens just inside the bright rim — the signature
+      // volumetric cue.
+      const powder = TSL.float(1.0).sub(TSL.exp(inside.mul(-5.0)));
+      const direct = sun.add(moon).mul(u.sunlight).mul(TSL.mix(1.0, powder, 0.55));
+
+      // Thin cloud between here and the sun glows with forward scatter.
+      const silver = u.sunRadiance
+        .mul(forward)
+        .mul(TSL.exp(thick.mul(-4.0)))
+        .mul(u.sunlight)
+        .mul(0.9);
+
+      const ambient = skyRadiance
+        .mul(u.ambient)
+        .mul(TSL.mix(1.0, 0.2, thick))
+        .mul(TSL.mix(0.38, 1.0, h))
+        .mul(TSL.float(1.0).sub(occlusion.mul(0.3)))
+        // Mottle the big faces and lift the thin rim, so no area is airbrushed.
+        .mul(fine.mul(0.3).add(0.9))
+        .mul(TSL.float(1.0).add(TSL.exp(inside.mul(-3.0)).mul(0.25)));
+
+      const sample = direct
+        .div(Math.PI)
+        .add(ambient)
+        .mul(ALBEDO)
+        .add(silver)
+        .add(glow.mul(TSL.mix(1.0, 0.5, thick)));
+
+      const opacity = TSL.float(1.0).sub(TSL.exp(inside.mul(-STEP_EXTINCTION)));
+      accumulated.addAssign(sample.mul(opacity).mul(transmittance));
+      transmittance.mulAssign(TSL.float(1.0).sub(opacity));
+    }
+
+    // The faintest traces dither pixel to pixel; remap them cleanly to zero.
+    const covered = TSL.smoothstep(0.03, 0.12, TSL.float(1.0).sub(transmittance)).mul(
+      TSL.float(1.0).sub(transmittance),
     );
-    const alpha = TSL.smoothstep(0.03, 0.3, cover).mul(u.density).mul(rim);
-    // Depth is written, so what stays must be body: the frayed skirt below
-    // this line is dropped rather than blended out of order.
-    alpha.lessThan(0.12).discard();
+    let rgb = accumulated.div(TSL.max(TSL.float(1.0).sub(transmittance), 1e-4));
+
+    // The same exponential height fog the post pass applies to the city,
+    // at the layer's distance. The dome writes no depth, so that pass sees
+    // sky here and skips it.
+    const dist = tEnter.add(span.mul(0.5));
+    const H = u.fogHeight;
+    const sigma = u.fogDensity.div(1000.0);
+    const xx = dist.mul(rayY).div(H);
+    const term = TSL.abs(xx)
+      .lessThan(1e-4)
+      .select(
+        TSL.float(1.0).sub(xx.mul(0.5)),
+        TSL.float(1.0).sub(TSL.exp(xx.negate())).div(xx),
+      );
+    const od = sigma.mul(TSL.exp(cam.y.negate().div(H))).mul(dist).mul(term);
+    const fogAmount = TSL.clamp(TSL.float(1.0).sub(TSL.exp(od.negate())), 0.0, 1.0);
+    const fogDir = TSL.normalize(TSL.vec3(V.x, TSL.max(V.y, 0.02), V.z));
+    const fogColor = skyCube ? TSL.cubeTexture(skyCube, fogDir).rgb : skyRadiance;
+    rgb = TSL.mix(rgb, fogColor, fogAmount);
+
+    // The sheet dissolves into the horizon rather than reaching it: at a
+    // grazing ray the slab is kilometres out and a texel thick.
+    const horizon = TSL.smoothstep(0.02, 0.075, V.y);
+    const alpha = covered.mul(u.density).mul(horizon);
+    alpha.lessThan(0.015).discard();
+
     return TSL.vec4(rgb, alpha);
   })();
 
-  return { positionNode, colorNode, normalNode: vNormal };
+  return { colorNode };
 }
 
 /**
@@ -521,41 +549,27 @@ export const Clouds = memo(function Clouds({
   lightIntensity,
   night = 0,
   exposure = DAY_EXPOSURE,
+  fogDensity = 0.3,
+  fogHeight = 300,
 }: CloudsOptions) {
   const sky = useSky() as unknown as SkyLike | null;
   const skyCube = sky?.baker?.texture;
   const skyEnv = sky?.baker?.environmentTexture ?? undefined;
+  const domeRef = useRef<THREE.Mesh>(null);
   const glowRef = useRef<THREE.HemisphereLight>(null);
   const uniforms = cloudUniforms;
 
-  // The grid is world-sized so the shader can treat vertex xz as world xz.
-  const fieldGeometry = useMemo(() => {
-    const width = FIELD_RADIUS * 2 * worldScale;
-    const geometry = new THREE.PlaneGeometry(
-      width,
-      width,
-      GRID_SEGMENTS,
-      GRID_SEGMENTS,
-    );
-    geometry.rotateX(-Math.PI / 2);
-    return geometry;
-  }, [worldScale]);
+  const domeGeometry = useMemo(() => new THREE.SphereGeometry(1, 48, 24), []);
 
   // Keyed on the sky textures so the graph rebuilds once the first bake lands.
-  const fieldMaterial = useMemo(() => {
-    const nodes = makeFieldNodes(uniforms, skyCube, skyEnv);
+  const domeMaterial = useMemo(() => {
+    const nodes = makeDeckNodes(uniforms, skyCube, skyEnv);
     const material = new THREE.MeshBasicNodeMaterial();
-    material.name = "CloudField";
-    material.positionNode = nodes.positionNode;
+    material.name = "CloudDeck";
     material.colorNode = nodes.colorNode;
-    // The analytic surface normal, so the MRT's normal attachment (and with
-    // it the AO pass) sees the lobes rather than a flat plane.
-    material.normalNode = nodes.normalNode;
     material.transparent = true;
-    // Real geometry: lobes must occlude each other and the sun behind them.
-    material.depthWrite = true;
+    material.depthWrite = false;
     material.depthTest = true;
-    // Seen from below, the up-facing grid shows its back.
     material.side = THREE.BackSide;
     material.blending = THREE.NormalBlending;
     material.fog = false;
@@ -563,8 +577,8 @@ export const Clouds = memo(function Clouds({
     return material;
   }, [uniforms, skyCube, skyEnv]);
 
-  useEffect(() => () => fieldGeometry.dispose(), [fieldGeometry]);
-  useEffect(() => () => fieldMaterial.dispose(), [fieldMaterial]);
+  useEffect(() => () => domeGeometry.dispose(), [domeGeometry]);
+  useEffect(() => () => domeMaterial.dispose(), [domeMaterial]);
 
   // The shade is a uniform read from every receiving material: leaving it
   // at zero on unmount is what "clouds off" means to them.
@@ -580,6 +594,8 @@ export const Clouds = memo(function Clouds({
     uniforms.sunlight.value = sunlight;
     uniforms.ambient.value = ambient;
     uniforms.density.value = density;
+    uniforms.fogDensity.value = fogDensity;
+    uniforms.fogHeight.value = fogHeight;
     uniforms.worldScale.value = worldScale;
     uniforms.altitude.value = altitude * worldScale;
     uniforms.thickness.value = DECK_THICKNESS * worldScale;
@@ -594,6 +610,8 @@ export const Clouds = memo(function Clouds({
     sunlight,
     ambient,
     density,
+    fogDensity,
+    fogHeight,
     worldScale,
     altitude,
     size,
@@ -607,7 +625,13 @@ export const Clouds = memo(function Clouds({
    */
   const clock = useRef({ hours: timeOfDay, day: 0, drift: 0 });
 
-  useFrame(({ elapsed }, delta) => {
+  useFrame(({ camera, elapsed }, delta) => {
+    const dome = domeRef.current;
+    if (!dome) return;
+
+    // The dome rides with the camera, just inside the far plane.
+    dome.position.copy(camera.position);
+
     // The ground shade follows the key light, and goes out by moonlight: the
     // moon is a fixed, hand-placed key, and shade swinging round to it at
     // dusk would read as a bug.
@@ -653,7 +677,6 @@ export const Clouds = memo(function Clouds({
       glowLight.color.copy(uniforms.sunRadiance.value);
       glowLight.intensity = facing * ALBEDO * covered * GLOW_GAIN * sunlight;
     }
-
     // Sampling offset grows as the sheet moves west: features slide to -x.
     uniforms.windOffset.value = hours * travel - c.drift;
     uniforms.boil.value = hours * BOIL_RATE + elapsed * BOIL_IDLE;
@@ -662,8 +685,10 @@ export const Clouds = memo(function Clouds({
   return (
     <>
       <mesh
-        geometry={fieldGeometry}
-        material={fieldMaterial}
+        ref={domeRef}
+        geometry={domeGeometry}
+        material={domeMaterial}
+        scale={DOME_RADIUS * worldScale}
         frustumCulled={false}
         // After the stars and the sun disc, which sit on their own dome.
         renderOrder={1}
