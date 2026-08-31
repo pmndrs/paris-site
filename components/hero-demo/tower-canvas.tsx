@@ -20,7 +20,7 @@ import { Buildings } from "./buildings";
 import { Camera, FramingTools } from "./camera";
 import { FX, type TextLayer } from "./fx";
 import { INTRO_COMPLETE, IntroClock } from "./intro";
-import { Lights } from "./lights";
+import { KEY_DISTANCE, Lights, MOON_DIRECTION } from "./lights";
 import { Lettering } from "./lettering";
 import {
   PARIS_ATMOSPHERE_DEFAULTS,
@@ -53,6 +53,12 @@ export function towerLightLevel({
   const fade = THREE.MathUtils.clamp((6 - elevation) / 10, 0, 1);
   return fade * fade * (3 - 2 * fade);
 }
+
+const SUN_INTENSITY = 5.5;
+const MOON_INTENSITY = 0.6;
+const MOON_COLOR = new THREE.Color("#aac4ff");
+/** Where `towerLightLevel` starts fading the sun out, in degrees. */
+const MIN_SUN_ELEVATION = 6;
 
 const NORTH_OFFSET: Record<string, number> = {
   "+Z": 0,
@@ -305,34 +311,44 @@ export function TowerCanvas({
   useEffect(() => {
     cityLights.current = towerLights;
   }, [towerLights]);
-  const sunLight = useMemo(() => {
+  const keyLight = useMemo(() => {
     const { elevation, azimuth } = solarPosition({
       timeOfDay,
       latitude,
       dayOfYear,
     });
-    const position = new THREE.Vector3()
-      .setFromSphericalCoords(
-        50,
-        THREE.MathUtils.degToRad(90 - elevation),
-        THREE.MathUtils.degToRad(
-          azimuth + (NORTH_OFFSET[north] ?? NORTH_OFFSET["+Z"]),
-        ),
-      )
-      .toArray();
+    // Below the twilight fade the sun's shadows run off the frustum and its
+    // shading grazes everything, so hold it there while the moon takes over.
+    const sunDirection = new THREE.Vector3().setFromSphericalCoords(
+      1,
+      THREE.MathUtils.degToRad(90 - Math.max(elevation, MIN_SUN_ELEVATION)),
+      THREE.MathUtils.degToRad(
+        azimuth + (NORTH_OFFSET[north] ?? NORTH_OFFSET["+Z"]),
+      ),
+    );
     // Warm the sunlight as it approaches the horizon.
     const warmth = THREE.MathUtils.clamp((24 - elevation) / 20, 0, 1);
-    const color = new THREE.Color("#fff6e8").lerp(
+    const sunColor = new THREE.Color("#fff6e8").lerp(
       new THREE.Color("#ff9c63"),
       warmth,
     );
 
+    // One shadow-casting key: the sun by day, the moon by night, blended
+    // through twilight so the shadows swing round instead of popping.
+    const night = skyEnabled ? towerLights : 1;
+    const position = sunDirection
+      .lerp(MOON_DIRECTION, night)
+      .normalize()
+      .multiplyScalar(KEY_DISTANCE)
+      .toArray() as [number, number, number];
+
     return {
-      color,
-      intensity: 5.5 * (1 - towerLights),
       position,
+      color: sunColor.lerp(MOON_COLOR, night),
+      intensity: THREE.MathUtils.lerp(SUN_INTENSITY, MOON_INTENSITY, night),
+      fill: skyEnabled ? SUN_INTENSITY * (1 - towerLights) * 0.2 : 0,
     };
-  }, [dayOfYear, latitude, north, timeOfDay, towerLights]);
+  }, [dayOfYear, latitude, north, skyEnabled, timeOfDay, towerLights]);
 
   // Refit the camera after the tower geometry becomes measurable.
   const [refitKey, setRefitKey] = useState(0);
@@ -452,11 +468,13 @@ export function TowerCanvas({
 
       <Lights
         environment={environment && !skyEnabled}
-        shadowRadius={60 * worldScale}
+        // Reaches the whole Haussmann ring (radius 70).
+        shadowRadius={75 * worldScale}
         sunlight={!skyEnabled}
-        sunColor={sunLight.color}
-        sunIntensity={skyEnabled ? sunLight.intensity : 0}
-        sunPosition={sunLight.position}
+        keyColor={keyLight.color}
+        keyIntensity={keyLight.intensity}
+        keyPosition={keyLight.position}
+        fillIntensity={keyLight.fill}
       />
 
       <FX

@@ -1,38 +1,53 @@
 "use client";
 
 import { Environment } from "@react-three/drei";
-import type { ColorRepresentation } from "three";
+import { Vector3, type ColorRepresentation } from "three";
 
 /**
  * Ported from `threejs-conf-pmndrs/src/Lights.tsx`.
  *
- * Everything here is Stage 0 scaffolding with a short life: `@pmndrs/sky`
- * replaces the cubemap IBL, the ambient, and the hemisphere fill at Stage 1,
- * and drives the directional light from a real solar position instead of a
- * hand-placed moon. Kept faithful for now so Stage 1 is a legible diff and we
- * have an honest before/after.
+ * The cubemap IBL, the ambient and the hemisphere fill are Stage 0
+ * scaffolding that `@pmndrs/sky` replaces once it drives the scene. What
+ * survives is one shadow-casting key light: the sun by day, Faraz's
+ * hand-placed moon by night, blended through twilight by the caller. One
+ * light rather than two, so the city pays for a single shadow pass and the
+ * shadows swing around at dusk instead of popping from one caster to the
+ * other.
  */
+
+/** How far the key sits from the origin — a direction, held well outside the city. */
+export const KEY_DISTANCE = 400;
+
+/** Faraz's moon, as a direction. */
+export const MOON_DIRECTION = new Vector3(-25, 40, -20).normalize();
+
 export function Lights({
   shadowRadius = 60,
   environment = true,
   sunlight = true,
-  sunColor = "#fff6e8",
-  sunIntensity = 0,
-  sunPosition = [25, 35, 20],
+  keyColor = "#aac4ff",
+  keyIntensity = 0.6,
+  keyPosition = MOON_DIRECTION.clone()
+    .multiplyScalar(KEY_DISTANCE)
+    .toArray() as [number, number, number],
+  fillIntensity = 0,
 }: {
   shadowRadius?: number;
   environment?: boolean;
-  /** Warm direct light synchronized with the visible atmospheric sun. */
-  sunColor?: ColorRepresentation;
-  sunIntensity?: number;
-  sunPosition?: [number, number, number];
+  /** The shadow-casting key: sun by day, moon by night. */
+  keyColor?: ColorRepresentation;
+  keyIntensity?: number;
+  /** Direction only, but keep its length at `KEY_DISTANCE` for the frustum. */
+  keyPosition?: [number, number, number];
+  /** Daylight fill for camera-facing latticework; casts nothing. */
+  fillIntensity?: number;
   /**
-   * Faraz's hand-placed moonlight + ambient + hemisphere fill.
+   * Faraz's ambient + hemisphere fill.
    *
    * Off once sky is driving the scene: sky sets `scene.environment` from its own
    * PMREM bake, so keeping these would double-count the ambient and light the
    * city from a direction the sky doesn't agree with. The shadow-casting
-   * directional stays either way — sky provides illumination, not shadows.
+   * key stays either way — sky provides illumination, not shadows.
    */
   sunlight?: boolean;
 }) {
@@ -63,38 +78,33 @@ export function Lights({
         </>
       )}
 
-      {/* Warm direct sunlight for the painted tower. */}
-      <directionalLight
-        position={sunPosition}
-        intensity={sunIntensity}
-        color={sunColor}
-      />
-
       {/* Daylight fill for camera facing latticework. */}
       <directionalLight
         position={[12, 24, 35]}
-        intensity={sunIntensity * 0.2}
+        intensity={fillIntensity}
         color="#ffd3b0"
       />
 
-      {/* Moonlight key light casting soft cool shadows.
-          The ortho frustum is fitted to the near city rather than the full
-          400-unit disc — the original spent its whole 2048² map on geometry
-          too far away to read, which is why near shadows were mushy. */}
+      {/* The key. The ortho frustum is fitted to the near city rather than the
+          full 400-unit disc — the original spent its whole 2048² map on
+          geometry too far away to read, which is why near shadows were mushy.
+          The depth range is sized from KEY_DISTANCE so a low sun's long
+          shadows still fit. */}
       <directionalLight
         castShadow
-        position={[-25, 40, -20]}
-        intensity={0.6}
-        color="#aac4ff"
+        position={keyPosition}
+        intensity={keyIntensity}
+        color={keyColor}
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
         shadow-camera-near={1}
-        shadow-camera-far={150}
+        shadow-camera-far={KEY_DISTANCE * 2}
         shadow-camera-left={-shadowRadius}
         shadow-camera-right={shadowRadius}
         shadow-camera-top={shadowRadius}
         shadow-camera-bottom={-shadowRadius}
         shadow-bias={-0.0005}
+        shadow-normalBias={0.05}
       />
     </>
   );

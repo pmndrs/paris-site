@@ -31,6 +31,18 @@ const TOWER_MESHES = ["Object_4", "Object_5", "Object_6"] as const;
 const TOWER_MODEL_SCALE = 0.2;
 const TOWER_MODEL_YAW = THREE.MathUtils.degToRad(30);
 
+/**
+ * The lattice members are thinner than a shadow-map texel at the city-wide
+ * frustum (~0.37 units at 2048²), so from the key light they miss the texel
+ * centres and the tower casts no shadow beyond its pedestals. Fatten it for
+ * the shadow pass only: vertices pushed out along their normals, in the
+ * model units the group scale × world scale leaves at 1.
+ */
+const SHADOW_INFLATE = 0.5;
+const shadowCasterPosition = TSL.positionGeometry.add(
+  TSL.normalGeometry.mul(SHADOW_INFLATE),
+);
+
 /** Model height below which tower geometry cannot overlap the lettering. */
 const OCCLUDER_MIN_Y = 30;
 
@@ -428,7 +440,10 @@ export function Tower({
             receiveShadow
             geometry={nodes[name].geometry}
           >
-            <meshStandardNodeMaterial {...modeProps[mode]} />
+            <meshStandardNodeMaterial
+              {...modeProps[mode]}
+              castShadowPositionNode={shadowCasterPosition}
+            />
           </mesh>
         ))}
 
