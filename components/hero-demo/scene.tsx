@@ -8,7 +8,6 @@ import {
   PARIS_CITY_DEFAULTS,
 } from "./paris-defaults";
 import type { PerfSample } from "./perf-probe";
-import type { SunPlacement } from "./sun";
 import type { TowerMode } from "./tower";
 
 /** Leva controls for tuning and debugging the tower scene. */
@@ -89,11 +88,6 @@ export function HeroDemoScene({
     sun,
     sunSize,
     sunIntensity,
-    sunPlacement,
-    sunArcCenter,
-    sunArcSweep,
-    sunOffset,
-    sunSweep,
     turbidity,
     mirrorBelowHorizon,
   } = useControls("sky", {
@@ -110,20 +104,6 @@ export function HeroDemoScene({
     sun: true,
     sunSize: { value: 2.2, min: 0.5, max: 8, step: 0.1 },
     sunIntensity: { value: 8, min: 0, max: 40, step: 0.5 },
-    // solar = true position, the default so the disc, the sky and the shadows
-    // agree (this framing rarely reaches it); arc =
-    // world-anchored arc narrowed to sunArcCenter ± sunArcSweep degrees of
-    // bearing and lowered into the frame; framed = composed camera-relative
-    // arc centred at sunOffset, ±sunSweep at sunrise/sunset (fractions of
-    // the half-width).
-    sunPlacement: {
-      value: "solar" as SunPlacement,
-      options: ["solar", "arc", "framed"] as SunPlacement[],
-    },
-    sunArcCenter: { value: 180, min: 0, max: 360, step: 5 },
-    sunArcSweep: { value: 45, min: 0, max: 130, step: 5 },
-    sunOffset: { value: 0.2, min: -1, max: 1, step: 0.05 },
-    sunSweep: { value: 0.75, min: 0, max: 1.5, step: 0.05 },
     turbidity: {
       value: PARIS_ATMOSPHERE_DEFAULTS.turbidity,
       min: 0,
@@ -304,11 +284,6 @@ export function HeroDemoScene({
       sun={sun}
       sunSize={sunSize}
       sunIntensity={sunIntensity}
-      sunPlacement={sunPlacement}
-      sunArcCenter={sunArcCenter}
-      sunArcSweep={sunArcSweep}
-      sunOffset={sunOffset}
-      sunSweep={sunSweep}
       turbidity={turbidity}
       mirrorBelowHorizon={mirrorBelowHorizon}
       stars={stars}
