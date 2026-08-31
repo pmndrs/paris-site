@@ -189,10 +189,12 @@ function TimeOfDayExperience({
   reducedMotion,
   onScreen,
   onUiReveal,
+  showBottomGradient,
 }: {
   reducedMotion: boolean;
   onScreen: boolean;
   onUiReveal: () => void;
+  showBottomGradient: boolean;
 }) {
   const { value: tod, enqueue } = useTimeOfDayReplay(
     INITIAL_TIME_OF_DAY,
@@ -220,7 +222,9 @@ function TimeOfDayExperience({
         </div>
 
         {/* Grounds the poster copy without swallowing the city. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-[280px] bg-gradient-to-b from-transparent via-black/50 to-black/90" />
+        {showBottomGradient && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-[280px] bg-gradient-to-b from-transparent via-black/50 to-black/90" />
+        )}
 
         {/* Scroll adds a duskier, warmer grade as the copy takes over. */}
         <div className="hero-scroll-grade pointer-events-none absolute inset-0 z-[25]" />
@@ -370,6 +374,7 @@ export function Hero({ quiet = false }: { quiet?: boolean }) {
           reducedMotion={reducedMotion}
           onScreen={onScreen}
           onUiReveal={revealUi}
+          showBottomGradient={!quiet}
         />
 
         {!quiet && (
