@@ -84,6 +84,17 @@ export interface TowerCanvasProps {
   haussmann?: boolean;
   /** Lit windows across the city after dusk. */
   windows?: boolean;
+  /**
+   * Blends the window emissives in from 0 to 1 at runtime. The windows stay
+   * compiled (keep `windows` on); this scales the per-frame light level the
+   * emissive reads, so ramping it never rebuilds a material.
+   */
+  windowsBlend?: number;
+  /**
+   * Blends the key light's shadow darkness in from 0 to 1 at runtime, without
+   * touching the shadow pipeline (keep `shadows` on).
+   */
+  keyShadowIntensity?: number;
   // clouds
   /** A broken deck of cloud on the dial's clock; see `clouds.tsx`. */
   clouds?: boolean;
@@ -109,6 +120,14 @@ export interface TowerCanvasProps {
   towerMode?: TowerMode;
   beacon?: boolean;
   lettering?: boolean;
+  /**
+   * Replay the lettering reveal on a local clock instead of the shared intro
+   * clock. Set when the lettering appears after the scene's own entrance (the
+   * staged promo). Leaving `lettering` on the whole time keeps the text pass
+   * compiled — toggling it mid-run rebuilds the graph and can submit a frame
+   * against just-destroyed buffers.
+   */
+  letteringReplayIntro?: boolean;
   letterSize?: number;
   letterSpread?: number;
   /** How strongly the tower bloom lights the lettering. */
@@ -183,6 +202,12 @@ export interface TowerCanvasProps {
   ssgiRadius?: number;
   // debug switches
   buildings?: boolean;
+  /**
+   * Replay the buildings' pop-up growth from zero when they mount, instead of
+   * following the shared intro clock. Set when buildings are toggled on after
+   * the scene's own entrance has finished (the staged promo buildup).
+   */
+  buildingsReplayIntro?: boolean;
   tower?: boolean;
   environment?: boolean;
   shadows?: boolean;
@@ -244,6 +269,8 @@ export function TowerCanvas({
   park = PARIS_CITY_DEFAULTS.park,
   haussmann = PARIS_CITY_DEFAULTS.haussmann,
   windows = PARIS_CITY_DEFAULTS.windows,
+  windowsBlend = 1,
+  keyShadowIntensity = 1,
   clouds = PARIS_CLOUD_DEFAULTS.clouds,
   cloudCoverage = PARIS_CLOUD_DEFAULTS.cloudCoverage,
   cloudAltitude = PARIS_CLOUD_DEFAULTS.cloudAltitude,
@@ -258,6 +285,7 @@ export function TowerCanvas({
   towerMode = "glow",
   beacon = false,
   lettering = true,
+  letteringReplayIntro,
   letterSize = 5,
   letterSpread = 0.8,
   letterGlow = 1,
@@ -312,6 +340,7 @@ export function TowerCanvas({
   ssgiSteps = 8,
   ssgiRadius = 12,
   buildings = true,
+  buildingsReplayIntro = false,
   tower = true,
   environment = false,
   shadows = true,
@@ -335,10 +364,10 @@ export function TowerCanvas({
   const towerLights = towerLightLevel({ timeOfDay, latitude, dayOfYear });
   // The city reads this per frame; the memoized `Buildings` must not see the
   // dial's per-frame re-renders as a prop change.
-  const cityLights = useRef(towerLights);
+  const cityLights = useRef(towerLights * windowsBlend);
   useEffect(() => {
-    cityLights.current = towerLights;
-  }, [towerLights]);
+    cityLights.current = towerLights * windowsBlend;
+  }, [towerLights, windowsBlend]);
   const keyLight = useMemo(() => {
     const { elevation, azimuth } = solarPosition({
       timeOfDay,
@@ -458,6 +487,7 @@ export function TowerCanvas({
             haussmann={haussmann}
             windows={windows}
             introClock={introClock}
+            replayIntro={buildingsReplayIntro}
             lightLevel={cityLights}
           />
         )}
@@ -513,6 +543,7 @@ export function TowerCanvas({
           worldScale={worldScale}
           textLayer={textLayer}
           introClock={introClock}
+          replayIntro={letteringReplayIntro}
           towerLightLevel={towerLights}
         />
       )}
@@ -526,6 +557,7 @@ export function TowerCanvas({
         keyIntensity={keyLight.intensity}
         keyPosition={keyLight.position}
         fillIntensity={keyLight.fill}
+        keyShadowIntensity={keyShadowIntensity}
       />
 
       <FX

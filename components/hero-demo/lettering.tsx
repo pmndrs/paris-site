@@ -693,6 +693,7 @@ export function Lettering({
   /** Full-resolution scene used for lettering and tower depth. */
   textLayer,
   introClock,
+  replayIntro,
   towerLightLevel = 1,
 }: {
   size?: number;
@@ -700,10 +701,40 @@ export function Lettering({
   worldScale?: number;
   textLayer: TextLayer;
   introClock: RefObject<number>;
+  /**
+   * Replay the reveal on a local clock instead of following the shared intro
+   * clock. `undefined` keeps the shared-clock behavior (lab and normal hero).
+   * `false` holds the glyphs hidden; flipping to `true` plays the reveal from
+   * zero — used by the staged promo so the lettering can appear on its own step
+   * without toggling the text pass (which would rebuild the graph mid-flight).
+   */
+  replayIntro?: boolean;
   /** Strength of the tower light spilling onto the glyphs. */
   towerLightLevel?: number;
 }) {
   const geist = useFont(FONT_REQUEST);
+
+  // Local replay clock: held at 0 (glyphs hidden) until `replayIntro` flips
+  // true, then ramped to INTRO_COMPLETE to play the authored reveal. The clock
+  // starts at LETTER_CHAIN_START, not 0 — the authored timeline holds the
+  // letters until then, and replaying that dead lead-in would delay the
+  // reveal ~2.65s past the step that armed it.
+  const replayClock = useRef(0);
+  useFrame((_, delta) => {
+    if (replayIntro === undefined) return;
+    if (!replayIntro) {
+      replayClock.current = 0;
+      return;
+    }
+    if (replayClock.current < INTRO_COMPLETE) {
+      replayClock.current = Math.min(
+        INTRO_COMPLETE,
+        Math.max(replayClock.current, LETTER_CHAIN_START) +
+          Math.min(delta, 1 / 20),
+      );
+    }
+  });
+  const revealClock = replayIntro === undefined ? introClock : replayClock;
 
   const style = useMemo(() => ({ fontSize: size, lineHeight: 1 }), [size]);
 
@@ -771,7 +802,7 @@ export function Lettering({
               <AnimatedLetter
                 index={i}
                 target={[position[0] * spread, position[1]]}
-                clock={introClock}
+                clock={revealClock}
                 reveal={reveal}
               >
                 {/* Pointer motion is additive to the intro's authored slot. */}

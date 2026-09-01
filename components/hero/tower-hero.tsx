@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber/webgpu";
 import { solarPosition } from "@pmndrs/sky";
 
@@ -104,54 +104,65 @@ function useSixtyHzLoop(enabled: boolean) {
 }
 
 // --- Promo capture sequence -------------------------------------------------
-// Hardcoded for the conference promo video: start from a bare scene, then
-// layer the effects back in one at a time with a caption for each step.
-// Step 0 is the baseline (sky, stars, fsr, ssgi, ao, bloom all disabled).
-const PROMO_STEP_MS = 4000;
-/** Shorter hold on the bare baseline before the sky arrives. */
-const PROMO_FIRST_STEP_MS = 700;
+// Hardcoded for the conference promo video: open on the bare Eiffel tower,
+// then layer the scene back on one feature at a time with a caption for each.
+//
+// The invariant carried over from the original sequence: the whole pipeline
+// (shadow map, window emissives, AO, bloom, FSR, lettering) is compiled once
+// up front, and every "enable" is a runtime uniform ramp — never a graph
+// rebuild. Toggling structural props (fsr/ao/bloom/postFx/lettering/shadows/
+// windows) mid-run rebuilds pipelines while frames are in flight and crashes
+// WebGPU ("buffer used in submit while destroyed"). Only *mounting new
+// meshes* (buildings, grass) is additionally safe: a one-time additive
+// compile, no teardown.
+//
+// Steps, advanced manually with the arrow keys (→ next, ← back). Grass is
+// part of the baseline and present from the start:
+//   0 eiffel tower (unlabeled — the capture opens clean) · 1 instanced mesh
+//   2 lights · 3 pmndrs · 4 ao · 5 bloom · 6 shadows
+//   7 fsr (caption only — FSR is structural, it runs from the start)
+// Each step from 1 on shows its label in the caption pill.
 /** How long each effect takes to blend from zero to its target. */
 const PROMO_BLEND_MS = 1600;
 const PROMO_CAPTIONS = [
-  null,
-  "sky enabled",
-  "ambient occlusion enabled",
-  "bloom enabled",
-  "fsr enabled",
-  "ssgi enabled",
+  null, // eiffel tower + grass baseline, no pill over the opening frame
+  "instanced mesh", // the buildings: one cube drawn ~10k times
+  "lights",
+  "pmndrs",
+  "ao",
+  "bloom",
+  "shadows",
+  "fsr",
 ] as const;
 const PROMO_LAST_STEP = PROMO_CAPTIONS.length - 1;
-/** Time of day (solar hours) the sky arrives at as it fades in. */
-const PROMO_TIME_OF_DAY = 20.2;
 
 /** Smoothstep ease shared by every effect blend. */
 const ease = (t: number) => t * t * (3 - 2 * t);
 
 /**
- * Advances the promo step every `PROMO_STEP_MS` once `started` flips true,
- * stopping at the final step, and eases each step's blend from 0 to 1 over
- * `PROMO_BLEND_MS`.
+ * Manual step control for the capture: ArrowRight advances to the next step
+ * (easing its blend from 0 to 1 over `PROMO_BLEND_MS` so uniform-driven
+ * layers dissolve in) and ArrowLeft steps back (snapping blends settled, so
+ * the retreat is an immediate cut). Stepping back unmounts mesh layers
+ * (buildings, grass) — that is safe; the compiled-once discipline only
+ * forbids toggling the structural FX props.
  *
- * The whole pipeline (sky, stars, bloom, FSR, SSGI) is compiled once up
- * front, and every "enable" is a runtime uniform ramp — never a graph
- * rebuild — so effects dissolve in with no stall.
+ * The listener attaches on mount so no press is ever lost to a race; presses
+ * are simply ignored until `started` (the intro gate settling) so the capture
+ * cannot be advanced mid-boot. `started` is read through a ref, keeping one
+ * stable listener and the step counter alive across the flip.
  */
 function usePromoSequence(started: boolean) {
   const [step, setStep] = useState(0);
   const [blend, setBlend] = useState(1);
+  const startedRef = useRef(started);
+  startedRef.current = started;
 
   useEffect(() => {
-    if (!started) return;
-    const timers: number[] = [];
     let raf = 0;
-
     let current = 0;
-    const advance = () => {
-      if (current >= PROMO_LAST_STEP) return;
-      current += 1;
-      setStep(current);
 
-      // Ease the newly enabled effect in from zero.
+    const rampIn = () => {
       cancelAnimationFrame(raf);
       const startedAt = performance.now();
       const ramp = (now: number) => {
@@ -161,17 +172,46 @@ function usePromoSequence(started: boolean) {
       };
       setBlend(0);
       raf = requestAnimationFrame(ramp);
-
-      timers.push(window.setTimeout(advance, PROMO_STEP_MS));
     };
-    // The dark baseline reads quickly; move on to the sky sooner.
-    timers.push(window.setTimeout(advance, PROMO_FIRST_STEP_MS));
 
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Hold every press until the intro gate has settled.
+      if (!startedRef.current) return;
+      // Leave the keys alone while a control (e.g. the time dial) has focus.
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          /^(input|textarea|select|button)$/i.test(target.tagName) ||
+          target.getAttribute("role") === "slider")
+      ) {
+        return;
+      }
+
+      if (event.key === "ArrowRight") {
+        if (current >= PROMO_LAST_STEP) return;
+        event.preventDefault();
+        current += 1;
+        setStep(current);
+        // Ease the newly enabled layer in from zero.
+        rampIn();
+      } else if (event.key === "ArrowLeft") {
+        if (current <= 0) return;
+        event.preventDefault();
+        current -= 1;
+        setStep(current);
+        // Settle instantly on the previous step — no reverse animation.
+        cancelAnimationFrame(raf);
+        setBlend(1);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
     return () => {
-      timers.forEach((t) => window.clearTimeout(t));
+      window.removeEventListener("keydown", onKeyDown);
       cancelAnimationFrame(raf);
     };
-  }, [started]);
+  }, []);
 
   return { step, blend };
 }
@@ -256,28 +296,23 @@ export function TowerHero({
   const stepBlend = (s: number) =>
     promoStep > s ? 1 : promoStep === s ? blend : 0;
 
-  // Promo sequence: the full pipeline (sky, stars, AO, bloom, FSR, SSGI) is
-  // compiled once at boot; each step ramps a runtime value so effects blend
-  // in seamlessly with no graph rebuild.
-  //
-  // - Sky "enables" by ramping its exposure up from black; stars ride the
-  //   same ramp through their live intensity uniform, and the hour eases to
-  //   20.2 on the same ramp so the sky arrives already at its target time.
-  // - AO comes from the SSGI pass's own AO term (GTAO is superseded when
-  //   SSGI is compiled in), blended via `aoBlend`.
-  // - Bloom ramps `bloomStrength`; SSGI's indirect light ramps `giBlend`.
-  // - FSR is structural (it changes render resolution and the temporal
-  //   resolver), so it runs from the start; its step is caption-only.
-  const skyBlend = stepBlend(1);
-  const aoBlend = stepBlend(2);
-  const bloomBlend = stepBlend(3);
-  const giBlend = stepBlend(5);
+  // Promo sequence, promo-backup style: the whole pipeline is compiled once
+  // at boot (shadows, windows, AO, bloom, FSR, lettering all structurally on)
+  // and every "enable" is either a mesh mount or a runtime uniform ramp.
+  // Grass is baseline scenery, mounted from the start.
+  //   0 tower+grass · 1 buildings (mount) · 2 lights (windowsBlend ramp)
+  //   3 pmndrs (reveal) · 4 ao (aoBlend ramp) · 5 bloom (strength ramp)
+  //   6 shadows (shadow-intensity ramp) · 7 fsr (caption only)
+  const showBuildings = promoStep >= 1;
+  const windowsBlend = stepBlend(2);
+  const revealLettering = promoStep >= 3;
+  const aoBlend = stepBlend(4);
+  const bloomBlend = stepBlend(5);
+  const shadowBlend = stepBlend(6);
   const caption = PROMO_CAPTIONS[promoStep];
 
-  // Slider fraction → solar hours; eased to the locked hour as the sky
-  // fades in, so enabling the sky and setting its time read as one motion.
-  const dialHours = (value / 100) * 24;
-  const hours = dialHours + (PROMO_TIME_OF_DAY - dialHours) * skyBlend;
+  // Slider fraction → solar hours for the sky.
+  const hours = (value / 100) * 24;
 
   // Drive exposure from the same solar elevation as the sky. The old
   // hour-based curve followed summer sunrise and sunset, so its golden-hour
@@ -293,76 +328,67 @@ export function TowerHero({
 
   return (
     <div className="absolute inset-0">
-    <TowerCanvas
-      {...PARIS_HOMEPAGE_CITY_DEFAULTS}
-      {...PARIS_ATMOSPHERE_DEFAULTS}
-      {...PARIS_CLOUD_DEFAULTS}
-      // Still weather for visitors who asked for reduced motion.
-      cloudWind={reducedMotion ? 0 : PARIS_CLOUD_DEFAULTS.cloudWind}
-      canvasId={PRIMARY}
-      timeOfDay={hours}
-      dayOfYear={HERO_DAY_OF_YEAR}
-      exposure={exposure}
-      // A clear, saturated "bleu nuit" horizon lets the stars stay crisp.
-      turbidity={0}
-      groundAlbedo={HERO_GROUND_ALBEDO}
-      // Face the morning equinox arc reached halfway through the dial cycle.
-      // A small offset keeps the sun beside the tower instead of behind it.
-      // The shared demo keeps its neutral 0° default.
-      initialAzimuthDegrees={268}
-      autoRotateSpeed={reducedMotion ? 0 : 1}
-      // "never": useSixtyHzLoop drives the scheduler manually at 60Hz.
-      frameloop={reducedMotion ? "demand" : "never"}
-      intro={!reducedMotion}
-      dpr={[1, 2]}
-      renderScale={1.5}
-      // No SSGI on the homepage: the buildings use a cheaper analytic ground
-      // lookup, so adapters do not need the widened MRT device limit.
-      reserveSsgiHeadroom={false}
-      onUiReveal={onUiReveal}
-      gate={heroGate}
-      canvasStyle={{ pointerEvents: "none" }}
-      // No WebGPU: the design doc's original tower plate, placed to match the
-      // 3D framing, so the hero still shows a tower.
-      fallback={<FallbackPoster />}
-    >
-      <DepthAttachmentSync />
-    </TowerCanvas>
-    <div className="absolute inset-0">
       <TowerCanvas
         {...PARIS_HOMEPAGE_CITY_DEFAULTS}
         {...PARIS_ATMOSPHERE_DEFAULTS}
+        {...PARIS_CLOUD_DEFAULTS}
+        // Still weather for visitors who asked for reduced motion.
+        cloudWind={reducedMotion ? 0 : PARIS_CLOUD_DEFAULTS.cloudWind}
         canvasId={PRIMARY}
         timeOfDay={hours}
-        // The sky fades up from black as its blend ramps.
-        exposure={exposure * skyBlend}
+        dayOfYear={HERO_DAY_OF_YEAR}
+        exposure={exposure}
         // A clear, saturated "bleu nuit" horizon lets the stars stay crisp.
         turbidity={0}
         groundAlbedo={HERO_GROUND_ALBEDO}
+        // Face the morning equinox arc reached halfway through the dial cycle.
+        // A small offset keeps the sun beside the tower instead of behind it.
+        // The shared demo keeps its neutral 0° default.
+        initialAzimuthDegrees={268}
         autoRotateSpeed={reducedMotion ? 0 : 1}
-        frameloop={reducedMotion ? "demand" : "always"}
+        // "never": useSixtyHzLoop drives the scheduler manually at 60Hz.
+        frameloop={reducedMotion ? "demand" : "never"}
         intro={!reducedMotion}
         dpr={[1, 2]}
         renderScale={1.5}
-        // Everything is compiled in up front; the blends do the reveal.
-        skyEnabled
-        stars
-        starIntensity={2.8 * skyBlend}
+        // --- Promo staged buildup, compiled-once discipline. Every structural
+        // switch (shadows, windows, postFx, ao, bloom, fsr, lettering) stays on
+        // from boot; the sequence below only mounts meshes and ramps uniforms.
+        tower
+        // Grass is baseline scenery, on from the start. Buildings mount on
+        // their step (an additive one-time compile — safe mid-run) with the
+        // pop-up replay.
+        grass
+        buildings={showBuildings}
+        buildingsReplayIntro={!reducedMotion}
+        // "lights": windows stay compiled; their emissive light level ramps.
+        windows
+        windowsBlend={windowsBlend}
+        // "shadows": the map renders from boot; its darkness ramps in.
+        shadows
+        keyShadowIntensity={shadowBlend}
+        // "pmndrs": lettering stays compiled; its reveal is armed on the step.
+        // Reduced motion shows it static from the start.
+        lettering
+        letteringReplayIntro={reducedMotion ? undefined : revealLettering}
+        // "fsr" is caption-only: FSR is structural (render resolution and the
+        // temporal resolver), so it runs from the start.
+        // "ao"/"bloom" ramp their runtime uniforms; no SSGI, no clouds.
+        clouds={false}
+        postFx
+        fsr
+        ssgi={false}
         ao
         aoBlend={aoBlend}
         bloom
         bloomStrength={0.5 * bloomBlend}
-        fsr
-        ssgi
-        giBlend={giBlend}
-        // SSGI is compiled in, which needs the widened
-        // maxColorAttachmentBytesPerSample device limit at canvas creation.
-        reserveSsgiHeadroom
+        // No SSGI: skip the widened MRT device limit it would need.
+        reserveSsgiHeadroom={false}
         onUiReveal={onUiReveal}
         gate={heroGate}
         canvasStyle={{ pointerEvents: "none" }}
-        // No WebGPU: the design doc's original tower plate, placed to match
-        // the 3D framing, so the hero still shows a tower.
+        // No WebGPU: the design doc's original tower plate, placed to match the
+        // 3D framing, so the hero still shows a tower.
         fallback={<FallbackPoster />}
       >
         <DepthAttachmentSync />
@@ -374,12 +400,11 @@ export function TowerHero({
           key={promoStep}
           className="pointer-events-none absolute inset-x-0 bottom-6 z-30 flex justify-center"
         >
-          <span className="rounded-full border border-white/20 bg-black/75 px-5 py-2 font-mono text-[14px] font-semibold tracking-[0.13em] text-white uppercase shadow-lg backdrop-blur-md">
+          <span className="rounded-full border border-white/20 bg-black/75 px-7 py-3 font-mono text-[22px] font-semibold tracking-[0.13em] text-white uppercase shadow-lg backdrop-blur-md">
             {caption}
           </span>
         </div>
       )}
-    </div>
     </div>
   );
 }

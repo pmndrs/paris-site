@@ -50,6 +50,7 @@ export function Lights({
     .multiplyScalar(KEY_DISTANCE)
     .toArray() as [number, number, number],
   fillIntensity = 0,
+  keyShadowIntensity = 1,
 }: {
   shadowRadius?: number;
   environment?: boolean;
@@ -60,6 +61,12 @@ export function Lights({
   keyPosition?: [number, number, number];
   /** Daylight fill for camera-facing latticework; casts nothing. */
   fillIntensity?: number;
+  /**
+   * The key shadow's darkness, 0..1. Three reads `shadow.intensity` as a
+   * runtime uniform, so ramping this fades shadows in without touching the
+   * shadow pipeline — used by the staged promo. Keep the map itself enabled.
+   */
+  keyShadowIntensity?: number;
   /**
    * Faraz's ambient + hemisphere fill.
    *
@@ -152,6 +159,7 @@ export function Lights({
         shadow-camera-bottom={-shadowRadius}
         shadow-bias={-0.0005}
         shadow-normalBias={0.05}
+        shadow-intensity={keyShadowIntensity}
       />
     </>
   );

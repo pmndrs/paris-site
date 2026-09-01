@@ -119,6 +119,12 @@ type BuildingsProps = {
   /** Render-time clock shared with the tower lettering. */
   introClock: RefObject<number>;
   /**
+   * Replay the pop-up growth from zero on mount instead of following the
+   * shared intro clock. Set when the buildings appear after the scene's own
+   * entrance has already finished (the staged promo buildup).
+   */
+  replayIntro?: boolean;
+  /**
    * Tower light level, 0 by day and 1 at night, read per frame like the
    * clock. A ref rather than a number so dragging the time dial never
    * invalidates the memo below.
@@ -355,10 +361,26 @@ function useBuildPosition(
   clock: RefObject<number>,
   ground: number,
   motion: "spring" | "tree" = "spring",
+  // When set, ignore the shared intro clock (already finished by the time the
+  // mesh mounts mid-sequence) and replay the growth from zero on mount, so the
+  // buildings pop up the way they do during the scene's own entrance.
+  replayIntro = false,
 ) {
-  const [uTime] = useState(() => uniform(clock.current));
+  const [uTime] = useState(() => uniform(replayIntro ? 0 : clock.current));
+  const replayElapsed = useRef(0);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
+    if (replayIntro) {
+      // Local 0 → INTRO_COMPLETE ramp, delta-capped like the shared clock.
+      if (replayElapsed.current < INTRO_COMPLETE) {
+        replayElapsed.current = Math.min(
+          INTRO_COMPLETE,
+          replayElapsed.current + Math.min(delta, 1 / 20),
+        );
+        uTime.value = replayElapsed.current;
+      }
+      return;
+    }
     if (uTime.value !== clock.current) uTime.value = clock.current;
   });
 
@@ -460,6 +482,7 @@ export const Buildings = memo(function Buildings({
   haussmann = true,
   windows = true,
   introClock,
+  replayIntro = false,
   lightLevel,
 }: BuildingsProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
@@ -617,8 +640,8 @@ export const Buildings = memo(function Buildings({
     };
   }, [treeCount, innerRadius, outerRadius, river, park]);
 
-  const blockPosition = useBuildPosition(introClock, -0.5);
-  const treePosition = useBuildPosition(introClock, -1, "tree");
+  const blockPosition = useBuildPosition(introClock, -0.5, "spring", replayIntro);
+  const treePosition = useBuildPosition(introClock, -1, "tree", replayIntro);
   const blockWindows = useWindowEmissive(uLights);
   const whiteBounceColor = useGroundBounceColor("#ffffff");
 
@@ -713,6 +736,7 @@ export const Buildings = memo(function Buildings({
           outerRadius={outerRadius}
           windows={windows}
           introClock={introClock}
+          replayIntro={replayIntro}
           lightLevel={uLights}
         />
       )}
@@ -737,6 +761,7 @@ function HaussmannRing({
   outerRadius,
   windows,
   introClock,
+  replayIntro = false,
   lightLevel,
 }: {
   river: boolean;
@@ -744,6 +769,7 @@ function HaussmannRing({
   outerRadius: number;
   windows: boolean;
   introClock: RefObject<number>;
+  replayIntro?: boolean;
   lightLevel: THREE.UniformNode<"float", number>;
 }) {
   const placements = useMemo(() => {
@@ -801,8 +827,8 @@ function HaussmannRing({
     };
   }, [river, park, outerRadius]);
 
-  const bodyPosition = useBuildPosition(introClock, -0.5);
-  const roofPosition = useBuildPosition(introClock, -0.5);
+  const bodyPosition = useBuildPosition(introClock, -0.5, "spring", replayIntro);
+  const roofPosition = useBuildPosition(introClock, -0.5, "spring", replayIntro);
   const bodyWindows = useWindowEmissive(lightLevel);
   const bodyBounceColor = useGroundBounceColor("#cfc5b4");
 
