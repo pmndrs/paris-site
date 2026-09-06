@@ -268,7 +268,7 @@ export const PEOPLE: readonly Instructor[] = [
   {
     name: "Ava Lehner",
     role: "Interactive developer",
-    bio: "Former education lobbyist turned creative developer working with Poimandres.",
+    bio: "Creative developer and design engineer working with Poimandres.",
     github: "https://github.com/avalehner",
     image: "/instructors/ava-lehner.jpg",
   },
